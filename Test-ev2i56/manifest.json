@@ -1,0 +1,119 @@
+{
+  "id": "Test-ev2i56",
+  "name": "tempo",
+  "version": "1.0.0",
+  "main": "index.js",
+  "host": {
+    "app": "premierepro",
+    "minVersion": "25.6.4"
+  },
+  "manifestVersion": 5,
+  "featureFlags": {
+    "enableAlerts": true
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "samplePlugin",
+      "panelId": "samplePlugin",
+      "label": {
+        "default": "Default Plugin",
+        "en-US": "Default Plugin",
+        "es-ES": "Default Plugin"
+      },
+      "minimumSize": {
+        "width": 250,
+        "height": 300
+      },
+      "maximumSize": {
+        "width": 1200,
+        "height": 10000
+      },
+      "preferredDockedSize": {
+        "width": 150,
+        "height": 200
+      },
+      "preferredFloatingSize": {
+        "width": 300,
+        "height": 200
+      },
+      "icons": [
+        {
+          "width": 32,
+          "height": 32,
+          "path": "icons/icon_D.png",
+          "scale": [
+            1,
+            2
+          ],
+          "theme": [
+            "dark",
+            "darkest"
+          ],
+          "species": [
+            "generic"
+          ]
+        },
+        {
+          "width": 32,
+          "height": 32,
+          "path": "icons/icon_N.png",
+          "scale": [
+            1,
+            2
+          ],
+          "theme": [
+            "lightest",
+            "light"
+          ],
+          "species": [
+            "generic"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "id": "show_alert",
+      "label": {
+        "default": "Show Alert",
+        "en-US": "Show Alert (US)",
+        "es-ES": "Show Alert (ES)"
+      }
+    }
+  ],
+  "icons": [
+    {
+      "width": 32,
+      "height": 32,
+      "path": "icons/icon_D.png",
+      "scale": [
+        1,
+        2
+      ],
+      "theme": [
+        "dark",
+        "darkest"
+      ],
+      "species": [
+        "generic"
+      ]
+    },
+    {
+      "width": 32,
+      "height": 32,
+      "path": "icons/icon_N.png",
+      "scale": [
+        1,
+        2
+      ],
+      "theme": [
+        "lightest",
+        "light"
+      ],
+      "species": [
+        "generic"
+      ]
+    }
+  ]
+}
