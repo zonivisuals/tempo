@@ -1,0 +1,136 @@
+#tempo-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+#version-label {
+  font-size: 10px;
+  opacity: 0.5;
+  margin-bottom: 4px;
+  user-select: none;
+}
+
+#connect-row {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+#search-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+#search-field {
+  flex: 1;
+}
+
+#results-container {
+  flex: 1;
+  overflow-y: auto;
+  margin: 8px 0;
+}
+
+.result-item {
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.result-index {
+  font-weight: 600;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.result-score {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.result-transcript {
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.result-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+#bottom-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid;
+}
+
+#status-bar {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+#status-bar.status-error {
+  opacity: 1;
+}
+
+#status-bar.status-ok {
+  opacity: 0.9;
+}
+
+.theme-dark #tempo-panel {
+  color: #e0e0e0;
+}
+
+.theme-dark .result-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.theme-dark #bottom-row {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+.theme-dark #status-bar.status-error {
+  color: #ff6b6b;
+}
+
+.theme-dark #status-bar.status-ok {
+  color: #69db7c;
+}
+
+.theme-light #tempo-panel {
+  color: #2c2c2c;
+}
+
+.theme-light .result-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.theme-light #bottom-row {
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+.theme-light #status-bar.status-error {
+  color: #e03131;
+}
+
+.theme-light #status-bar.status-ok {
+  color: #2f9e44;
+}

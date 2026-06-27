@@ -11,64 +11,52 @@
   "featureFlags": {
     "enableAlerts": true
   },
+  "requiredPermissions": {
+    "network": {
+      "domains": "all"
+    },
+    "localFileSystem": "request"
+  },
   "entrypoints": [
     {
       "type": "panel",
       "id": "samplePlugin",
       "panelId": "samplePlugin",
       "label": {
-        "default": "Default Plugin",
-        "en-US": "Default Plugin",
-        "es-ES": "Default Plugin"
+        "default": "Tempo"
       },
       "minimumSize": {
-        "width": 250,
-        "height": 300
+        "width": 320,
+        "height": 400
       },
       "maximumSize": {
-        "width": 1200,
-        "height": 10000
+        "width": 800,
+        "height": 2000
       },
       "preferredDockedSize": {
-        "width": 150,
-        "height": 200
+        "width": 360,
+        "height": 500
       },
       "preferredFloatingSize": {
-        "width": 300,
-        "height": 200
+        "width": 400,
+        "height": 600
       },
       "icons": [
         {
           "width": 32,
           "height": 32,
           "path": "icons/icon_D.png",
-          "scale": [
-            1,
-            2
-          ],
-          "theme": [
-            "dark",
-            "darkest"
-          ],
-          "species": [
-            "generic"
-          ]
+          "scale": [1, 2],
+          "theme": ["dark", "darkest"],
+          "species": ["generic"]
         },
         {
           "width": 32,
           "height": 32,
           "path": "icons/icon_N.png",
-          "scale": [
-            1,
-            2
-          ],
-          "theme": [
-            "lightest",
-            "light"
-          ],
-          "species": [
-            "generic"
-          ]
+          "scale": [1, 2],
+          "theme": ["lightest", "light"],
+          "species": ["generic"]
         }
       ]
     },
@@ -76,9 +64,7 @@
       "type": "command",
       "id": "show_alert",
       "label": {
-        "default": "Show Alert",
-        "en-US": "Show Alert (US)",
-        "es-ES": "Show Alert (ES)"
+        "default": "Show Alert"
       }
     }
   ],
@@ -87,33 +73,17 @@
       "width": 32,
       "height": 32,
       "path": "icons/icon_D.png",
-      "scale": [
-        1,
-        2
-      ],
-      "theme": [
-        "dark",
-        "darkest"
-      ],
-      "species": [
-        "generic"
-      ]
+      "scale": [1, 2],
+      "theme": ["dark", "darkest"],
+      "species": ["generic"]
     },
     {
       "width": 32,
       "height": 32,
       "path": "icons/icon_N.png",
-      "scale": [
-        1,
-        2
-      ],
-      "theme": [
-        "lightest",
-        "light"
-      ],
-      "species": [
-        "generic"
-      ]
+      "scale": [1, 2],
+      "theme": ["lightest", "light"],
+      "species": ["generic"]
     }
   ]
 }
