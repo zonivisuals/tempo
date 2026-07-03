@@ -5,9 +5,12 @@ import { eq } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { apiKeys } from '@tempo/db';
 import { API } from '@tempo/core/constants';
+import type { Variables } from '../../middleware/auth.js';
 import { CreateApiKeySchema, serializeApiKey } from './schema.js';
 
-const handler = new Hono();
+type Env = { Variables: Variables };
+
+const handler = new Hono<Env>();
 
 handler.post('/api-keys', async (c) => {
   try {
@@ -40,10 +43,7 @@ handler.post('/api-keys', async (c) => {
 
 handler.get('/api-keys', async (c) => {
   try {
-    const teamId = c.req.query('teamId');
-    if (!teamId) {
-      return c.json({ error: 'teamId is required' }, 400);
-    }
+    const teamId = c.get('teamId');
     const keys = await db.select().from(apiKeys).where(eq(apiKeys.teamId, teamId));
     return c.json({
       keys: keys.map((key) => serializeApiKey(key as any)),
