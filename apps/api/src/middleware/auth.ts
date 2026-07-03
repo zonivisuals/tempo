@@ -34,7 +34,10 @@ export const auth = createMiddleware<{ Variables: Variables }>(async (c, next) =
     return c.json({ error: 'Invalid API key' }, 401);
   }
 
-  db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id)).catch(() => {});
+  db.update(apiKeys)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(apiKeys.id, key.id))
+    .catch(() => {});
 
   c.set('teamId', key.teamId);
   await next();

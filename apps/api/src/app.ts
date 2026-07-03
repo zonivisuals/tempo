@@ -4,6 +4,7 @@ import { errorHandler } from './middleware/error.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { API } from '@tempo/core/constants';
 import accountHandler from './modules/account/handler.js';
+import videoHandler from './modules/video/handler.js';
 
 const app = new Hono();
 
@@ -14,5 +15,6 @@ app.onError(errorHandler);
 app.use('/v1/*', auth);
 app.use('/v1/videos', rateLimit(API.RATE_LIMIT_INDEX, API.RATE_LIMIT_WINDOW_MS));
 app.route('/v1', accountHandler);
+app.route('/v1', videoHandler);
 
 export default app;
