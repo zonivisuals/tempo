@@ -1,6 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
 export const CreateApiKeySchema = z.object({
+  teamId: z.string().uuid().openapi({ example: '00000000-0000-0000-0000-000000000000' }),
   name: z.string().min(1).max(100).openapi({ example: 'Production API Key' }),
 });
 
@@ -28,12 +29,4 @@ export function serializeApiKey(row: Record<string, unknown>, includeKey?: strin
   });
 }
 
-export function serializeApiKeyList(row: Record<string, unknown>) {
-  return ApiKeyResponseSchema.omit({ key: true }).parse({
-    id: row.id,
-    name: row.name,
-    prefix: row.prefix,
-    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
-    lastUsedAt: row.lastUsedAt instanceof Date ? row.lastUsedAt.toISOString() : (row.lastUsedAt ?? null),
-  });
-}
+
