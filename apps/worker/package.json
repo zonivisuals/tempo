@@ -13,10 +13,10 @@
   "dependencies": {
     "@tempo/core": "workspace:*",
     "@tempo/db": "workspace:*",
+    "@tempo/infra": "workspace:*",
     "bullmq": "^5.49.0",
-    "ioredis": "5.10.1",
-    "@qdrant/js-client-rest": "^1.13.0",
-    "@aws-sdk/client-s3": "^3.777.0",
+    "drizzle-orm": "^0.41.0",
+    "postgres": "^3.4.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

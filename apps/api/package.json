@@ -13,6 +13,7 @@
   "dependencies": {
     "@tempo/core": "workspace:*",
     "@tempo/db": "workspace:*",
+    "@tempo/infra": "workspace:*",
     "@tempo/search": "workspace:*",
     "hono": "^4.7.0",
     "@hono/zod-openapi": "^0.19.10",
@@ -21,9 +22,6 @@
     "zod": "^3.24.0",
     "drizzle-orm": "^0.41.0",
     "postgres": "^3.4.0",
-    "ioredis": "5.10.1",
-    "@qdrant/js-client-rest": "^1.13.0",
-    "@aws-sdk/client-s3": "^3.777.0",
     "@aws-sdk/s3-request-presigner": "^3.777.0"
   },
   "devDependencies": {
