@@ -1,0 +1,15 @@
+modal>=0.74.0
+openai-whisper>=20240930
+torch>=2.6.0
+torchvision>=0.21.0
+transformers>=4.51.0
+sentence-transformers>=3.4.0
+insightface>=0.7.3
+onnxruntime>=1.21.0
+scenedetect[opencv]>=0.7.0
+opencv-python>=4.11.0
+numpy>=2.2.0
+spacy>=3.8.0
+boto3>=1.37.0
+qdrant-client>=1.13.0
+Pillow>=11.2.0
