@@ -2,7 +2,7 @@
   "name": "tempo",
   "private": true,
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "node_modules/.bin/dotenv -e .env.local -- turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
@@ -14,6 +14,7 @@
     "db:seed": "pnpm --filter @tempo/db seed"
   },
   "devDependencies": {
+    "dotenv-cli": "^8.0.0",
     "turbo": "^2.5.0",
     "prettier": "^3.5.0",
     "typescript": "^5.8.0"

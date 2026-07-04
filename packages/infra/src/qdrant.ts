@@ -1,9 +1,8 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { EMBEDDING_DIMS } from '@tempo/core/constants';
+import { env } from './env.js';
 
-const QDRANT_URL = process.env.QDRANT_URL ?? 'http://localhost:6333';
-
-export const qdrant = new QdrantClient({ url: QDRANT_URL });
+export const qdrant = new QdrantClient({ url: env.QDRANT_URL });
 
 export async function ensureShotsCollection(): Promise<void> {
   try {

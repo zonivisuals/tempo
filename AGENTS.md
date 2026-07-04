@@ -30,7 +30,7 @@ pnpm db:seed              # seed script
 ## Required Services (for local dev)
 
 ```sh
-docker compose up -d      # starts postgres, redis, qdrant, minio
+docker compose up -d      # starts redis, qdrant, minio
 cp .env.example .env.local # then fill in secrets
 ```
 
@@ -74,6 +74,6 @@ Located in `ml/`. Python 3.12. Each worker is a Modal function with A10G GPU. Wo
 
 - Use `workspace:*` for inter-package dependencies
 - All packages are `"type": "module"` — use `.js` extensions in imports
-- Turbo pipeline: `test` depends on `build`; `typecheck` depends on `^build`
+- Turbo pipeline: `test` depends on `^build`; `typecheck` depends on `^build`
 - Single `tsconfig.json` at root, each package extends it
 - ML Python deps in both `pyproject.toml` and `requirements.txt`
