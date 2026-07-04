@@ -26,3 +26,5 @@ export const API = {
   RATE_LIMIT_WINDOW_MS: 60_000,
   KEY_PREFIX: 'tmpo_',
 } as const;
+
+export const QUEUE_VIDEO_INDEX = 'video-index' as const;

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { videos } from '@tempo/db';
+import { videoIndexQueue } from '../../lib/queue.js';
 import type { Variables } from '../../middleware/auth.js';
 import { CreateVideoSchema, serializeVideo } from './schema.js';
 
@@ -23,6 +24,14 @@ handler.post('/', async (c) => {
       status: 'pending',
     })
     .returning();
+
+  if (!row) {
+    return c.json({ error: 'Failed to create video' }, 500);
+  }
+
+  videoIndexQueue
+    .add('index-video', { videoId: row.id, teamId: c.get('teamId') })
+    .catch((err: unknown) => console.error('Failed to enqueue index-video job:', err));
 
   return c.json(serializeVideo(row as any), 201);
 });
