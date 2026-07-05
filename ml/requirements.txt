@@ -1,4 +1,5 @@
 modal>=0.74.0
+fastapi[standard]>=0.115.0
 openai-whisper>=20240930
 torch>=2.6.0
 torchvision>=0.21.0
@@ -13,3 +14,4 @@ spacy>=3.8.0
 boto3>=1.37.0
 qdrant-client>=1.13.0
 Pillow>=11.2.0
+psycopg2-binary>=2.9.0

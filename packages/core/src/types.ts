@@ -1,4 +1,4 @@
-export type VideoStatus = 'pending' | 'downloading' | 'indexing' | 'ready' | 'failed';
+export type VideoStatus = 'pending' | 'downloading' | 'indexing' | 'ready' | 'error';
 
 export interface Video {
   id: string;

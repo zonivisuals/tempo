@@ -15,6 +15,6 @@ app.onError(errorHandler);
 app.use('/v1/*', auth);
 app.use('/v1/videos', rateLimit(API.RATE_LIMIT_INDEX, API.RATE_LIMIT_WINDOW_MS));
 app.route('/v1', accountHandler);
-app.route('/v1', videoHandler);
+app.route('/v1/videos', videoHandler);
 
 export default app;

@@ -5,7 +5,7 @@ export const CreateVideoSchema = z.object({
   title: z.string().min(1).max(255).optional(),
 });
 
-export const VideoStatusEnum = z.enum(['pending', 'downloading', 'indexing', 'ready', 'failed']);
+export const VideoStatusEnum = z.enum(['pending', 'downloading', 'indexing', 'ready', 'error']);
 
 export const VideoResponseSchema = z.object({
   id: z.string().uuid(),

@@ -2,14 +2,25 @@ import { Worker } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { redis } from '@tempo/infra/redis';
 import { db } from './db.js';
-import { videos } from '@tempo/db';
-import { ensureBucket } from '@tempo/infra/s3';
-import { ensureShotsCollection } from '@tempo/infra/qdrant';
-import { QUEUE_VIDEO_INDEX } from '@tempo/core/constants';
+import { videos, shots } from '@tempo/db';
+import { ensureBucket, uploadFromUrl } from '@tempo/infra/s3';
+import { qdrant, ensureShotsCollection } from '@tempo/infra/qdrant';
+import { QUEUE_VIDEO_INDEX, INDEXING } from '@tempo/core/constants';
+import {
+  callModalDetectScenes,
+  callModalTranscribe,
+  callModalEmbedVisual,
+  callModalEmbedText,
+  callModalDetectFaces,
+} from './modal.js';
 
 async function bootstrap(): Promise<void> {
   await ensureBucket();
   await ensureShotsCollection();
+}
+
+function videoS3Key(teamId: string, videoId: string): string {
+  return `videos/${teamId}/${videoId}/source.mp4`;
 }
 
 bootstrap()
@@ -21,30 +32,73 @@ bootstrap()
       async (job) => {
         const { videoId, teamId } = job.data as { videoId: string; teamId: string };
         if (!videoId || !teamId) {
-          throw new Error(`Invalid job data: missing videoId or teamId`);
+          throw new Error('Invalid job data: missing videoId or teamId');
         }
 
         console.log(`Processing job ${job.id}: ${job.name}`, { videoId, teamId });
 
-        const now = new Date();
+        const key = videoS3Key(teamId, videoId);
 
         try {
+          // 1. Download source video to S3
           await db
             .update(videos)
-            .set({ status: 'indexing', updatedAt: now })
+            .set({ status: 'downloading', updatedAt: new Date() })
             .where(eq(videos.id, videoId));
 
-          // Phase 3c: replace with actual indexing (scene detect, transcribe, embed, etc.)
+          console.log(`Job ${job.id}: downloading to S3`);
+          const [row] = await db.select({ url: videos.url }).from(videos).where(eq(videos.id, videoId));
+          if (!row) {
+            throw new Error(`Video ${videoId} not found`);
+          }
+
+          await uploadFromUrl(row.url, key);
+          console.log(`Job ${job.id}: download complete`);
+
+          // 2. Clean up previous index data (idempotent re-indexing)
           await db
             .update(videos)
-            .set({ status: 'ready', updatedAt: now })
+            .set({ status: 'indexing', updatedAt: new Date() })
+            .where(eq(videos.id, videoId));
+
+          console.log(`Job ${job.id}: cleaning up previous index`);
+          await db.delete(shots).where(eq(shots.videoId, videoId));
+          await qdrant
+            .delete('shots', {
+              filter: { must: [{ key: 'videoId', match: { value: videoId } as any }] },
+            })
+            .catch(() => {});
+
+          // 3. Scene detection
+          console.log(`Job ${job.id}: detecting scenes`);
+          const { shots: detectedShots } = await callModalDetectScenes(
+            key, videoId, teamId, INDEXING.SCENE_DETECT_THRESHOLD,
+          );
+          console.log(`Job ${job.id}: ${detectedShots.length} shots detected`);
+
+          // 4. Transcribe, embed-visual, detect-faces in parallel
+          console.log(`Job ${job.id}: transcribing, embedding visual, detecting faces`);
+          await Promise.all([
+            callModalTranscribe(key, videoId, detectedShots),
+            callModalEmbedVisual(key, videoId, detectedShots),
+            callModalDetectFaces(key, videoId, detectedShots),
+          ]);
+
+          // 5. Embed text (depends on transcripts from step 4)
+          console.log(`Job ${job.id}: embedding text`);
+          await callModalEmbedText(videoId, detectedShots);
+
+          // 6. Mark as ready
+          await db
+            .update(videos)
+            .set({ status: 'ready', updatedAt: new Date() })
             .where(eq(videos.id, videoId));
 
           console.log(`Job ${job.id} complete`);
         } catch (err) {
           await db
             .update(videos)
-            .set({ status: 'error', error: String(err), updatedAt: now })
+            .set({ status: 'error', error: String(err), updatedAt: new Date() })
             .where(eq(videos.id, videoId));
           throw err;
         }

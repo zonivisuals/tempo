@@ -1,4 +1,4 @@
-import { S3Client, HeadBucketCommand, CreateBucketCommand } from '@aws-sdk/client-s3';
+import { S3Client, HeadBucketCommand, CreateBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { env } from './env.js';
 
 export const S3_ENDPOINT = env.S3_ENDPOINT;
@@ -27,4 +27,14 @@ export async function ensureBucket(): Promise<void> {
     }
     throw err;
   }
+}
+
+export async function uploadFromUrl(sourceUrl: string, s3Key: string): Promise<void> {
+  const response = await fetch(sourceUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch source URL: ${response.status} ${response.statusText}`);
+  }
+  const contentType = response.headers.get('content-type') || 'video/mp4';
+  const body = await response.arrayBuffer();
+  await s3.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: s3Key, Body: new Uint8Array(body), ContentType: contentType }));
 }

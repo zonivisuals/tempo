@@ -2,7 +2,10 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import { EMBEDDING_DIMS } from '@tempo/core/constants';
 import { env } from './env.js';
 
-export const qdrant = new QdrantClient({ url: env.QDRANT_URL });
+export const qdrant = new QdrantClient({
+  url: env.QDRANT_URL,
+  ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
+});
 
 export async function ensureShotsCollection(): Promise<void> {
   try {
