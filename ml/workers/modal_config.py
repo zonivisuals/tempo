@@ -7,7 +7,7 @@ app = modal.App("tempo-ml")
 secret = modal.Secret.from_name("tempo-ml")
 
 image = modal.Image.debian_slim(python_version="3.12").apt_install(
-    "libgl1", "libglib2.0-0"
+    "ffmpeg", "libgl1", "libglib2.0-0"
 ).pip_install_from_requirements(
     str(Path(__file__).parent.parent / "requirements.txt")
 )

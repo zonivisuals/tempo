@@ -14,7 +14,8 @@
     "S3_BUCKET",
     "MODAL_TOKEN_ID",
     "MODAL_TOKEN_SECRET",
-    "MODAL_WORKSPACE"
+    "MODAL_WORKSPACE",
+    "MODAL_APP_NAME"
   ],
   "tasks": {
     "build": {

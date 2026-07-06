@@ -1,10 +1,21 @@
 import os
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
 
+_pool = None
+
+def _ensure_pool():
+    global _pool
+    if _pool is None:
+        _pool = ThreadedConnectionPool(1, 10, os.environ["DATABASE_URL"])
+    return _pool
 
 def get_connection():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    return _ensure_pool().getconn()
+
+def put_connection(conn):
+    _ensure_pool().putconn(conn)
 
 
 def insert_shot(conn, video_id: str, shot_index: int, start_time: int, end_time: int, thumbnail_key: str) -> str:

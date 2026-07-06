@@ -1,11 +1,26 @@
 import tempfile
 
 import modal
+import torch
 from PIL import Image
+from transformers import CLIPProcessor, CLIPModel
 
 from workers.modal_config import app, image, gpu_config, secret
 from workers.core.storage import download_file
 from workers.core.embeddings import upsert_visual
+
+_clip_model = None
+_clip_processor = None
+_clip_device = None
+
+
+def _get_clip():
+    global _clip_model, _clip_processor, _clip_device
+    if _clip_model is None:
+        _clip_device = "cuda" if torch.cuda.is_available() else "cpu"
+        _clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(_clip_device)
+        _clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    return _clip_model, _clip_processor, _clip_device
 
 
 @app.function(image=image, gpu=gpu_config, secrets=[secret], timeout=900)
@@ -14,13 +29,7 @@ def embed_visual(data: dict) -> dict:
     s3_key = data["s3_key"]
     video_id = data["video_id"]
     shots = data["shots"]
-    import torch
-    from transformers import CLIPProcessor, CLIPModel
-
-    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
+    model, processor, device = _get_clip()
 
     for shot in shots:
         thumbnail_key = shot["thumbnailKey"]

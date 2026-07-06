@@ -11,7 +11,7 @@ def _s3_client():
         region_name=os.environ.get("S3_REGION", "us-east-1"),
         aws_access_key_id=os.environ["S3_ACCESS_KEY_ID"],
         aws_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"],
-        config=Config(signature_version="s3v4", force_path_style=True),
+        config=Config(signature_version="s3v4"),
     )
 
 

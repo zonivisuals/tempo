@@ -1,10 +1,13 @@
 import tempfile
 
 import modal
+import cv2
+from scenedetect import open_video, SceneManager
+from scenedetect.detectors import ContentDetector
 
 from workers.modal_config import app, image, gpu_config, secret
 from workers.core.storage import download_file, upload_bytes
-from workers.core.db import get_connection, insert_shot
+from workers.core.db import get_connection, put_connection, insert_shot
 
 
 @app.function(image=image, gpu=gpu_config, secrets=[secret], timeout=900)
@@ -14,9 +17,6 @@ def detect_scenes(data: dict) -> dict:
     video_id = data["video_id"]
     team_id = data["team_id"]
     threshold = data.get("threshold", 27.0)
-    from scenedetect import open_video, SceneManager
-    from scenedetect.detectors import ContentDetector
-    import cv2
 
     conn = get_connection()
     try:
@@ -62,6 +62,6 @@ def detect_scenes(data: dict) -> dict:
         conn.rollback()
         raise
     finally:
-        conn.close()
+        put_connection(conn)
 
     return {"shots": shots}

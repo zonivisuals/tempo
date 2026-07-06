@@ -1,8 +1,18 @@
 import modal
+from sentence_transformers import SentenceTransformer
 
 from workers.modal_config import app, image, gpu_config, secret
-from workers.core.db import get_connection
+from workers.core.db import get_connection, put_connection
 from workers.core.embeddings import upsert_text
+
+_st_model = None
+
+
+def _get_st_model():
+    global _st_model
+    if _st_model is None:
+        _st_model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _st_model
 
 
 @app.function(image=image, gpu=gpu_config, secrets=[secret], timeout=900)
@@ -10,9 +20,7 @@ from workers.core.embeddings import upsert_text
 def embed_text(data: dict) -> dict:
     video_id = data["video_id"]
     shots = data["shots"]
-    from sentence_transformers import SentenceTransformer
-
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    model = _get_st_model()
 
     conn = get_connection()
     try:
@@ -31,6 +39,6 @@ def embed_text(data: dict) -> dict:
             vector = model.encode(transcript).tolist()
             upsert_text(shot["id"], vector, {"videoId": video_id, "shotIndex": shot["shotIndex"]})
     finally:
-        conn.close()
+        put_connection(conn)
 
     return {"ok": True}
