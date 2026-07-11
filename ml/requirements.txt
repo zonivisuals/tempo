@@ -1,4 +1,5 @@
 modal>=0.74.0
+yt-dlp>=2024.0.0
 fastapi[standard]>=0.115.0
 openai-whisper>=20240930
 torch>=2.6.0

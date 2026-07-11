@@ -7,3 +7,4 @@ from workers.transcribe import transcribe
 from workers.embed_visual import embed_visual
 from workers.embed_text import embed_text
 from workers.detect_faces import detect_faces
+from workers.download_youtube import download_youtube

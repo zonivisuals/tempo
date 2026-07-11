@@ -35,6 +35,12 @@ export async function uploadFromUrl(sourceUrl: string, s3Key: string): Promise<v
     throw new Error(`Failed to fetch source URL: ${response.status} ${response.statusText}`);
   }
   const contentType = response.headers.get('content-type') || 'video/mp4';
+  if (contentType.startsWith('text/')) {
+    throw new Error(
+      `Source URL returned content-type "${contentType}", expected a video. ` +
+      `YouTube links are not supported directly — use a direct MP4 URL.`,
+    );
+  }
   const body = await response.arrayBuffer();
   await s3.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: s3Key, Body: new Uint8Array(body), ContentType: contentType }));
 }

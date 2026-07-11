@@ -88,3 +88,10 @@ export async function callModalDetectFaces(
 ): Promise<void> {
   await callModal('detect_faces', { s3_key: s3Key, video_id: videoId, shots });
 }
+
+export async function callModalDownloadYouTube(
+  url: string,
+  s3Key: string,
+): Promise<{ ok: boolean; s3_key: string; title?: string; duration?: number }> {
+  return callModal('download_youtube', { url, s3_key: s3Key });
+}

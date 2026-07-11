@@ -27,3 +27,8 @@ def download_file(s3_key: str, local_path: str):
 def upload_bytes(s3_key: str, data: bytes):
     s3 = _s3_client()
     s3.put_object(Bucket=_bucket(), Key=s3_key, Body=data)
+
+
+def upload_fileobj(s3_key: str, fileobj):
+    s3 = _s3_client()
+    s3.upload_fileobj(fileobj, _bucket(), s3_key)

@@ -12,7 +12,10 @@ import {
   callModalEmbedVisual,
   callModalEmbedText,
   callModalDetectFaces,
+  callModalDownloadYouTube,
 } from './modal.js';
+
+const YOUTUBE_RE = /youtube\.com|youtu\.be/i;
 
 async function bootstrap(): Promise<void> {
   await ensureBucket();
@@ -52,7 +55,19 @@ bootstrap()
             throw new Error(`Video ${videoId} not found`);
           }
 
-          await uploadFromUrl(row.url, key);
+          const isYoutube = YOUTUBE_RE.test(row.url);
+          if (isYoutube) {
+            console.log(`Job ${job.id}: downloading from YouTube`);
+            const result = await callModalDownloadYouTube(row.url, key);
+            if (result.title) {
+              await db
+                .update(videos)
+                .set({ title: result.title, updatedAt: new Date() })
+                .where(eq(videos.id, videoId));
+            }
+          } else {
+            await uploadFromUrl(row.url, key);
+          }
           console.log(`Job ${job.id}: download complete`);
 
           // 2. Clean up previous index data (idempotent re-indexing)
