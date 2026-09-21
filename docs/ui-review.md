@@ -1,0 +1,24 @@
+# UI review gate (AGENTS.md §6, F6-minimal)
+
+Before release, screenshot the panel docked next to a native AE panel
+(Project or Timeline) at 100% scaling and walk this list. Any reviewer can
+flag and reject an element reading as "AI-generated slop".
+
+## Must hold
+
+- [ ] Flat surfaces, 1px borders, corner radius ≤ 2px everywhere.
+- [ ] 12px base / 11px metadata, system font stack, 4px spacing rhythm.
+- [ ] Monochrome + at most one accent, used only for selection/active.
+- [ ] Progress = thin flat bars; loading = opacity-pulsing skeletons only.
+- [ ] Short factual labels ("Indexing · ocr 37/157"); winning key visible
+      without hovering; contribution bars sorted with percentages.
+- [ ] Errors are compact inline rows with the service error code — no modals,
+      no toasts, no spinners where skeletons belong.
+- [ ] Offline service renders a usable degraded state (search disabled
+      honestly, sync reports `SERVICE_OFFLINE`), never a blank panel.
+
+## Instant reject
+
+Gradients, glows, glassmorphism, decorative shadows, big-radius cards,
+pills, purple/blue AI palettes, emoji UI, "Ask anything…"/"Powered by"
+copy, exclamation marks, animated backgrounds.

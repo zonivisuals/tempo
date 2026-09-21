@@ -85,29 +85,35 @@ tempo/
 │   │   ├── config.py          # Settings (env / config file — no hardcoding)
 │   │   ├── registry.py        # footage registry, fingerprinting, diff
 │   │   ├── jobs.py            # single-worker background job queue
+│   │   ├── search.py          # scoring exactly per §3.5 (pure) + corpus load
 │   │   ├── indexer/
+│   │   │   ├── models.py      # lazy per-stage singletons (D8)
 │   │   │   ├── shots.py       # scene detect + keyframes
 │   │   │   ├── embed.py       # CLIP visual + text
-│   │   │   ├── audio.py       # faster-whisper
-│   │   │   ├── ocr.py         # EasyOCR
+│   │   │   ├── cluster.py     # KMeans, k by silhouette, reps
+│   │   │   ├── audio.py       # faster-whisper + word alignment
+│   │   │   ├── ocr.py         # EasyOCR (edge-density prefilter)
 │   │   │   ├── captions.py    # BLIP-2 reps + propagation
-│   │   │   └── ner.py         # _extract_entities (shared extractor)
-│   │   ├── search.py          # scoring exactly per §3.5
+│   │   │   ├── ner.py         # _extract_entities (shared extractor)
+│   │   │   ├── build_index.py # BM25 corpus; matrices saved
+│   │   │   └── pipeline.py    # run_job orchestration (registered handler)
 │   │   └── schemas.py         # pydantic request/response models
-│   └── tests/
-│       ├── golden/            # pinned query → expected ordering fixtures
-│       └── ...
+│   └── tests/                 # contract, registry, golden, pipeline, perf tests
+│       └── test_search.py     # golden ordering + contributions (§3.5, §9)
 ├── panel/                     # CEP extension root (this folder is installed)
-│   ├── CSIA/CSInterface.js    # vendored from Adobe-CEP/CEP-Resources (pin version)
-│   ├── json2.js               # vendored Crockford JSON polyfill (for host.jsx)
+│   ├── CSXS/
+│   │   ├── CSInterface.js     # vendored v12.0.0 (Adobe-CEP/CEP-Resources)
+│   │   └── manifest.xml       # AEFT range, no nodejs, json2+host script order
 │   ├── host/
-│   │   └── host.jsx           # ALL project access lives here (ES3)
-│   ├── .debug                 # dev-only debug port mapping
+│   │   ├── json2.js           # vendored 2023-05-10 (Crockford polyfill)
+│   │   ├── host.jsx           # ALL project access lives here (ES3)
+│   │   └── ae_smoke.jsx       # manual smoke script + docs/ae-smoke.md
+│   ├── .debug                 # dev-only debug port mapping (8088)
 │   └── www/
 │       ├── index.html
-│       ├── manifest.xml
+│       ├── api.js             # single service-communication module
 │       ├── panel.css
-│       └── panel.js
+│       └── panel.js           # store + render(), polling, skeletons
 └── notebook/
     └── tempo_pipeline_v3.ipynb  # reference implementation (research artifact,
                                  # NOT imported by the service — the service
