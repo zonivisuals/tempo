@@ -40,7 +40,7 @@ def get_clip_vision():  # type: ignore[no-untyped-def]
             device,
         )
 
-    return load("clip", factory)
+    return load("clip_vision", factory)
 
 
 def get_clip_text():  # type: ignore[no-untyped-def]
@@ -58,7 +58,7 @@ def get_clip_text():  # type: ignore[no-untyped-def]
             device,
         )
 
-    return load("clip", factory)
+    return load("clip_text", factory)
 
 
 def _model_name() -> str:

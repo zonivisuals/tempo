@@ -50,7 +50,7 @@ def run_job(job, progress) -> None:  # type: ignore[no-untyped-def]
             batch_size=settings.visual_embed_batch,
             progress=progress,
         )
-        model_slots.unload("clip")
+        model_slots.unload("clip_vision")
         # 3. cluster
         labels, reps = cluster.cluster_shots(visual)
         for s, lab in zip(shot_list, labels):
@@ -74,7 +74,7 @@ def run_job(job, progress) -> None:  # type: ignore[no-untyped-def]
         caption = embed.embed_texts(
             [s.get("caption") or embed.NO_CAPTION for s in shot_list]
         )
-        model_slots.unload("clip")
+        model_slots.unload("clip_text")
         # 8. NER (shared extractor)
         ner.extract_shot_entities(shot_list, progress)
         model_slots.unload("ner")

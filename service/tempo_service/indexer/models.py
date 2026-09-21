@@ -19,6 +19,9 @@ MODELS_LOADED: dict[str, bool] = {
     "ner": False,
 }
 
+# CLIP vision and text are separate weight sets sharing one health flag.
+ALIASES = {"clip_vision": "clip", "clip_text": "clip"}
+
 _singletons: dict[str, object] = {}
 
 
@@ -37,12 +40,12 @@ def load(name: str, factory) -> object:  # type: ignore[no-untyped-def]
     """Load (or reuse) a singleton; evict any other resident heavy model."""
     if name in _singletons:
         return _singletons[name]
-    for other in [k for k, v in MODELS_LOADED.items() if v and k != name]:
+    for other in [k for k in _singletons if k != name]:
         unload(other)
     log.info("model load: %s", name)
     obj = factory()
     _singletons[name] = obj
-    MODELS_LOADED[name] = True
+    MODELS_LOADED[ALIASES.get(name, name)] = True
     return obj
 
 
@@ -51,5 +54,11 @@ def unload(name: str) -> None:
         return
     log.info("model unload: %s", name)
     del _singletons[name]
-    MODELS_LOADED[name] = False
+    flag = ALIASES.get(name, name)
+    if not any(ALIASES.get(k, k) == flag for k in _singletons):
+        MODELS_LOADED[flag] = False
     _free()
+
+
+def resident(name: str) -> bool:
+    return name in _singletons
