@@ -12,8 +12,18 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from . import jobs as jobs_module
+from . import registry as registry_module
 from .config import settings
-from .schemas import ErrorBody, ErrorEnvelope, HealthResponse
+from .schemas import (
+    ErrorBody,
+    ErrorEnvelope,
+    FootageInfo,
+    HealthResponse,
+    JobStatus,
+    SyncRequest,
+    SyncResponse,
+)
 
 log = logging.getLogger("tempo")
 logging.basicConfig(level=settings.log_level)
@@ -53,6 +63,60 @@ def create_app() -> FastAPI:
             models_loaded=dict(models_loaded),
             artifact_root=str(settings.artifact_root),
         )
+
+    @app.post("/sync", response_model=SyncResponse)
+    def sync(body: SyncRequest) -> SyncResponse:
+        # Immediate diff + enqueue; indexing runs in the single worker (P3).
+        registry = registry_module.load_registry()
+        result = registry_module.diff(body.footages, registry)
+        registry_module.apply_sync(body.footages, result, registry)
+        registry_module.save_registry(registry)
+        job_ids = [
+            jobs_module.jobs.enqueue(key) for key in result["added"] + result["changed"]
+        ]
+        log.info(
+            "sync: +%d ~%d -%d =%d jobs=%d",
+            len(result["added"]),
+            len(result["changed"]),
+            len(result["removed"]),
+            len(result["unchanged"]),
+            len(job_ids),
+        )
+        return SyncResponse(
+            added=result["added"],
+            changed=result["changed"],
+            removed=result["removed"],
+            unchanged=result["unchanged"],
+            jobs=job_ids,
+        )
+
+    @app.get("/jobs/{job_id}", response_model=JobStatus)
+    def job_status(job_id: str) -> JobStatus:
+        job = jobs_module.jobs.get(job_id)
+        if job is None:
+            return JSONResponse(  # type: ignore[return-value]
+                status_code=404,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code="NOT_FOUND", message="unknown job")
+                ).model_dump(),
+            )
+        return JobStatus(**job.to_status())
+
+    @app.get("/footage", response_model=list[FootageInfo])
+    def footage() -> list[FootageInfo]:
+        registry = registry_module.load_registry()
+        # Stable order: registry insertion order (search matrices rely on it).
+        return [
+            FootageInfo(
+                footage_key=key,
+                path=entry.get("path", ""),
+                shot_count=entry.get("shot_count", 0),
+                duration_s=entry.get("duration_s", 0.0),
+                indexed_at=entry.get("indexed_at"),
+                state=entry.get("state", "indexing"),
+            )
+            for key, entry in registry.items()
+        ]
 
     @app.exception_handler(Exception)
     async def unhandled(request, exc: Exception):  # type: ignore[no-untyped-def]
