@@ -19,14 +19,14 @@ Tempo is a semantic search engine for footage inside After Effects. Editors with
 
 ## Scope — MVP = F1–F5 core, F6 minimal
 
-- **F1 Automatic footage indexing:** import in AE → `indexing` with stage progress → searchable. Fingerprint `(path, size, mtime_ns)`; added/changed auto-enqueue, removed → stale, unchanged → skip. Explicit prune only.
-- **F2 Fast search + preview:** Enter submits; cards show keyframe, footage name, comp-fps timecode range, duration, transcript snippet, caption, four contribution bars (`dense/<winning_key>`, `bm25`, `anchor`, `entity boost`) sorted by contribution with percentages; winning key visible without hover. Footage filter dropdown when >1 footage. Warm round-trip < 300 ms (excl. thumbs).
+- **F1 Automatic footage indexing:** import in AE → `uploading` (Drive, byte progress) → `indexing` (Colab stages) → searchable. Zero clicks. Fingerprint `(path, size, mtime_ns)`; added/changed auto-enqueue, removed → stale, unchanged → skip. Explicit prune only.
+- **F2 Fast search + preview:** Enter submits (proxied to Colab); cards show keyframe, footage name, comp-fps timecode range, duration, transcript snippet, caption, four contribution bars (`dense/<winning_key>`, `bm25`, `anchor`, `entity boost`) sorted by contribution with percentages; winning key visible without hover. Footage filter dropdown when >1 footage. Thumbs render from the local cache instantly; results arrive on Colab time with a timeout and inline error codes.
 - **F3 Skeleton loading:** `top_k` flat gray blocks (thumb + two lines), opacity pulse only; ≥200 ms min display; inline "no results" / compact error with code — never a modal.
 - **F4 Step-based progress:** per-stage pending → running (`done/total` real units: frames, batches, reps) → done; error shows stage + message. No fake progress.
 - **F5 Open at exact timestamp:** one click → resolve/import footage, target active comp (or create `Tempo — <basename>`), place layer (`startTime = T - start_s`, `inPoint = T`, `outPoint = T + dur`), playhead to shot start, select layer, single undo removes all.
 - **F6 Look & feel (minimal in MVP):** AE-native dense gray flat; 1px borders, radius ≤ 2px, 4px rhythm, 12px/11px system font, mono + one accent, thin bars. Full polish later.
 
-## Plan — one phase per commit (P0–P6)
+## Plan — one phase per commit (P0–P6 done, on main)
 
 - **P0** repo memory + contracts (this file, AGENTS.md, `docs/api.md`, decisions, `.gitignore`).
 - **P1** service skeleton (config, schemas, app + `/health`).
@@ -35,6 +35,10 @@ Tempo is a semantic search engine for footage inside After Effects. Editors with
 - **P4** search + thumbs (golden-tested scoring).
 - **P5** CEP panel (manifest, host.jsx, www).
 - **P6** tests + smoke checklist + screenshot gate.
+- **P7** Colab pivot spec: ADR-0002 (remote pipeline) + ADR-0003 (Drive auto-upload) + contract updates.
+- **P8** Colab shim (FastAPI cell, ngrok, Drive checkpoints, token auth).
+- **P9** local proxy (Drive uploader, Colab client, thumb sync, panel settings; delete `indexer/`).
+- **P10** free-tier trial: import clip → untouched chain, timings + VRAM, golden parity.
 
 ## Legacy note
 

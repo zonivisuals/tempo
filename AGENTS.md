@@ -4,7 +4,7 @@
 **Status:** v1 — ground truth for all implementation decisions.
 **Rule zero:** If something in this file conflicts with the official documentation listed in §10, the documentation wins, and this file must be updated — not silently worked around.
 
-**Build baselines (locked from scoping):** wide AE compat (only smoke-tested versions claimed), single consumer GPU 8–12GB (lazy per-stage model load/unload), MVP core F1–F5 (F6 minimal), Python 3.11+ pinned.
+**Build baselines (locked from scoping):** wide AE compat (only smoke-tested versions claimed), Colab free-tier pipeline via ngrok tunnel (local GPU path parked — see D9), Drive auto-upload on import (D10), MVP core F1–F5 (F6 minimal), Python 3.11+ pinned.
 
 ---
 
@@ -42,27 +42,30 @@ The user has long video files (interviews, vlogs, rushes, documentaries). Tempo 
 
 ```
 ┌──────────────────── After Effects (host: AEFT) ───────────────────┐
-│                                                                   │
 │  CEP Panel (HTML/CSS/JS, modern JS is OK here)                    │
 │   - search input, result cards, score bars, skeletons             │
-│   - footage sync status, indexing progress                        │
+│   - footage sync status, indexing progress, Colab URL setting     │
 │   - CSInterface.evalScript() ────► host.jsx (ExtendScript, ES3)   │
-│                                      - scan project footage       │
-│                                      - import / locate items      │
-│                                      - add trimmed layer          │
-│                                      - set playhead, undo groups  │
-│         │                                                         │
-│         │ fetch (http://127.0.0.1:<port>)                         │
-│         ▼                                                         │
-│  Python Search Service (FastAPI, local only)                      │
-│   - footage registry + diff (indexing consistency)                │
-│   - background indexing jobs (multi-stage, progress-reporting)    │
-│   - search: dense matmul + BM25 + anchor + entity boost           │
-│   - static: serves keyframe thumbnails                            │
+└──────────────────────────────┬────────────────────────────────────┘
+         │ fetch (http://127.0.0.1:<port>)
+         ▼
+┌────────────────── Python Service (FastAPI, local only) ──────────┐
+│  - footage registry + diff, Drive auto-upload (resumable)         │
+│  - single-worker proxy queue: Colab handoff → poll → thumb sync   │
+│  - search proxy, local thumb cache, Colab reachability            │
+└──────────────────────────────┬────────────────────────────────────┘
+         │ HTTPS (ngrok tunnel + bearer token; URL pasted per session)
+         ▼
+┌────────────────── Google Colab (free tier, ephemeral) ───────────┐
+│  FastAPI shim over the notebook pipeline (all 9 stages verbatim)  │
+│  - footage source: Drive `tempo/<key>/<basename>` (service put it)│
+│  - per-stage checkpoints → Drive `tempo/checkpoints/<key>/`       │
+│  - search: same §3.5 fusion; serves thumbs until synced down      │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
 Why this split (decided, do not revisit without a written ADR):
+- **Pipeline on Colab, not local GPU (D9):** the 9 stages need GPU RAM target machines don't have; the research notebook already implements them correctly on free-tier GPUs. Local `indexer/` was deleted in P9 (§8: no dead code); the notebook is the pipeline implementation, `search.py` the golden-tested contract.
 - **CEP panel, not UXP:** UXP is not the supported extensibility path in After Effects; CEP is. Premiere Pro 25.6 migrated to UXP (CEP+UXP dual-support for ~1 year, then CEP removal) — AE has no such announcement as of 2026-09, and CEP 12 Cookbook still lists AEFT 25.0. Track via ADR; revisit only if Adobe announces AE UXP.
 - **CEP panel, not a bare script / ScriptUI:** the product needs a real results UI (thumbnails, bars, skeletons) and a persistent docked surface.
 - **Not an AE SDK (C++) plugin:** nothing here needs the render pipeline. The project API (ExtendScript) covers everything; C++ is unjustified complexity.
@@ -81,25 +84,19 @@ tempo/
 ├── service/
 │   ├── pyproject.toml         # pinned deps, requires-python >=3.11
 │   ├── tempo_service/
-│   │   ├── app.py             # FastAPI wiring, lifespan (lazy model loading)
+│   │   ├── app.py             # FastAPI wiring, lifespan (proxy registration)
 │   │   ├── config.py          # Settings (env / config file — no hardcoding)
-│   │   ├── registry.py        # footage registry, fingerprinting, diff
-│   │   ├── jobs.py            # single-worker background job queue
+│   │   ├── registry.py        # footage registry, fingerprinting, diff (+drive_path)
+│   │   ├── jobs.py            # single-worker proxy queue (upload → handoff → poll)
+│   │   ├── drive.py           # Drive auto-upload (resumable, D10)
+│   │   ├── colab.py           # tunnel client (index/search/thumb/health + timeouts)
 │   │   ├── search.py          # scoring exactly per §3.5 (pure) + corpus load
-│   │   ├── indexer/
-│   │   │   ├── models.py      # lazy per-stage singletons (D8)
-│   │   │   ├── shots.py       # scene detect + keyframes
-│   │   │   ├── embed.py       # CLIP visual + text
-│   │   │   ├── cluster.py     # KMeans, k by silhouette, reps
-│   │   │   ├── audio.py       # faster-whisper + word alignment
-│   │   │   ├── ocr.py         # EasyOCR (edge-density prefilter)
-│   │   │   ├── captions.py    # BLIP-2 reps + propagation
-│   │   │   ├── ner.py         # _extract_entities (shared extractor)
-│   │   │   ├── build_index.py # BM25 corpus; matrices saved
-│   │   │   └── pipeline.py    # run_job orchestration (registered handler)
 │   │   └── schemas.py         # pydantic request/response models
 │   └── tests/                 # contract, registry, golden, pipeline, perf tests
 │       └── test_search.py     # golden ordering + contributions (§3.5, §9)
+├── colab/
+│   └── tempo_shim.py          # FastAPI shim over the notebook pipeline (runs on Colab;
+│                              # notebook functions verbatim + routes + checkpoints + auth)
 ├── panel/                     # CEP extension root (this folder is installed)
 │   ├── CSXS/
 │   │   ├── CSInterface.js     # vendored v12.0.0 (Adobe-CEP/CEP-Resources)
@@ -134,13 +131,19 @@ Panel JS (modern, Chromium) and host.jsx (ES3) are different worlds. The only ch
 
 ### 3.1 Responsibilities
 
-Owns: footage registry, indexing pipeline + jobs, search, thumbnails.
-Does NOT own: anything about the AE project, the panel UI, undo semantics.
+Owns: footage registry, Drive auto-upload, Colab proxy queue, search proxy,
+local thumb cache, Colab reachability.
+Does NOT own: the pipeline itself (Colab notebook + shim, D9), anything about
+the AE project, the panel UI, undo semantics.
 
 ### 3.2 Indexing pipeline (stages)
 
-One footage = one job = these stages, in order, each reporting progress:
+One footage = one job = these stages, in order, each reporting progress.
+Stages 1–9 run **on Colab** (notebook functions verbatim, D9); stage 0
+(upload) runs locally. Progress for every stage is polled over the tunnel
+at 500 ms and rendered by the panel (§5, F4).
 
+| 0 | `upload` | bytes sent | — (Drive API, resumable, local service) |
 | # | Stage | Progress unit | Model |
 |---|-------|---------------|-------|
 | 1 | `shots` | frames sampled | — (OpenCV + scenedetect AdaptiveDetector) |
@@ -154,9 +157,8 @@ One footage = one job = these stages, in order, each reporting progress:
 | 9 | `build_index` | — | BM25 corpus; matrices saved |
 
 Rules:
-- **Job queue is single-worker.** Models are big; GPU memory is finite (8–12GB baseline); jobs run strictly sequentially. `POST /sync` may enqueue many; they process one by one.
-- **Lazy per-stage model loading.** Do NOT hold CLIP + BLIP-2 + Whisper + EasyOCR + BERT resident at once. Load per stage via singletons, unload/free before the next heavy stage; log transitions. `lifespan` wires the registry/worker, not all weights.
-- Each stage emits `{stage, done, total}` so the panel can render step-based progress (§5, F4). Progress must reflect real work — no fake timers, ever.
+- **Job queue is single-worker (proxy).** Uploads and Colab handoffs run strictly sequentially. `POST /sync` may enqueue many; they process one by one. Colab asleep at handoff → job waits in `queued-for-colab` (retried each poll), never failed.
+- **Colab checkpoints per stage to Drive** (`tempo/checkpoints/<key>/`) so free-tier preemption resumes instead of restarting. Progress must reflect real work — no fake timers, ever.
 - **Caption rules (locked decisions from the research pass):** canonical prompt `Question: Describe this image. Answer:`; no transcript/OCR hint (it made OPT continue the transcript instead of describing the image); `max_new_tokens=40`, `repetition_penalty=1.25`, `no_repeat_ngram_size=3`; post-clean: strip the `Question…Answer:` scaffold, collapse consecutive duplicate sentences, cap at 3 sentences (CLIP's 77-token encoder truncates anyway). Only cluster reps are captioned; all other shots inherit the nearest rep's caption (L2 on visual embeddings). Consequence (accepted): shots sharing an inherited caption share an identical caption embedding and cannot be separated by that key.
 - **NER rules:** use the shared `_extract_entities` extractor on BOTH query and shot text: merge `##` subword fragments (`A`+`##kita`→`Akita`), drop 1-char and digit-only junk (a stored entity `"A"` once matched every shot containing the letter "a" through the anchor path — this class of bug is why junk filtering exists), dedupe case-insensitively. Do not re-introduce raw inline NER comprehensions.
 
@@ -166,6 +168,7 @@ Purpose: "index every imported footage once, notice changes, forget removed ones
 
 - **Fingerprint** = `(resolved_path, size_bytes, mtime_ns)`. Cheap, stable enough for this purpose. Resolved via `File.fsName` on the AE side (this also normalizes OS path casing/slashes).
 - **Registry** = one JSON file per artifact directory, mapping `footage_key → {fingerprint, artifact paths, format_version, stats}`. `footage_key` = deterministic short hash of the fingerprint's path component.
+- **Drive link:** each entry also stores `drive_path` = `tempo/<footage_key>/<basename>` — the deterministic name the service uploads to (D10) and the pipeline imports from. Same key + size already on Drive → bytes are skipped, straight to indexing.
 - **Sync flow:** panel asks host.jsx for the current project footage list (path + size + mtime + item id via `FootageItem.mainSource.file`), POSTs it to `POST /sync`; service diffs against the registry and returns: `added` (auto-enqueued for indexing), `changed` (re-enqueued), `removed` (marked stale), `unchanged` (skipped).
 - **Removed footage:** artifacts are marked `stale`, not deleted. Pruning is explicit (panel button or config flag) because re-indexing is expensive and users often toggle imports. Default: manual prune.
 - **Format versioning:** every artifact set carries `format_version`. On mismatch (e.g. after a scoring/captioning change), the footage is treated as `changed` and re-indexed. Bump the constant whenever artifact layout or semantics change; note it in the decisions log.
@@ -176,24 +179,31 @@ All under `http://127.0.0.1:<port>` (default 8765, configurable). JSON only. Err
 
 ```
 GET  /health
-     → {"status":"ok","models_loaded":{...},"artifact_root":"..."}
+     → {"status":"ok","models_loaded":{...},"artifact_root":"...",
+        "colab":{"reachable":true,"gpu":true}}
+
+POST /drive-auth
+     body: {"code":"<oauth code>"}
+     → {"ok":true}  (one-time consent; token cached outside the repo)
 
 POST /sync
      body: {"footages":[{"path":"C:\\...\\a.mp4","size":123,"mtime_ns":456,
                           "item_id":42,"frame_rate":25.0}]}
      → {"added":[keys],"changed":[keys],"removed":[keys],
-        "unchanged":[keys],"jobs":[job_ids]}
-     (added/changed are auto-enqueued as jobs; response is immediate)
+        "unchanged":[keys],"jobs":[job_ids],"uploads":[job_ids]}
+     (added/changed enter `uploading`, then auto-handoff to Colab;
+      response is immediate)
 
 GET  /jobs/{job_id}
-     → {"job_id":..., "footage_key":..., "state":"running|done|error",
-        "stages":[{"name":"shots","state":"done"},
+     → {"job_id":..., "footage_key":..., "state":"uploading|queued-for-colab|running|done|error",
+        "stages":[{"name":"upload","state":"running","done":1048576,"total":3670016},
+                  {"name":"shots","state":"pending"},
                   {"name":"ocr","state":"running","done":37,"total":157}],
         "error":null}
 
 GET  /footage
-     → [{"footage_key","path","shot_count","duration_s","indexed_at",
-         "state":"ready|indexing|stale|error"}]
+     → [{"footage_key","path","drive_path","shot_count","duration_s","indexed_at",
+         "state":"uploading|indexing|ready|stale|error"}]
 
 GET  /search?q=<query>&top_k=<int, default 8>&footage_keys=<csv, optional>
      → {"query":"...", "took_ms": 12,
@@ -212,8 +222,14 @@ GET  /thumb/{footage_key}/{shot_id}.jpg   → keyframe image
 ```
 
 Implementation notes:
-- `GET /search` must complete in **< 300 ms warm** (matmul over the key matrices + BM25 scan). It must never trigger model downloads; if the text model isn't loaded, return 503 with a clear code.
-- Thumbnails are served over HTTP (not `file://`) — avoids CEF file-access flags entirely. Add cache headers.
+- `GET /search` proxies to Colab (same §3.5 fusion, computed there). Tunneled
+  budget, not < 300 ms: thumbs render from the local cache instantly, results
+  arrive on Colab time; every fetch has a timeout and failures surface inline
+  with clear codes (`COLAB_UNREACHABLE`, `COLAB_ASLEEP`, `COLAB_TIMEOUT`) —
+  never spinners, never hangs.
+- The tunnel URL is public; the per-session bearer token is the entire auth
+  model. Tokens live in Colab Secrets + local config, never in git.
+- Thumbnails are served over HTTP (not `file://`) — avoids CEF file-access flags entirely. Add cache headers. Thumbs + `shots.json` sync down at job completion; embeddings stay on Colab.
 - `/search` may filter by `footage_keys`; global shot row order is defined as (footage registry order, then shot_id) and MUST stay stable so the stacked key matrices remain valid across requests.
 
 ### 3.5 Scoring specification (pinned — golden-tested)
@@ -255,7 +271,7 @@ Artifacts are the only durable state. The service must be restartable at any mom
 
 ### 3.7 Configuration
 
-`Settings` via environment variables + optional config file; documented defaults; zero absolute paths in code. Required knobs: port, artifact root, model cache dir, weights (§3.5), job poll/pacing values, `prune_stale` flag, log level. Frame rates, sizes, and durations always come from data (pipeline or project), never constants. `requires-python >=3.11`.
+`Settings` via environment variables + optional config file; documented defaults; zero absolute paths in code. Required knobs: port, artifact root, model cache dir, weights (§3.5), job poll/pacing values, `prune_stale` flag, log level, `colab_url`, `colab_token` (env only), `drive_folder` (`tempo/` root), Drive chunk size, OAuth token path. Frame rates, sizes, and durations always come from data (pipeline or project), never constants. `requires-python >=3.11`.
 
 ---
 
@@ -307,7 +323,8 @@ This is deliberately *non-destructive and manual-trim-friendly*: Tempo places an
 AE exposes (historically) almost no CEP events to panels — do not design around nonexistent push events. Instead:
 
 - On panel load: `tempoListFootage()` → `POST /sync`. Show diff counts.
-- While the panel is open: poll every 2 s (config) — cheap evalScript + registry diff. New imports get indexed automatically (F1).
+- Colab URL is a panel setting (ngrok URL changes per session; pasted once, persisted in localStorage). `/health` reports Colab reachability; unreachable/asleep renders as an honest status row, never a spinner.
+- While the panel is open: poll every 2 s (config) — cheap evalScript + registry diff. New imports enter `uploading` automatically (D10), then indexing (F1).
 - Explicit **Sync now** button as the manual fallback.
 - While any job is running: poll `GET /jobs/{id}` at 500 ms and render the stage list (F4).
 
@@ -318,14 +335,14 @@ AE exposes (historically) almost no CEP events to panels — do not design aroun
 MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 
 **F1 — Automatic footage indexing (indexing consistency)**
-- Import footage in AE → within one poll interval it appears in the panel as `indexing`, with stage progress; on completion it becomes searchable.
+- Import footage in AE → within one poll interval it appears in the panel as `uploading` (byte progress), then `indexing` (stage progress); on completion it becomes searchable. Zero clicks.
 - Footage already indexed and unchanged → skipped (registry fingerprint match).
-- Changed file (size/mtime) → re-indexed; artifact format bumped → re-indexed.
-- Footage removed from project → marked stale; data pruned only on explicit prune. Acceptance: sync report shows added/changed/removed/unchanged counts that a human can verify against the project panel.
+- Changed file (size/mtime) → re-uploaded + re-indexed; artifact format bumped → re-indexed.
+- Footage removed from project → marked stale (upload cancelled); data pruned only on explicit prune. Acceptance: sync report shows added/changed/removed/unchanged counts that a human can verify against the project panel.
 
 **F2 — Fast search + result preview**
 - Enter submits. Results render as cards: keyframe thumbnail, footage name, timecode range (comp-fps timecode, from project fps), duration, transcript snippet, caption, and the four contribution bars (`dense/<winning_key>`, `bm25`, `anchor`, `entity boost`) sorted by contribution, with percentages — identical semantics to the notebook preview. The winning key is visible without hovering.
-- Search across all ready footage by default; footage filter dropdown when more than one footage exists. Acceptance: warm search round-trip < 300 ms (excludes thumbnail fetch), measured and asserted in a service test.
+- Search across all ready footage by default; footage filter dropdown when more than one footage exists. Acceptance: thumbs render from the local cache instantly; results arrive on Colab time with a timeout; failures surface inline with codes (`COLAB_UNREACHABLE`, `COLAB_ASLEEP`, `COLAB_TIMEOUT`). No < 300 ms bar over a tunnel — the local `score_query` matmul path stays < 300 ms warm (asserted in a service test) as the contract guarantee.
 
 **F3 — Skeleton loading while searching**
 - On submit, immediately render `top_k` skeleton cards (flat gray blocks: thumb rectangle + two text lines) that pulse via opacity — no shimmer gradients, no spinners where skeletons fit.
@@ -333,7 +350,7 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 
 **F4 — Step-based indexing progress**
 - Each indexing job renders its stage list (§3.2) with per-stage states: pending → running (with `done/total` progress bar where applicable) → done; error state shows the stage and message.
-- The bar reflects real units (frames, batches, reps). Acceptance: progress updates derive from job status payloads only — no estimated/fake progress.
+- The bar reflects real units (bytes sent; frames, batches, reps). Acceptance: progress updates derive from job status payloads only — no estimated/fake progress.
 
 **F5 — Open result at exact timestamp**
 - Single click on a result card performs §4.3 verbatim. Acceptance: with a comp open, after one click the layer exists, is trimmed to `[start_s, end_s]`, the playhead sits at the shot start, the layer is selected, and a single undo removes the whole action.
@@ -381,7 +398,7 @@ The bar: if removing an element removes information, it's good. If removing it c
 - All service communication goes through one `api.js` module with typed-ish payload shapes mirroring `docs/api.md`; timeouts on every fetch; the panel must render a usable "service offline" state.
 
 ### 7.3 Python service
-- Pinned dependencies (`pyproject.toml`, `requires-python >=3.11`); models loaded lazily per stage via singletons (one process, single job worker — never hold all weights resident on 8–12GB GPUs).
+- Pinned dependencies (`pyproject.toml`, `requires-python >=3.11`); the heavy pipeline lives on Colab (D9) — the local service holds no model weights. (If a local-GPU path is ever revived: models load lazily per stage via singletons, one worker, never all resident.)
 - Pure functions for scoring (`search.py`) — no I/O inside the scoring path; matrices passed in, results passed out. This is what makes golden tests easy.
 - Pydantic schemas for every endpoint; typed, no bare dicts crossing layers.
 - No `print` debugging in committed code; `logging` with levels; log job stage transitions + model load/unload.
@@ -463,12 +480,16 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
 - **D5 Shared entity extractor on both query and shots** — junk entities once poisoned the anchor path ("A" matched everything); single extractor prevents query-side/index-side drift.
 - **D6 Thumbnails over HTTP** — avoids CEF file-access flags; service already has the files.
 - **D7 Stale-by-default pruning** — re-indexing is expensive; deletion is explicit.
-- **D8 Single-GPU lazy model loading** — 8–12GB VRAM cannot hold CLIP-L + BLIP-2 + Whisper-large-v3 + EasyOCR + BERT resident; load per stage, unload after, log transitions.
+- **D8 Single-GPU lazy model loading** — SUPERSEDED by D9 for MVP (kept as the documented local-GPU revival path: 8–12GB VRAM cannot hold all weights resident; load per stage, unload after, log transitions).
+- **D9 Colab-hosted pipeline, local service as proxy** — §2.1 (notebook implements the 9 stages on free-tier GPUs; local `indexer/` deleted per §8 — see `docs/decisions/0002-colab-remote-pipeline.md`).
+- **D10 Drive auto-upload on AE import** — deterministic `tempo/<key>/<basename>`, `uploading` + `queued-for-colab` states (see `docs/decisions/0003-drive-auto-upload.md`).
 
 Known debt (tracked, not silently fixed):
 - **K1 Key-scale calibration:** text↔text keys out-signal text↔image keys in `max()` fusion (§3.5). Fix planned: per-key normalization + `format_version` bump + golden update.
 - **K2 Inherited captions:** shots sharing a rep caption share an identical caption embedding → ties within a caption group; intra-group ranking relies on the other keys. Accepted trade-off of rep-based captioning.
 - **K3 Single GPU worker:** indexing is serialized; acceptable for the use case (offline, unattended).
+- **K4 Tunnel churn + free-tier preemption:** ngrok URL per session (panel setting); Colab death mid-index resumes from Drive checkpoints; search needs Colab alive.
+- **K5 Upload bandwidth:** Drive upload is the first-leg bottleneck; measured in the P10 trial.
 
 ---
 
