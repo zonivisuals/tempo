@@ -1,0 +1,35 @@
+# Python / service
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Artifacts + models (durable state lives on user disk, never in git)
+artifacts/
+registry.json
+*.npz
+*.pkl
+models/
+~/.cache/
+
+# Node / CEP (panel has no deps in MVP; keep for later)
+node_modules/
+dist/
+*.zxp
+*.p12
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Env / secrets
+.env
+.env.local
+*.log

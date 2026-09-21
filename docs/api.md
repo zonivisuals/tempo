@@ -1,0 +1,69 @@
+# docs/api.md — Tempo API contracts (source of truth, v1)
+
+Base: `http://127.0.0.1:<port>` (default `8765`, configurable). JSON only.
+Errors: non-2xx with `{"error": {"code": "<SNAKE>", "message": "<human>"}}`.
+
+## GET /health
+
+```json
+{"status": "ok", "models_loaded": {"clip": false, "whisper": false}, "artifact_root": "/data/tempo"}
+```
+
+## POST /sync
+
+Request:
+```json
+{"footages": [{"path": "C:\\v\\a.mp4", "size": 123, "mtime_ns": 456, "item_id": 42, "frame_rate": 25.0}]}
+```
+Response (added/changed auto-enqueued; immediate):
+```json
+{"added": ["a1b2"], "changed": [], "removed": [], "unchanged": [], "jobs": ["job_001"]}
+```
+
+## GET /jobs/{job_id}
+
+```json
+{"job_id": "job_001", "footage_key": "a1b2", "state": "running",
+ "stages": [{"name": "shots", "state": "done"},
+            {"name": "ocr", "state": "running", "done": 37, "total": 157}],
+ "error": null}
+```
+`state`: `queued|running|done|error`. Stage `state`: `pending|running|done|error`.
+
+## GET /footage
+
+```json
+[{"footage_key": "a1b2", "path": "C:\\v\\a.mp4", "shot_count": 120,
+  "duration_s": 600.0, "indexed_at": "2026-09-21T00:00:00Z",
+  "state": "ready"}]
+```
+`state`: `ready|indexing|stale|error`.
+
+## GET /search?q=&top_k=&footage_keys=
+
+Query: `q` (required), `top_k` (default 8), `footage_keys` (csv, optional).
+```json
+{"query": "vending machine", "took_ms": 12,
+ "results": [{"footage_key": "a1b2", "shot_id": 119,
+   "source_path": "C:\\v\\a.mp4", "start_s": 268.2, "end_s": 274.4,
+   "score": 0.656, "winning_key": "caption",
+   "raw_cos": {"visual": 0.21, "dialogue": 0.44, "caption": 0.56},
+   "contributions": {"dense": 0.351, "bm25": 0.305, "anchor": 0.0, "entity_boost": 0.0},
+   "transcript": "...", "caption": "...", "entities": ["Japan"]}]}
+```
+- Must complete < 300 ms warm; never trigger model downloads (503 + `MODEL_NOT_LOADED` if text model missing).
+- Global row order `(registry order, shot_id)` is stable across requests.
+
+## GET /thumb/{footage_key}/{shot_id}.jpg
+
+Keyframe JPEG with cache headers. Served over HTTP (never `file://`).
+
+## Panel ↔ host (ExtendScript bridge, ES3, JSON strings)
+
+```
+tempoListFootage()          → '[{"path":..., "size":..., "mtime_ns":..., "item_id":..., "frame_rate":...}]'
+tempoInsertOrFocus(payload) → '{"ok":true,"comp_id":1,"layer_id":2}' | '{"ok":false,"error":"..."}'
+tempoGetActiveCompInfo()    → '{"comp_id":1,"name":"...","fps":25.0}' | '{"ok":false}'
+```
+Payload: `{"source_path": "...", "start_s": 1.0, "end_s": 5.0}`.
+Rules: one call does the whole job; mutations wrapped in a single `app.beginUndoGroup/endUndoGroup`; locate-before-import (`FootageItem` + `FileSource` + `fsName`); `File.exists` guard.
