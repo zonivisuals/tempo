@@ -1,6 +1,0 @@
-{
-  "include": ["ml"],
-  "pythonVersion": "3.12",
-  "reportMissingImports": false,
-  "reportMissingTypeStubs": false
-}
