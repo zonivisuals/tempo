@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tempo CEP manifest. Follows the CEP Cookbook (Adobe-CEP/CEP-Resources):
+     ExtensionBundle + DispatchInfo + HostList + RequiredRuntime, .debug port
+     mapping, Node.js context not enabled (panel only needs fetch + CSInterface).
+     Host range: CC 2019 (AEFT 16, CEP 9) through 2025 (AEFT 25, CEP 12).
+     Narrow this range to versions on the ae_smoke checklist before release. -->
+<ExtensionManifest Version="9.0" ExtensionBundleId="com.tempo.ae"
+    ExtensionBundleVersion="0.1.0" ExtensionBundleName="Tempo">
+  <ExtensionList>
+    <Extension Id="com.tempo.panel" Version="0.1" />
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <Host Name="AEFT" Version="[16.0,25.9]" />
+    </HostList>
+    <LocaleList>
+      <Locale Code="All" />
+    </LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="9.0" />
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="com.tempo.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./www/index.html</MainPath>
+          <ScriptPath>./host/json2.js</ScriptPath>
+          <ScriptPath>./host/host.jsx</ScriptPath>
+          <CEFCommandLine />
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>Tempo</Menu>
+          <Geometry>
+            <Size>
+              <Height>640</Height>
+              <Width>320</Width>
+            </Size>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>

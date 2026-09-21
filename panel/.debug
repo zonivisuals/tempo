@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Dev only: unsigned extension debug mapping (CEP Cookbook). Inspect via Chrome at localhost:8088. -->
+<ExtensionList>
+  <Extension Id="com.tempo.panel">
+    <HostList>
+      <Host Name="AEFT" Port="8088" />
+    </HostList>
+  </Extension>
+</ExtensionList>
