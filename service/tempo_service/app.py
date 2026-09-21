@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from . import jobs as jobs_module
 from . import registry as registry_module
 from .config import settings
+from .indexer.models import MODELS_LOADED as models_loaded
 from .schemas import (
     ErrorBody,
     ErrorEnvelope,
@@ -28,27 +29,21 @@ from .schemas import (
 log = logging.getLogger("tempo")
 logging.basicConfig(level=settings.log_level)
 
-# Lazily-loaded model singletons live here (populated by indexer stages,
-# never all at once on a single consumer GPU). P1 only declares the slots.
-models_loaded: dict[str, bool] = {
-    "clip": False,
-    "whisper": False,
-    "easyocr": False,
-    "blip2": False,
-    "ner": False,
-}
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Official FastAPI lifespan pattern: setup before yield, cleanup after.
     # https://fastapi.tiangolo.com/advanced/events/
+    # Registry/worker wiring only — model weights stay lazy per stage (D8).
     log.info(
         "tempo startup: artifact_root=%s format_version=%d",
         settings.artifact_root,
         settings.format_version,
     )
     Path(settings.artifact_root).mkdir(parents=True, exist_ok=True)
+    from .indexer.pipeline import register as register_pipeline
+
+    register_pipeline()
     yield
     log.info("tempo shutdown")
 

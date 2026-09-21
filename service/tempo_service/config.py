@@ -45,8 +45,7 @@ class Settings(BaseSettings):
     clip_model_name: str = "openai/clip-vit-large-patch14"
     whisper_model_name: str = "large-v3"  # faster-whisper model id
     blip2_model_name: str = "Salesforce/blip2-opt-2.7b"
-    # AGENTS.md §3.2 shorthand "dslim/bert-base-NER" resolves to this HF id
-    ner_model_name: str = "dslim/bert-base-NERD"
+    ner_model_name: str = "dslim/bert-base-NER"  # token-classification, simple aggregation
     ocr_languages: list[str] = ["en"]
 
     # Pipeline tuning
