@@ -1,12 +1,16 @@
-"""P9-minimal verification: Colab proxy contracts (docs/api.md, ADR-0002/0003).
+"""Backend seam verification (ADR-0004).
 
-- /health includes colab {reachable, gpu} (False when unconfigured).
-- /sync includes uploads (empty when Colab unconfigured).
+- Factory: local -> None, http+URL -> HttpBackend, http w/o URL -> None,
+  unknown name -> ValueError.
+- /health includes backend {reachable, gpu} (False when local).
+- /sync includes uploads (empty when local).
 - /footage entries carry deterministic drive_path tempo/<key>/<basename>.
-- /search proxies to Colab when configured: unreachable tunnel ->
-  502 COLAB_UNREACHABLE (never hangs, never downloads).
-- POST /drive-auth honest stub (501 DRIVE_NOT_CONFIGURED until uploader lands).
+- /search via provider: unreachable base -> 502 BACKEND_UNREACHABLE.
+- /colab-url is gone (404) — backend address is server config, never input.
+- POST /drive-auth honest stub (501 DRIVE_NOT_CONFIGURED until P2 storage).
 """
+
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -18,8 +22,9 @@ def _client(tmp_path, monkeypatch):
     import tempo_service.app as app_module
 
     monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
-    monkeypatch.setattr(app_module.settings, "colab_url", "")
-    monkeypatch.setattr(app_module.settings, "colab_token", "")
+    monkeypatch.setattr(app_module.settings, "backend", "local")
+    monkeypatch.setattr(app_module.settings, "backend_url", "")
+    monkeypatch.setattr(app_module.settings, "backend_token", "")
     monkeypatch.setattr(registry.settings, "artifact_root", tmp_path)
     return TestClient(create_app())
 
@@ -30,11 +35,36 @@ def create_app():
     return _make()
 
 
-def test_health_includes_colab(tmp_path, monkeypatch):
+def _fake_provider(**methods):
+    return SimpleNamespace(**methods)
+
+
+def test_get_provider_factory():
+    from tempo_service.backends import HttpBackend, get_provider
+
+    assert get_provider("local", "", "", 1.0) is None
+    assert get_provider("http", "", "", 1.0) is None  # URL unset -> local fallback
+    p = get_provider("http", "https://x.example", "t", 1.0)
+    assert isinstance(p, HttpBackend)
+    try:
+        get_provider("colab", "", "", 1.0)
+        raise AssertionError("unknown backend should raise")
+    except ValueError:
+        pass
+
+
+def test_health_includes_backend(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     body = client.get("/health").json()
     assert body["status"] == "ok"
-    assert body["colab"] == {"reachable": False, "gpu": False}
+    assert body["backend"] == {"reachable": False, "gpu": False}
+    assert "colab" not in body
+
+
+def test_colab_url_endpoint_gone(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    r = client.post("/colab-url", json={"url": "https://x.example"})
+    assert r.status_code == 404
 
 
 def test_sync_includes_uploads_and_drive_path(tmp_path, monkeypatch):
@@ -42,7 +72,7 @@ def test_sync_includes_uploads_and_drive_path(tmp_path, monkeypatch):
     payload = {"footages": [{"path": "C:\\v\\a.mp4", "size": 1, "mtime_ns": 2, "item_id": 3}]}
     body = client.post("/sync", json=payload).json()
     assert "uploads" in body
-    assert body["uploads"] == []  # no Colab URL -> no upload handoff yet
+    assert body["uploads"] == []  # local backend -> no upload handoff yet
     footage = client.get("/footage").json()
     assert footage[0]["drive_path"] == "tempo/" + footage[0]["footage_key"] + "/a.mp4"
 
@@ -52,18 +82,19 @@ def test_drive_path_deterministic():
     assert drive_path_for("k", "/x/y.mov") == "tempo/k/y.mov"
 
 
-def test_search_proxies_colab_unreachable(tmp_path, monkeypatch):
+def test_search_proxies_backend_unreachable(tmp_path, monkeypatch):
     import tempo_service.app as app_module
 
     monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
     monkeypatch.setattr(registry.settings, "artifact_root", tmp_path)
-    monkeypatch.setattr(app_module.settings, "colab_url", "http://127.0.0.1:9")
-    monkeypatch.setattr(app_module.settings, "colab_token", "t")
-    monkeypatch.setattr(app_module.settings, "colab_timeout_s", 1.0)
+    monkeypatch.setattr(app_module.settings, "backend", "http")
+    monkeypatch.setattr(app_module.settings, "backend_url", "http://127.0.0.1:9")
+    monkeypatch.setattr(app_module.settings, "backend_token", "t")
+    monkeypatch.setattr(app_module.settings, "backend_timeout_s", 1.0)
     client = TestClient(app_module.create_app())
     r = client.get("/search", params={"q": "van"})
     assert r.status_code in (502, 504)
-    assert r.json()["error"]["code"] in ("COLAB_UNREACHABLE", "COLAB_TIMEOUT")
+    assert r.json()["error"]["code"] in ("BACKEND_UNREACHABLE", "BACKEND_TIMEOUT")
 
 
 def test_host_source_allowlist(tmp_path, monkeypatch):
@@ -79,13 +110,10 @@ def test_host_source_allowlist(tmp_path, monkeypatch):
 
 def test_search_backfills_empty_source_path(tmp_path, monkeypatch):
     import tempo_service.app as app_module
-    import tempo_service.colab as colab_module
     from tempo_service import registry as reg
 
     monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
     monkeypatch.setattr(reg.settings, "artifact_root", tmp_path)
-    monkeypatch.setattr(app_module.settings, "colab_url", "https://x.ngrok.app")
-    monkeypatch.setattr(app_module.settings, "colab_token", "t")
     reg.save_registry(
         {"k9": {"footage_key": "k9", "path": "C:\\v\\k9.mp4", "drive_path": "tempo/k9/k9.mp4",
                 "size": 1, "mtime_ns": 1, "format_version": 1, "state": "ready",
@@ -103,9 +131,8 @@ def test_search_backfills_empty_source_path(tmp_path, monkeypatch):
          "contributions": {"dense": 0.3, "bm25": 0.1, "anchor": 0.0, "entity_boost": 0.0},
          "transcript": "t2", "caption": "c2", "entities": []},
     ]}
-    monkeypatch.setattr(colab_module, "search", lambda *a, **k: (True, 200, body, None))
-
-    from fastapi.testclient import TestClient
+    fake = _fake_provider(search=lambda *a, **k: (True, 200, body, None))
+    monkeypatch.setattr(app_module, "get_provider", lambda *a, **k: fake)
 
     client = TestClient(app_module.create_app())
     r = client.get("/search", params={"q": "q"})
@@ -122,21 +149,17 @@ def test_drive_auth_stub(tmp_path, monkeypatch):
     assert r.json()["error"]["code"] == "DRIVE_NOT_CONFIGURED"
 
 
-def test_colab_url_setter_and_thumb_fallback(tmp_path, monkeypatch):
+def test_thumb_fallback(tmp_path, monkeypatch):
     import tempo_service.app as app_module
-    import tempo_service.colab as colab_module
 
     client = _client(tmp_path, monkeypatch)
-    r = client.post("/colab-url", json={"url": "not-a-url"})
-    assert r.status_code == 400
-    r = client.post("/colab-url", json={"url": "https://abc.ngrok-free.app"})
-    assert r.status_code == 200
-    assert r.json()["ok"] is True
-    # Local thumb missing + Colab unreachable -> 404 (not a hang).
-    monkeypatch.setattr(colab_module, "thumb_bytes", lambda *a, **k: (False, None, "COLAB_UNREACHABLE"))
+    # Local thumb missing + backend unreachable -> 404 (not a hang).
+    fake = _fake_provider(thumb_bytes=lambda *a, **k: (False, None, "BACKEND_UNREACHABLE"))
+    monkeypatch.setattr(app_module, "get_provider", lambda *a, **k: fake)
     assert client.get("/thumb/a1b2/0.jpg").status_code == 404
-    # Colab serves bytes -> proxied + cached locally.
-    monkeypatch.setattr(colab_module, "thumb_bytes", lambda *a, **k: (True, b"\xff\xd8\xff\xd9", None))
+    # Backend serves bytes -> proxied + cached locally.
+    fake = _fake_provider(thumb_bytes=lambda *a, **k: (True, b"\xff\xd8\xff\xd9", None))
+    monkeypatch.setattr(app_module, "get_provider", lambda *a, **k: fake)
     r = client.get("/thumb/a1b2/0.jpg")
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/jpeg"
@@ -144,16 +167,17 @@ def test_colab_url_setter_and_thumb_fallback(tmp_path, monkeypatch):
 
 
 def test_proxy_handoff_marks_ready(tmp_path, monkeypatch):
-    import tempo_service.app as app_module
-    import tempo_service.colab as colab_module
+    import tempo_service.backends as backends_module
     from tempo_service import jobs as jobs_module
     from tempo_service import registry as reg
 
+    import tempo_service.app as app_module
+
     monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
     monkeypatch.setattr(reg.settings, "artifact_root", tmp_path)
-    monkeypatch.setattr(app_module.settings, "colab_url", "https://x.ngrok.app")
-    monkeypatch.setattr(app_module.settings, "colab_token", "t")
-    monkeypatch.setattr(app_module.settings, "colab_timeout_s", 2.0)
+    monkeypatch.setattr(app_module.settings, "backend", "http")
+    monkeypatch.setattr(app_module.settings, "backend_url", "https://x.example")
+    monkeypatch.setattr(app_module.settings, "backend_token", "t")
 
     registry = {
         "k1": {"footage_key": "k1", "path": "C:\\v\\a.mp4", "drive_path": "tempo/k1/a.mp4",
@@ -161,18 +185,18 @@ def test_proxy_handoff_marks_ready(tmp_path, monkeypatch):
                "shot_count": 0, "duration_s": 0.0, "indexed_at": None}
     }
     reg.save_registry(registry)
-    monkeypatch.setattr(
-        colab_module, "index",
-        lambda *a, **k: (True, 200, {"job_id": "cj1", "footage_key": "k1"}, None),
-    )
     calls = {"n": 0}
 
     def fake_poll(*a, **k):
         calls["n"] += 1
-        return (True, 200, {"job_id": "cj1", "state": "done", "shot_count": 7,
+        return (True, 200, {"job_id": "bj1", "state": "done", "shot_count": 7,
                             "duration_s": 12.5, "stages": []}, None)
 
-    monkeypatch.setattr(colab_module, "job_status", fake_poll)
+    fake = _fake_provider(
+        submit_index=lambda *a, **k: (True, 200, {"job_id": "bj1", "footage_key": "k1"}, None),
+        job_status=fake_poll,
+    )
+    monkeypatch.setattr(backends_module, "get_provider", lambda *a, **k: fake)
     monkeypatch.setattr("tempo_service.proxy.time.sleep", lambda s: None)
 
     from tempo_service.proxy import handle
@@ -189,29 +213,26 @@ def test_proxy_handoff_marks_ready(tmp_path, monkeypatch):
 
 def test_proxy_failure_marks_entry_error_and_retry(tmp_path, monkeypatch):
     import tempo_service.app as app_module
-    import tempo_service.colab as colab_module
+    import tempo_service.backends as backends_module
     from tempo_service import jobs as jobs_module
     from tempo_service import registry as reg
 
     monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
     monkeypatch.setattr(reg.settings, "artifact_root", tmp_path)
-    monkeypatch.setattr(app_module.settings, "colab_url", "https://x.ngrok.app")
-    monkeypatch.setattr(app_module.settings, "colab_token", "t")
+    monkeypatch.setattr(app_module.settings, "backend", "http")
     reg.save_registry(
         {"k2": {"footage_key": "k2", "path": "C:\\v\\b.mp4", "drive_path": "tempo/k2/b.mp4",
                 "size": 1, "mtime_ns": 1, "format_version": 1, "state": "indexing",
                 "shot_count": 0, "duration_s": 0.0, "indexed_at": None}}
     )
-    monkeypatch.setattr(
-        colab_module, "index",
-        lambda *a, **k: (True, 200, {"job_id": "cj9", "footage_key": "k2"}, None),
+    fake = _fake_provider(
+        submit_index=lambda *a, **k: (True, 200, {"job_id": "bj9", "footage_key": "k2"}, None),
+        job_status=lambda *a, **k: (
+            True, 200,
+            {"job_id": "bj9", "state": "error",
+             "error": "footage not on Drive: tempo/k2/b.mp4", "stages": []}, None),
     )
-    monkeypatch.setattr(
-        colab_module, "job_status",
-        lambda *a, **k: (True, 200, {"job_id": "cj9", "state": "error",
-                                     "error": "footage not on Drive: tempo/k2/b.mp4",
-                                     "stages": []}, None),
-    )
+    monkeypatch.setattr(backends_module, "get_provider", lambda *a, **k: fake)
     monkeypatch.setattr("tempo_service.proxy.time.sleep", lambda s: None)
 
     from tempo_service.proxy import handle
@@ -228,8 +249,6 @@ def test_proxy_failure_marks_entry_error_and_retry(tmp_path, monkeypatch):
     assert saved["k2"]["state"] == "error"
     assert "not on Drive" in saved["k2"]["error"]
 
-    from fastapi.testclient import TestClient
-
     client = TestClient(app_module.create_app())
     r = client.post("/jobs/job_err/retry")
     assert r.status_code == 200
@@ -245,14 +264,11 @@ def test_footage_retry_by_key(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
     monkeypatch.setattr(reg.settings, "artifact_root", tmp_path)
-    monkeypatch.setattr(app_module.settings, "colab_url", "")
     reg.save_registry(
         {"k3": {"footage_key": "k3", "path": "C:\\v\\c.mp4", "drive_path": "tempo/k3/c.mp4",
                 "size": 1, "mtime_ns": 1, "format_version": 1, "state": "error",
                 "error": "boom", "shot_count": 0, "duration_s": 0.0, "indexed_at": None}}
     )
-    from fastapi.testclient import TestClient
-
     client = TestClient(app_module.create_app())
     r = client.post("/footage/k3/retry")
     assert r.status_code == 200

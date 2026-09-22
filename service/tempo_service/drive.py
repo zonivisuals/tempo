@@ -1,11 +1,10 @@
-"""Drive auto-upload helpers (ADR-0003, P9-minimal).
+"""Storage-key helpers (ADR-0003 path contract, ADR-0004 backends).
 
-Deterministic remote name: `tempo/<footage_key>/<basename>` where
+Deterministic storage key: `tempo/<footage_key>/<basename>` where
 `footage_key = sha1(local_path)[:10]` (registry.footage_key_for — stable
-across re-imports). Same key + size already on Drive → skip bytes.
-
-P9-minimal ships the path contract + local bookkeeping only; resumable
-uploads via google-api-python-client land next (pinned then, with rationale).
+across re-imports). Drive-shaped by history; today's backends resolve it
+against their own roots (P2 storage providers take over uploads; resumable
+transfer lands there, pinned then, with rationale).
 No hardcoded paths — drive_folder comes from config.
 """
 

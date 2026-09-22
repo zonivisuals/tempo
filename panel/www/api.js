@@ -15,18 +15,6 @@ const TempoAPI = (() => {
     return DEFAULT_BASE;
   }
 
-  function colabUrl() {
-    try { return localStorage.getItem("tempo_colab_url") || ""; }
-    catch (e) { return ""; }
-  }
-
-  function setColabUrl(url) {
-    try {
-      if (url) localStorage.setItem("tempo_colab_url", url);
-      else localStorage.removeItem("tempo_colab_url");
-    } catch (e) { /* ignore */ }
-  }
-
   async function req(path, opts, timeoutMs) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs || TIMEOUT_MS);
@@ -63,8 +51,6 @@ const TempoAPI = (() => {
 
   return {
     base,
-    colabUrl,
-    setColabUrl,
     health: () => req("/health"),
     footage: () => req("/footage"),
     sync: (footages) => req("/sync", {
@@ -81,11 +67,6 @@ const TempoAPI = (() => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
-    }),
-    setServiceColabUrl: (url) => req("/colab-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
     }),
     hostJs: (name) => reqText("/host/" + encodeURIComponent(name) + ".jsx"),
     thumbUrl: (key, shot_id) =>

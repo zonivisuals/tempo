@@ -2,14 +2,16 @@
 
 Base: `http://127.0.0.1:<port>` (default `8765`, configurable). JSON only.
 Errors: non-2xx with `{"error": {"code": "<SNAKE>", "message": "<human>"}}`.
-Colab tunnel: `GET /search` proxies to the Colab shim; tunnel failures use
-codes `COLAB_UNREACHABLE`, `COLAB_ASLEEP`, `COLAB_TIMEOUT` (all 502/504, never hangs).
+Backend (ADR-0004): `GET /search` and `/thumb` proxy to the configured
+backend (`TEMPO_BACKEND=http`, Modal web endpoint in production); failures
+use codes `BACKEND_UNREACHABLE`, `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`
+(all 502/504, never hangs). `backend="local"` runs the in-process indexer.
 
 ## GET /health
 
 ```json
 {"status": "ok", "models_loaded": {"clip": false, "whisper": false}, "artifact_root": "/data/tempo",
- "colab": {"reachable": true, "gpu": true}}
+ "backend": {"reachable": true, "gpu": true}}
 ```
 
 ## POST /sync
@@ -18,7 +20,7 @@ Request:
 ```json
 {"footages": [{"path": "C:\\v\\a.mp4", "size": 123, "mtime_ns": 456, "item_id": 42, "frame_rate": 25.0}]}
 ```
-Response (added/changed enter `uploading`, then auto-handoff to Colab; immediate):
+Response (added/changed enter `uploading`, then auto-handoff to the backend; immediate):
 ```json
 {"added": ["a1b2"], "changed": [], "removed": [], "unchanged": [],
  "jobs": ["job_001"], "uploads": ["job_001"]}
@@ -33,7 +35,7 @@ Response (added/changed enter `uploading`, then auto-handoff to Colab; immediate
             {"name": "ocr", "state": "running", "done": 37, "total": 157}],
  "error": null}
 ```
-`state`: `uploading|queued-for-colab|running|done|error`. Stage `state`: `pending|running|done|error`.
+`state`: `uploading|queued-for-backend|running|done|error`. Stage `state`: `pending|running|done|error`.
 
 Failed jobs keep their stage errors and the registry entry keeps
 `state: error` + message (e.g. Drive file missing with the exact
@@ -64,8 +66,10 @@ restarted, panel reloaded, job id lost). Unknown key → 404.
 ## GET /search?q=&top_k=&footage_keys=
 
 Query: `q` (required), `top_k` (default 8), `footage_keys` (csv, optional).
-Proxied to Colab (same §3.5 fusion); tunneled budget with timeout —
-`COLAB_ASLEEP`/`COLAB_UNREACHABLE`/`COLAB_TIMEOUT` on failure.
+Proxied to the backend (same §3.5 fusion); budgeted with timeout —
+`BACKEND_ASLEEP`/`BACKEND_UNREACHABLE`/`BACKEND_TIMEOUT` on failure.
+Empty `source_path` in backend results is backfilled from the registry
+(the backend never knows local disk paths).
 ```json
 {"query": "vending machine", "took_ms": 12,
  "results": [{"footage_key": "a1b2", "shot_id": 119,
@@ -81,8 +85,8 @@ Proxied to Colab (same §3.5 fusion); tunneled budget with timeout —
 ## GET /thumb/{footage_key}/{shot_id}.jpg
 
 Keyframe JPEG with cache headers. Served over HTTP (never `file://`).
-Cloud-indexed footage falls back to the Colab thumb proxy (then cached
-locally); Colab-side failures surface as `COLAB_ASLEEP`/`COLAB_TIMEOUT`.
+Backend-indexed footage falls back to the backend thumb proxy (then cached
+locally); backend-side failures surface as `BACKEND_ASLEEP`/`BACKEND_TIMEOUT`.
 
 ## GET /host/{name}.jsx
 

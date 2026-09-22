@@ -13,16 +13,15 @@ from typing import Any, cast
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import colab as colab_module
 from . import drive as drive_module
 from . import jobs as jobs_module
 from . import registry as registry_module
 from . import search as search_module
+from .backends import get_provider
 from .config import settings
 from .indexer.models import MODELS_LOADED as models_loaded
 from .schemas import (
-    ColabStatus,
-    ColabUrlRequest,
+    BackendStatus,
     Contributions,
     DriveAuthRequest,
     ErrorBody,
@@ -127,7 +126,7 @@ async def lifespan(app: FastAPI):
     Path(settings.artifact_root).mkdir(parents=True, exist_ok=True)
     from .proxy import register as register_proxy
 
-    register_proxy()  # Colab handoff when configured, else local pipeline
+    register_proxy()  # backend handoff when configured, else local pipeline
     yield
     log.info("tempo shutdown")
 
@@ -137,48 +136,29 @@ def create_app() -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
-        probe = colab_module.health(
-            settings.colab_url, settings.colab_token, settings.colab_health_timeout_s
+        provider = get_provider(
+            settings.backend, settings.backend_url, settings.backend_token,
+            settings.backend_health_timeout_s,
         )
+        probe = provider.health() if provider else {"reachable": False, "gpu": False}
         return HealthResponse(
             status="ok",
             models_loaded=dict(models_loaded),
             artifact_root=str(settings.artifact_root),
-            colab=ColabStatus(reachable=probe["reachable"], gpu=probe["gpu"]),
+            backend=BackendStatus(reachable=probe["reachable"], gpu=probe["gpu"]),
         )
-
-    @app.post("/colab-url")
-    def set_colab_url(body: ColabUrlRequest):  # type: ignore[no-untyped-def]
-        # Per-session ngrok URL pasted in the panel (tunnel churn, K4).
-        # Token via env only in production; accepted here for local testing.
-        url = (body.url or "").strip()
-        if url and not url.startswith("http"):
-            return JSONResponse(
-                status_code=400,
-                content=ErrorEnvelope(
-                    error=ErrorBody(code="BAD_URL", message="colab URL must start with http")
-                ).model_dump(),
-            )
-        settings.colab_url = url
-        if body.token:
-            settings.colab_token = body.token
-        log.info("colab-url set url=%r configured=%s has_token=%s", url, bool(url), bool(settings.colab_token))
-        probe = colab_module.health(
-            settings.colab_url, settings.colab_token, settings.colab_health_timeout_s
-        )
-        return {"ok": True, "colab": probe}
 
     @app.post("/drive-auth")
     def drive_auth(body: DriveAuthRequest):  # type: ignore[no-untyped-def]
-        # P9-minimal: OAuth bootstrap lands with drive.py resumable upload.
-        # Honest stub — never a silent stall (ADR-0003: re-auth hint).
+        # OAuth bootstrap lands with the storage provider upload flow (P2).
+        # Honest stub — never a silent stall (re-auth hint).
         log.info("drive-auth requested (code len=%d)", len(body.code))
         return JSONResponse(
             status_code=501,
             content=ErrorEnvelope(
                 error=ErrorBody(
                     code="DRIVE_NOT_CONFIGURED",
-                    message="Drive upload not configured yet; set TEMPO_COLAB_URL and complete OAuth",
+                    message="Direct upload not configured yet; copy to storage manually",
                 )
             ).model_dump(),
         )
@@ -207,6 +187,10 @@ def create_app() -> FastAPI:
         job_ids = [
             jobs_module.jobs.enqueue(key) for key in result["added"] + result["changed"]
         ]
+        provider = get_provider(
+            settings.backend, settings.backend_url, settings.backend_token,
+            settings.backend_timeout_s,
+        )
         log.info(
             "sync: +%d ~%d -%d =%d jobs=%d job_ids=%s uploads_pending=%s",
             len(result["added"]),
@@ -215,9 +199,9 @@ def create_app() -> FastAPI:
             len(result["unchanged"]),
             len(job_ids),
             job_ids,
-            bool(colab_module.configured(settings.colab_url)),
+            bool(provider),
         )
-        uploads = list(job_ids) if colab_module.configured(settings.colab_url) else []
+        uploads = list(job_ids) if provider else []
         return SyncResponse(
             added=result["added"],
             changed=result["changed"],
@@ -372,27 +356,24 @@ def create_app() -> FastAPI:
         import time
 
         t0 = time.perf_counter()
-        log.info("search: q=%r top_k=%d footage_keys=%r colab=%s", q, top_k, footage_keys,
-                 bool(colab_module.configured(settings.colab_url)))
-        if colab_module.configured(settings.colab_url):
-            ok, status, body, code = colab_module.search(
-                settings.colab_url,
-                settings.colab_token,
-                q,
-                top_k,
-                footage_keys,
-                settings.colab_timeout_s,
-            )
+        provider = get_provider(
+            settings.backend, settings.backend_url, settings.backend_token,
+            settings.backend_timeout_s,
+        )
+        log.info("search: q=%r top_k=%d footage_keys=%r backend=%s", q, top_k, footage_keys,
+                 bool(provider))
+        if provider:
+            ok, status, body, code = provider.search(q, top_k, footage_keys)
             if ok and body is not None:
                 try:
                     resp = SearchResponse(**body)
                 except Exception as exc:
-                    log.warning("search: colab body invalid (%s) body=%r", exc, str(body)[:500])
+                    log.warning("search: backend body invalid (%s) body=%r", exc, str(body)[:500])
                     raise
-                # Colab never knows the editor's local disk path (it indexes
-                # Drive copies) — the registry is the path authority. Backfill
+                # The backend never knows the editor's local disk path (it indexes
+                # storage copies) — the registry is the path authority. Backfill
                 # empty source_path so result-click can locate/import (F5);
-                # scoring/ordering untouched (Colab remains authoritative).
+                # scoring/ordering untouched (backend remains authoritative).
                 _reg = registry_module.load_registry()
                 _filled = 0
                 for _r in resp.results:
@@ -403,14 +384,14 @@ def create_app() -> FastAPI:
                             _filled += 1
                 if _filled:
                     log.info("search: backfilled source_path for %d results", _filled)
-                log.info("search: colab ok results=%d took_ms=%s", len(resp.results), body.get("took_ms"))
+                log.info("search: backend ok results=%d took_ms=%s", len(resp.results), body.get("took_ms"))
                 return resp
-            err_status = 504 if code == "COLAB_TIMEOUT" else 502
-            log.info("search: colab fail code=%s status=%s", code, status)
+            err_status = 504 if code == "BACKEND_TIMEOUT" else 502
+            log.info("search: backend fail code=%s status=%s", code, status)
             return JSONResponse(  # type: ignore[return-value]
                 status_code=err_status,
                 content=ErrorEnvelope(
-                    error=ErrorBody(code=code or "COLAB_UNREACHABLE", message="colab search failed")
+                    error=ErrorBody(code=code or "BACKEND_UNREACHABLE", message="backend search failed")
                 ).model_dump(),
             )
         registry = registry_module.load_registry()
@@ -502,18 +483,16 @@ def create_app() -> FastAPI:
                 media_type="image/jpeg",
                 headers={"Cache-Control": "public, max-age=86400"},
             )
-        # Cloud-indexed footage: thumbs live on Colab until synced down.
+        # Backend-indexed footage: thumbs live remotely until synced down.
         # Proxy + cache locally so the panel stays instant after first hit.
-        if colab_module.configured(settings.colab_url):
+        provider = get_provider(
+            settings.backend, settings.backend_url, settings.backend_token,
+            settings.backend_timeout_s,
+        )
+        if provider:
             from fastapi.responses import Response
 
-            ok, data, code = colab_module.thumb_bytes(
-                settings.colab_url,
-                settings.colab_token,
-                footage_key,
-                shot_id,
-                settings.colab_timeout_s,
-            )
+            ok, data, code = provider.thumb_bytes(footage_key, shot_id)
             if ok and data:
                 try:
                     path.parent.mkdir(parents=True, exist_ok=True)
@@ -525,12 +504,12 @@ def create_app() -> FastAPI:
                     media_type="image/jpeg",
                     headers={"Cache-Control": "public, max-age=86400"},
                 )
-            if code in ("COLAB_ASLEEP", "COLAB_TIMEOUT"):
-                err_status = 504 if code == "COLAB_TIMEOUT" else 502
+            if code in ("BACKEND_ASLEEP", "BACKEND_TIMEOUT"):
+                err_status = 504 if code == "BACKEND_TIMEOUT" else 502
                 return JSONResponse(
                     status_code=err_status,
                     content=ErrorEnvelope(
-                        error=ErrorBody(code=code, message="colab thumb failed")
+                        error=ErrorBody(code=code, message="backend thumb failed")
                     ).model_dump(),
                 )
         return JSONResponse(

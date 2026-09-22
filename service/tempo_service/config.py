@@ -52,12 +52,15 @@ class Settings(BaseSettings):
     visual_embed_batch: int = 32
     caption_max_new_tokens: int = 40
 
-    # Colab proxy (P9 / ADR-0002). URL is per-session ngrok tunnel, pasted in
-    # the panel and passed via TEMPO_COLAB_URL; token via env only, never git.
-    colab_url: str = ""
-    colab_token: str = ""
-    colab_timeout_s: float = 20.0
-    colab_health_timeout_s: float = 3.0
+    # Remote backend (ADR-0004). Address + token are server config/env only
+    # (TEMPO_BACKEND_URL / TEMPO_BACKEND_TOKEN), never user input, never git.
+    # backend="local" runs the in-process indexer; "http" proxies to a backend
+    # speaking the docs/api.md contract (Modal web endpoint in production).
+    backend: str = "local"
+    backend_url: str = ""
+    backend_token: str = ""
+    backend_timeout_s: float = 20.0
+    backend_health_timeout_s: float = 3.0
 
     # Drive auto-upload (P9 / ADR-0003). Deterministic `tempo/<key>/<basename>`.
     drive_folder: str = "tempo"

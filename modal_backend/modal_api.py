@@ -1,0 +1,328 @@
+"""FastAPI contract app for the Modal backend (ADR-0004).
+
+Speaks the docs/api.md backend subset: GET /health, POST /index,
+GET /jobs/{id}, GET /search, GET /thumb/{key}/{id}.jpg. No `modal` import
+here — this module is plain FastAPI + numpy and unit-testable on CPU. The
+Modal wiring (volumes, secrets, GPU, ASGI mount) lives in modal_app.py.
+
+Auth: per-deploy bearer token from env (Modal Secret in production), the
+entire auth model. Never logged.
+
+State: jobs + footage index live in memory; per-stage checkpoints persist
+as JSON under checkpoint_root (a Modal Volume mount in production, tmp in
+tests), so preemption resumes instead of restarting.
+"""
+
+import json
+import logging
+import os
+import pickle
+import queue
+import threading
+import uuid
+from pathlib import Path
+
+log = logging.getLogger("tempo.modal_api")
+
+STAGES = [
+    "upload",
+    "shots",
+    "visual_embed",
+    "cluster",
+    "transcribe",
+    "ocr",
+    "captions",
+    "text_embed",
+    "ner",
+    "build_index",
+]
+
+
+def _blank_stages():
+    return {n: {"name": n, "state": "pending", "done": 0, "total": 0} for n in STAGES}
+
+
+def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
+               embed_query=None, resolve_source=None):
+    """Build the FastAPI app.
+
+    run_all: fn(src_path, out_dir, progress) — defaults to pipeline.run_all
+        (GPU); tests inject a fake writing fixture artifacts.
+    embed_query: fn(text) -> L2-normalized np vector — defaults to None,
+        meaning the CLIP text singleton (GPU). Tests inject a fixed vector.
+        Missing model on CPU hosts → 503 MODEL_NOT_LOADED (same honest code).
+    resolve_source: fn(drive_path) -> Path mapping a storage ref to a local
+        file — defaults to identity; the Modal deploy maps refs into the
+        ingress Volume. Missing file → job error naming the location.
+    """
+    from fastapi import FastAPI, Header, Query
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import FileResponse, JSONResponse
+    from pydantic import BaseModel
+
+    from . import pipeline as pipeline_module
+    from . import scoring as scoring_module
+
+    artifacts_root = Path(artifacts_root)
+    checkpoint_root = Path(checkpoint_root)
+    run_all = run_all or pipeline_module.run_all
+    resolve_source = resolve_source or (lambda ref: Path(ref))
+
+    class IndexReq(BaseModel):
+        drive_path: str
+
+    jobs = {}
+    work = queue.Queue()
+    lock = threading.Lock()
+
+    def checkpoint(key, stage, entry):
+        try:
+            d = checkpoint_root / key
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"{stage}.json").write_text(
+                json.dumps({"stage": stage, "entry": entry}), encoding="utf-8"
+            )
+        except OSError as exc:
+            log.warning("checkpoint write failed %s/%s: %s", key, stage, exc)
+
+    def progress(jid, stage, done, total):
+        with lock:
+            job = jobs.get(jid)
+            if job is None:
+                return
+            job["stages"][stage] = {
+                "name": stage, "state": "running", "done": int(done), "total": int(total),
+            }
+            key = job["footage_key"]
+        checkpoint(key, stage, {"name": stage, "state": "running", "done": int(done), "total": int(total)})
+
+    def worker():
+        while True:
+            jid = work.get()
+            try:
+                with lock:
+                    job = jobs.get(jid)
+                if job is None:
+                    continue
+                with lock:
+                    job["state"] = "running"
+                out = artifacts_root / job["footage_key"]
+                progress(jid, "upload", 0, 1)
+                src = resolve_source(job["drive_path"])
+                if not src.is_file():
+                    raise FileNotFoundError(
+                        f"footage not found: {job['drive_path']} (expected at {src})"
+                    )
+                progress(jid, "upload", int(src.stat().st_size), int(src.stat().st_size))
+                summary = run_all(
+                    src, out,
+                    lambda st, d, t: progress(jid, st, d, t),
+                )
+                with lock:
+                    for n in STAGES:
+                        job["stages"][n]["state"] = "done"
+                    job["state"] = "done"
+                    job["shot_count"] = summary["shot_count"]
+                    job["duration_s"] = summary["duration_s"]
+            except Exception as exc:  # noqa: BLE001 — job error, never a crash
+                log.exception("job %s failed: %s", jid, exc)
+                with lock:
+                    job = jobs.get(jid)
+                    if job is not None:
+                        job["state"] = "error"
+                        job["error"] = str(exc)[:500]
+            finally:
+                work.task_done()
+
+    threading.Thread(target=worker, daemon=True, name="tempo-modal-jobs").start()
+
+    def check(auth_header):
+        want = auth_token or os.environ.get("BACKEND_TOKEN", "")
+        if not want:
+            return JSONResponse(
+                status_code=500,
+                content={"error": {"code": "NO_TOKEN", "message": "backend token not configured"}},
+            )
+        if auth_header != f"Bearer {want}":
+            return JSONResponse(
+                status_code=401,
+                content={"error": {"code": "UNAUTHORIZED", "message": "bad token"}},
+            )
+        return None
+
+    app = FastAPI(title="Tempo backend")
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+    )
+
+    @app.get("/health")
+    def health():
+        try:
+            import torch
+
+            gpu = torch.cuda.is_available()
+        except ImportError:
+            gpu = False
+        return {"status": "ok", "gpu": gpu}
+
+    @app.post("/index")
+    def index(body: IndexReq, authorization: str | None = Header(default=None)):
+        err = check(authorization)
+        if err is not None:
+            return err
+        if not body.drive_path or not body.drive_path.strip():
+            return JSONResponse(
+                status_code=400,
+                content={"error": {"code": "BAD_PATH", "message": "drive_path required"}},
+            )
+        jid = "job_" + uuid.uuid4().hex[:8]
+        key = Path(body.drive_path).parent.name or jid
+        with lock:
+            jobs[jid] = {
+                "job_id": jid, "footage_key": key, "drive_path": body.drive_path,
+                "state": "queued", "shot_count": 0,
+                "duration_s": 0.0, "stages": _blank_stages(), "error": None,
+            }
+        work.put(jid)
+        return {"job_id": jid, "drive_path": body.drive_path, "footage_key": key}
+
+    @app.get("/jobs/{jid}")
+    def job_status(jid: str, authorization: str | None = Header(default=None)):
+        err = check(authorization)
+        if err is not None:
+            return err
+        with lock:
+            job = jobs.get(jid)
+            if job is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": {"code": "NOT_FOUND", "message": "unknown job"}},
+                )
+            return {
+                "job_id": job["job_id"], "footage_key": job["footage_key"],
+                "state": job["state"], "shot_count": job["shot_count"],
+                "duration_s": job["duration_s"],
+                "stages": [job["stages"][n] for n in STAGES], "error": job["error"],
+            }
+
+    @app.get("/search")
+    def search(
+        q: str = Query(min_length=1),
+        top_k: int = Query(default=8, ge=1, le=50),
+        footage_keys: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        import time
+
+        import numpy as _np
+
+        t0 = time.perf_counter()
+        err = check(authorization)
+        if err is not None:
+            return err
+        # Corpus source of truth is artifact dirs on disk (survives restarts).
+        if footage_keys:
+            keys = footage_keys.split(",")
+        else:
+            keys = sorted(
+                d.name for d in artifacts_root.iterdir()
+                if d.is_dir() and (d / "shots.json").is_file()
+            ) if artifacts_root.is_dir() else []
+        mats_v, mats_d, mats_c, metas, bm25_all = [], [], [], [], []
+        for key in keys:
+            root = artifacts_root / key
+            try:
+                shots = json.loads((root / "shots.json").read_text(encoding="utf-8"))
+                npz = _np.load(root / "embeddings.npz")
+                order = sorted(range(len(shots)), key=lambda i: shots[i]["shot_id"])
+                mats_v.append(npz["visual"][order])
+                mats_d.append(npz["dialogue"][order])
+                mats_c.append(npz["caption"][order])
+                for i in order:
+                    s = shots[i]
+                    metas.append({
+                        "footage_key": key, "shot_id": s["shot_id"],
+                        "start_s": s["start_s"], "end_s": s["end_s"],
+                        "transcript": s.get("transcript", ""),
+                        "caption": s.get("caption", ""),
+                        "entities": s.get("entities", []),
+                        "text_context": (
+                            s.get("transcript", "") + " " + s.get("caption", "")
+                        ).strip(),
+                    })
+                with open(root / "bm25.pkl", "rb") as f:
+                    index = pickle.load(f)
+                bm25_all.append(
+                    _np.asarray(index.get_scores(q.lower().split()), dtype=float)
+                )
+            except (OSError, ValueError, KeyError, pickle.PickleError) as exc:
+                log.warning("skipping %s (%s)", key, exc)
+        if not metas:
+            return {"query": q, "took_ms": int((time.perf_counter() - t0) * 1000), "results": []}
+        if embed_query is None:
+            return JSONResponse(
+                status_code=503,
+                content={"error": {"code": "MODEL_NOT_LOADED", "message": "text model not loaded"}},
+            )
+        qv = embed_query(q)
+        V = _np.vstack(mats_v).astype(_np.float32)
+        D = _np.vstack(mats_d).astype(_np.float32)
+        C = _np.vstack(mats_c).astype(_np.float32)
+        B = _np.concatenate(bm25_all).astype(float)
+        shot_ents = [m["entities"] for m in metas]
+        ctxs = [m["text_context"] for m in metas]
+        # Query entities via the shared extractor when available (GPU); the
+        # anchor/entity paths degrade to 0 honestly without it.
+        try:
+            from .ner import _extract_entities
+
+            qe = _extract_entities(q)
+        except Exception:  # noqa: BLE001 — NER optional, see app.py precedent
+            qe = []
+        out = scoring_module.score_query(
+            qv, V, D, C, B, qe, shot_ents, ctxs, 0.45, 0.40, 0.15, 0.15
+        )
+        top = _np.argsort(-out["final"], kind="stable")[:top_k]
+        results = []
+        for idx in top:
+            m = metas[int(idx)]
+            wk = scoring_module.KEY_NAMES[int(out["winner"][idx])]
+            results.append({
+                "footage_key": m["footage_key"], "shot_id": m["shot_id"],
+                "source_path": "",  # local service backfills from its registry
+                "start_s": m["start_s"], "end_s": m["end_s"],
+                "score": float(out["final"][idx]), "winning_key": wk,
+                "raw_cos": {
+                    "visual": float(out["key_stack"][0, idx]),
+                    "dialogue": float(out["key_stack"][1, idx]),
+                    "caption": float(out["key_stack"][2, idx]),
+                },
+                "contributions": {
+                    "dense": float(out["dense_c"][idx]),
+                    "bm25": float(out["bm25_c"][idx]),
+                    "anchor": float(out["anchor_c"][idx]),
+                    "entity_boost": float(out["boost"][idx]),
+                },
+                "transcript": m["transcript"], "caption": m["caption"],
+                "entities": m["entities"],
+            })
+        return {"query": q, "took_ms": int((time.perf_counter() - t0) * 1000), "results": results}
+
+    @app.get("/thumb/{key}/{sid}.jpg")
+    def thumb(key: str, sid: int, authorization: str | None = Header(default=None)):
+        err = check(authorization)
+        if err is not None:
+            return err
+        for name in (f"keyframe_{sid}.jpg", f"shot_{sid}.jpg"):
+            path = artifacts_root / key / "thumbs" / name
+            if path.is_file():
+                return FileResponse(
+                    path, media_type="image/jpeg",
+                    headers={"Cache-Control": "public, max-age=86400"},
+                )
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "NOT_FOUND", "message": "unknown thumbnail"}},
+        )
+
+    return app

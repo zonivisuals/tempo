@@ -6,7 +6,7 @@
 
 const store = {
   online: false,
-  colab: { reachable: false, gpu: false },
+  backend: { reachable: false, gpu: false },
   footages: [],
   jobs: {},       // job_id -> last job payload
   activeJobs: [], // job_ids still running
@@ -83,11 +83,11 @@ function esc(s) {
 
 function renderStatus() {
   $("svc").textContent = store.online ? "service ok" : "service offline";
-  const c = $("colab");
+  const c = $("backend");
   if (c) {
-    c.textContent = !store.online ? "colab unknown"
-      : store.colab.reachable ? (store.colab.gpu ? "colab gpu" : "colab ok")
-      : "colab unreachable";
+    c.textContent = !store.online ? "backend unknown"
+      : store.backend.reachable ? (store.backend.gpu ? "backend gpu" : "backend ok")
+      : "local only";
   }
 }
 
@@ -251,11 +251,11 @@ async function refreshHealth() {
   const res = await TempoAPI.health();
   if (res.ok && res.body) {
     store.online = true;
-    store.colab = res.body.colab || { reachable: false, gpu: false };
-    dbg(`health: ok online=true colab=${JSON.stringify(store.colab)} base=${TempoAPI.base()}`);
+    store.backend = res.body.backend || { reachable: false, gpu: false };
+    dbg(`health: ok online=true backend=${JSON.stringify(store.backend)} base=${TempoAPI.base()}`);
   } else {
     store.online = false;
-    store.colab = { reachable: false, gpu: false };
+    store.backend = { reachable: false, gpu: false };
     dbg(`health: FAIL ok=${res.ok} status=${res.status} offline=${!!res.offline} base=${TempoAPI.base()}`);
   }
   renderStatus();
@@ -305,7 +305,7 @@ async function pollJobs() {
     if (!res.ok) { dbg(`jobs: id=${id} poll FAIL status=${res.status} offline=${!!res.offline}`); still.push(id); continue; }
     store.jobs[id] = res.body;
     dbg(`jobs: id=${id} state=${res.body.state} stages=${(res.body.stages || []).map((s) => `${s.name}:${s.state}`).join(",")}`);
-    if (["running", "queued", "uploading", "queued-for-colab"].includes(res.body.state)) still.push(id);
+    if (["running", "queued", "uploading", "queued-for-backend"].includes(res.body.state)) still.push(id);
   }
   store.activeJobs = still;
   renderJobs();
@@ -365,26 +365,7 @@ async function insertResult(r) {
 
 /* ---------- boot ---------- */
 
-function bootColabRow() {
-  const input = $("colab-url");
-  const btn = $("colab-save");
-  if (!input || !btn) return;
-  try { input.value = TempoAPI.colabUrl() || ""; } catch (e) { /* ignore */ }
-  btn.addEventListener("click", async () => {
-    const url = input.value.trim();
-    TempoAPI.setColabUrl(url);
-    showError(null);
-    dbg(`colab-save: url=${url || "(cleared)"}`);
-    // Push to the local service so proxy + /health use the per-session tunnel.
-    try {
-      const r = await TempoAPI.setServiceColabUrl(url);
-      dbg(`colab-save: service push ok=${r.ok} status=${r.status} body=${JSON.stringify(r.body).slice(0, 200)}`);
-    } catch (e) { dbg(`colab-save: service push throw ${e}`); }
-    refreshHealth();
-  });
-}
-
-const PANEL_VERSION = "dbg5";
+const PANEL_VERSION = "dbg6";
 
 function probe(expr) {
   return new Promise((resolve) => {
@@ -431,7 +412,6 @@ async function boot() {
   } catch (e) { dbg(`boot: JSON probe throw ${e}`, true); }
   await ensureHost();
   applyTheme();
-  bootColabRow();
   $("sync-now").addEventListener("click", () => { dbg("ui: Sync now clicked"); syncNow(); });
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
   $("footage-filter").addEventListener("change", (e) => { store.filter = e.target.value; });
