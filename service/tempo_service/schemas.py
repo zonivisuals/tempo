@@ -32,6 +32,7 @@ class SyncResponse(BaseModel):
     removed: list[str] = Field(default_factory=list)
     unchanged: list[str] = Field(default_factory=list)
     jobs: list[str] = Field(default_factory=list)
+    uploads: list[str] = Field(default_factory=list)
 
 
 class StageStatus(BaseModel):
@@ -44,7 +45,9 @@ class StageStatus(BaseModel):
 class JobStatus(BaseModel):
     job_id: str
     footage_key: str
-    state: Literal["queued", "running", "done", "error"] = "queued"
+    state: Literal["uploading", "queued-for-colab", "queued", "running", "done", "error"] = (
+        "queued"
+    )
     stages: list[StageStatus] = Field(default_factory=list)
     error: str | None = None
 
@@ -52,10 +55,11 @@ class JobStatus(BaseModel):
 class FootageInfo(BaseModel):
     footage_key: str
     path: str
+    drive_path: str = ""
     shot_count: int = 0
     duration_s: float = 0.0
     indexed_at: str | None = None
-    state: Literal["ready", "indexing", "stale", "error"] = "indexing"
+    state: Literal["uploading", "indexing", "ready", "stale", "error"] = "indexing"
 
 
 class RawCos(BaseModel):
@@ -92,7 +96,27 @@ class SearchResponse(BaseModel):
     results: list[SearchResult] = Field(default_factory=list)
 
 
+class ColabStatus(BaseModel):
+    reachable: bool = False
+    gpu: bool = False
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     models_loaded: dict[str, bool] = Field(default_factory=dict)
     artifact_root: str
+    colab: ColabStatus = Field(default_factory=ColabStatus)
+
+
+class DriveAuthRequest(BaseModel):
+    code: str = ""
+
+
+class JobRetryResponse(BaseModel):
+    job_id: str
+    footage_key: str
+
+
+class ColabUrlRequest(BaseModel):
+    url: str = ""
+    token: str = ""

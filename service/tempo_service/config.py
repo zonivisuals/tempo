@@ -52,5 +52,17 @@ class Settings(BaseSettings):
     visual_embed_batch: int = 32
     caption_max_new_tokens: int = 40
 
+    # Colab proxy (P9 / ADR-0002). URL is per-session ngrok tunnel, pasted in
+    # the panel and passed via TEMPO_COLAB_URL; token via env only, never git.
+    colab_url: str = ""
+    colab_token: str = ""
+    colab_timeout_s: float = 20.0
+    colab_health_timeout_s: float = 3.0
+
+    # Drive auto-upload (P9 / ADR-0003). Deterministic `tempo/<key>/<basename>`.
+    drive_folder: str = "tempo"
+    drive_chunk_mb: int = 8
+    oauth_token_path: str = "./secrets/drive_token.json"
+
 
 settings = Settings()

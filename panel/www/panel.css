@@ -41,7 +41,13 @@ body {
   background: var(--bg2); color: var(--text);
   border: 1px solid var(--border); border-radius: 2px; font: inherit;
 }
-#jobs { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+#jobs, #footage-actions { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+#jobs button, #footage-actions button {
+  background: var(--bg2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 2px;
+  font: inherit; padding: 2px 8px; cursor: pointer;
+}
+#jobs button:hover, #footage-actions button:hover { border-color: var(--accent); }
 .job { border: 1px solid var(--border); border-radius: 2px; padding: 4px 8px; }
 .job .bar { height: 3px; background: var(--border); margin-top: 4px; }
 .job .bar > div { height: 100%; background: var(--bar); }
@@ -75,3 +81,10 @@ body {
   padding: 4px 8px; font-size: 11px; color: #e08a8a;
 }
 .empty { font-size: 11px; color: var(--dim); padding: 8px 0; }
+#debugbox { font-size: 11px; color: var(--dim); }
+#debugbox pre {
+  white-space: pre-wrap; word-break: break-all;
+  border: 1px solid var(--border); border-radius: 2px;
+  padding: 4px 8px; margin: 4px 0 0; max-height: 160px; overflow: auto;
+  user-select: text;
+}

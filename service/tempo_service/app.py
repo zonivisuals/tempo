@@ -13,17 +13,23 @@ from typing import Any, cast
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 
+from . import colab as colab_module
+from . import drive as drive_module
 from . import jobs as jobs_module
 from . import registry as registry_module
 from . import search as search_module
 from .config import settings
 from .indexer.models import MODELS_LOADED as models_loaded
 from .schemas import (
+    ColabStatus,
+    ColabUrlRequest,
     Contributions,
+    DriveAuthRequest,
     ErrorBody,
     ErrorEnvelope,
     FootageInfo,
     HealthResponse,
+    JobRetryResponse,
     JobStatus,
     RawCos,
     SearchResponse,
@@ -119,9 +125,9 @@ async def lifespan(app: FastAPI):
         settings.format_version,
     )
     Path(settings.artifact_root).mkdir(parents=True, exist_ok=True)
-    from .indexer.pipeline import register as register_pipeline
+    from .proxy import register as register_proxy
 
-    register_pipeline()
+    register_proxy()  # Colab handoff when configured, else local pipeline
     yield
     log.info("tempo shutdown")
 
@@ -131,58 +137,224 @@ def create_app() -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
+        probe = colab_module.health(
+            settings.colab_url, settings.colab_token, settings.colab_health_timeout_s
+        )
         return HealthResponse(
             status="ok",
             models_loaded=dict(models_loaded),
             artifact_root=str(settings.artifact_root),
+            colab=ColabStatus(reachable=probe["reachable"], gpu=probe["gpu"]),
+        )
+
+    @app.post("/colab-url")
+    def set_colab_url(body: ColabUrlRequest):  # type: ignore[no-untyped-def]
+        # Per-session ngrok URL pasted in the panel (tunnel churn, K4).
+        # Token via env only in production; accepted here for local testing.
+        url = (body.url or "").strip()
+        if url and not url.startswith("http"):
+            return JSONResponse(
+                status_code=400,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code="BAD_URL", message="colab URL must start with http")
+                ).model_dump(),
+            )
+        settings.colab_url = url
+        if body.token:
+            settings.colab_token = body.token
+        log.info("colab-url set url=%r configured=%s has_token=%s", url, bool(url), bool(settings.colab_token))
+        probe = colab_module.health(
+            settings.colab_url, settings.colab_token, settings.colab_health_timeout_s
+        )
+        return {"ok": True, "colab": probe}
+
+    @app.post("/drive-auth")
+    def drive_auth(body: DriveAuthRequest):  # type: ignore[no-untyped-def]
+        # P9-minimal: OAuth bootstrap lands with drive.py resumable upload.
+        # Honest stub — never a silent stall (ADR-0003: re-auth hint).
+        log.info("drive-auth requested (code len=%d)", len(body.code))
+        return JSONResponse(
+            status_code=501,
+            content=ErrorEnvelope(
+                error=ErrorBody(
+                    code="DRIVE_NOT_CONFIGURED",
+                    message="Drive upload not configured yet; set TEMPO_COLAB_URL and complete OAuth",
+                )
+            ).model_dump(),
         )
 
     @app.post("/sync", response_model=SyncResponse)
     def sync(body: SyncRequest) -> SyncResponse:
         # Immediate diff + enqueue; indexing runs in the single worker (P3).
+        # Explicit logging: paste the whole block when debugging empty syncs.
+        log.info("sync: received footages=%d", len(body.footages))
+        for f in body.footages[:10]:
+            log.info(
+                "sync: in path=%r size=%d mtime_ns=%d item_id=%d fps=%s",
+                f.path, f.size, f.mtime_ns, f.item_id, f.frame_rate,
+            )
+        if len(body.footages) > 10:
+            log.info("sync: ... +%d more", len(body.footages) - 10)
         registry = registry_module.load_registry()
+        log.info("sync: registry entries=%d keys=%s", len(registry), sorted(registry)[:10])
         result = registry_module.diff(body.footages, registry)
+        log.info(
+            "sync: diff added=%s changed=%s removed=%s unchanged=%s",
+            result["added"], result["changed"], result["removed"], result["unchanged"],
+        )
         registry_module.apply_sync(body.footages, result, registry)
         registry_module.save_registry(registry)
         job_ids = [
             jobs_module.jobs.enqueue(key) for key in result["added"] + result["changed"]
         ]
         log.info(
-            "sync: +%d ~%d -%d =%d jobs=%d",
+            "sync: +%d ~%d -%d =%d jobs=%d job_ids=%s uploads_pending=%s",
             len(result["added"]),
             len(result["changed"]),
             len(result["removed"]),
             len(result["unchanged"]),
             len(job_ids),
+            job_ids,
+            bool(colab_module.configured(settings.colab_url)),
         )
+        uploads = list(job_ids) if colab_module.configured(settings.colab_url) else []
         return SyncResponse(
             added=result["added"],
             changed=result["changed"],
             removed=result["removed"],
             unchanged=result["unchanged"],
             jobs=job_ids,
+            uploads=uploads,
         )
 
     @app.get("/jobs/{job_id}", response_model=JobStatus)
     def job_status(job_id: str) -> JobStatus:
         job = jobs_module.jobs.get(job_id)
         if job is None:
+            log.info("jobs: id=%s -> 404 NOT_FOUND", job_id)
             return JSONResponse(  # type: ignore[return-value]
                 status_code=404,
                 content=ErrorEnvelope(
                     error=ErrorBody(code="NOT_FOUND", message="unknown job")
                 ).model_dump(),
             )
-        return JobStatus(**job.to_status())
+        st = job.to_status()
+        log.info(
+            "jobs: id=%s footage=%s state=%s stages=%s",
+            job_id, st.get("footage_key"), st.get("state"),
+            [(s.get("name"), s.get("state"), s.get("done"), s.get("total")) for s in st.get("stages", [])],
+        )
+        return JobStatus(**st)
+
+    @app.get("/host/{name}.jsx")
+    def host_source(name: str):  # type: ignore[no-untyped-def]
+        # Loader fallback for environments where CEP skips manifest ScriptPath
+        # evaluation (panel UI loads, host functions stay undefined). Serves the
+        # repo files VERBATIM — single source of truth stays panel/host/*.jsx;
+        # the panel evalScripts the text only when its boot probes fail.
+        # No shared JS modules across the bridge (AGENTS.md §2.3); the contract
+        # still lives in docs/api.md. Never cachable — panel must get fresh code.
+        import re
+
+        from fastapi.responses import PlainTextResponse
+
+        sources = {"json2": "json2.js", "host": "host.jsx"}
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name) or name not in sources:
+            return JSONResponse(
+                status_code=404,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code="NOT_FOUND", message="unknown host file")
+                ).model_dump(),
+            )
+        from pathlib import Path as _Path
+
+        host_dir = _Path(__file__).resolve().parents[2] / "panel" / "host"
+        path = host_dir / sources[name]
+        if not path.is_file():
+            log.warning("host source missing: %s", path)
+            return JSONResponse(
+                status_code=404,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code="NOT_FOUND", message="host file not on disk")
+                ).model_dump(),
+            )
+        log.info("host: serving %s (%d bytes)", name, path.stat().st_size)
+        return PlainTextResponse(
+            path.read_text(encoding="utf-8"),
+            media_type="text/plain",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def _enqueue_retry(key: str) -> JobRetryResponse:
+        registry = registry_module.load_registry()
+        entry = registry.get(key)
+        if entry is not None:
+            entry["state"] = "indexing"
+            entry.pop("error", None)
+            registry_module.save_registry(registry)
+        new_id = jobs_module.jobs.enqueue(key)
+        return JobRetryResponse(job_id=new_id, footage_key=key)
+
+    @app.post("/jobs/{job_id}/retry", response_model=JobRetryResponse)
+    def job_retry(job_id: str):  # type: ignore[no-untyped-def]
+        # Explicit re-enqueue of a failed job's footage (one click = one job).
+        # Auto-sync never re-enqueues (would hot-loop every 2s); only explicit
+        # retry turns an `error`/orphaned entry back into `indexing` + a job.
+        job = jobs_module.jobs.get(job_id)
+        if job is None:
+            return JSONResponse(
+                status_code=404,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code="NOT_FOUND", message="unknown job")
+                ).model_dump(),
+            )
+        resp = _enqueue_retry(job.footage_key)
+        log.info("retry: job %s (footage %s) -> new job %s", job_id, job.footage_key, resp.job_id)
+        return resp
+
+    @app.post("/footage/{footage_key}/retry", response_model=JobRetryResponse)
+    def footage_retry(footage_key: str):  # type: ignore[no-untyped-def]
+        # Same as job retry, addressed by footage key — covers orphaned
+        # entries (service restarted, panel reloaded, job id lost) and lets
+        # the panel offer Retry/Resume straight from the footage list.
+        import re as _re
+
+        if not _re.fullmatch(r"[A-Za-z0-9_-]{1,64}", footage_key):
+            return JSONResponse(
+                status_code=404,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code="NOT_FOUND", message="unknown footage")
+                ).model_dump(),
+            )
+        registry = registry_module.load_registry()
+        if footage_key not in registry:
+            return JSONResponse(
+                status_code=404,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code="NOT_FOUND", message="unknown footage")
+                ).model_dump(),
+            )
+        resp = _enqueue_retry(footage_key)
+        log.info("retry: footage %s -> new job %s", footage_key, resp.job_id)
+        return resp
 
     @app.get("/footage", response_model=list[FootageInfo])
     def footage() -> list[FootageInfo]:
         registry = registry_module.load_registry()
+        log.info(
+            "footage: entries=%d %s",
+            len(registry),
+            [(k, v.get("state"), v.get("path", "")[:80]) for k, v in list(registry.items())[:10]],
+        )
         # Stable order: registry insertion order (search matrices rely on it).
         return [
             FootageInfo(
                 footage_key=key,
                 path=entry.get("path", ""),
+                drive_path=entry.get(
+                    "drive_path",
+                    drive_module.drive_path_for(key, entry.get("path", "")),
+                ),
                 shot_count=entry.get("shot_count", 0),
                 duration_s=entry.get("duration_s", 0.0),
                 indexed_at=entry.get("indexed_at"),
@@ -200,6 +372,47 @@ def create_app() -> FastAPI:
         import time
 
         t0 = time.perf_counter()
+        log.info("search: q=%r top_k=%d footage_keys=%r colab=%s", q, top_k, footage_keys,
+                 bool(colab_module.configured(settings.colab_url)))
+        if colab_module.configured(settings.colab_url):
+            ok, status, body, code = colab_module.search(
+                settings.colab_url,
+                settings.colab_token,
+                q,
+                top_k,
+                footage_keys,
+                settings.colab_timeout_s,
+            )
+            if ok and body is not None:
+                try:
+                    resp = SearchResponse(**body)
+                except Exception as exc:
+                    log.warning("search: colab body invalid (%s) body=%r", exc, str(body)[:500])
+                    raise
+                # Colab never knows the editor's local disk path (it indexes
+                # Drive copies) — the registry is the path authority. Backfill
+                # empty source_path so result-click can locate/import (F5);
+                # scoring/ordering untouched (Colab remains authoritative).
+                _reg = registry_module.load_registry()
+                _filled = 0
+                for _r in resp.results:
+                    if not _r.source_path:
+                        _p = _reg.get(_r.footage_key, {}).get("path", "")
+                        if _p:
+                            _r.source_path = _p
+                            _filled += 1
+                if _filled:
+                    log.info("search: backfilled source_path for %d results", _filled)
+                log.info("search: colab ok results=%d took_ms=%s", len(resp.results), body.get("took_ms"))
+                return resp
+            err_status = 504 if code == "COLAB_TIMEOUT" else 502
+            log.info("search: colab fail code=%s status=%s", code, status)
+            return JSONResponse(  # type: ignore[return-value]
+                status_code=err_status,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code=code or "COLAB_UNREACHABLE", message="colab search failed")
+                ).model_dump(),
+            )
         registry = registry_module.load_registry()
         keys = footage_keys.split(",") if footage_keys else None
         corpus = search_module.load_corpus(
@@ -282,18 +495,49 @@ def create_app() -> FastAPI:
         path = (
             settings.artifact_root / "footage" / footage_key / "thumbs" / f"shot_{shot_id}.jpg"
         )
-        if not path.is_file():
-            return JSONResponse(
-                status_code=404,
-                content=ErrorEnvelope(
-                    error=ErrorBody(code="NOT_FOUND", message="unknown thumbnail")
-                ).model_dump(),
+        if path.is_file():
+            # Thumbnails over HTTP (never file://) — avoids CEF file-access flags.
+            return FileResponse(
+                path,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=86400"},
             )
-        # Thumbnails over HTTP (never file://) — avoids CEF file-access flags.
-        return FileResponse(
-            path,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=86400"},
+        # Cloud-indexed footage: thumbs live on Colab until synced down.
+        # Proxy + cache locally so the panel stays instant after first hit.
+        if colab_module.configured(settings.colab_url):
+            from fastapi.responses import Response
+
+            ok, data, code = colab_module.thumb_bytes(
+                settings.colab_url,
+                settings.colab_token,
+                footage_key,
+                shot_id,
+                settings.colab_timeout_s,
+            )
+            if ok and data:
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                except OSError:
+                    pass
+                return Response(
+                    content=data,
+                    media_type="image/jpeg",
+                    headers={"Cache-Control": "public, max-age=86400"},
+                )
+            if code in ("COLAB_ASLEEP", "COLAB_TIMEOUT"):
+                err_status = 504 if code == "COLAB_TIMEOUT" else 502
+                return JSONResponse(
+                    status_code=err_status,
+                    content=ErrorEnvelope(
+                        error=ErrorBody(code=code, message="colab thumb failed")
+                    ).model_dump(),
+                )
+        return JSONResponse(
+            status_code=404,
+            content=ErrorEnvelope(
+                error=ErrorBody(code="NOT_FOUND", message="unknown thumbnail")
+            ).model_dump(),
         )
 
     @app.exception_handler(Exception)

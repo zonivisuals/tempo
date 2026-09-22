@@ -35,6 +35,22 @@ Response (added/changed enter `uploading`, then auto-handoff to Colab; immediate
 ```
 `state`: `uploading|queued-for-colab|running|done|error`. Stage `state`: `pending|running|done|error`.
 
+Failed jobs keep their stage errors and the registry entry keeps
+`state: error` + message (e.g. Drive file missing with the exact
+`Drive/<drive_path>` copy hint). Auto-sync never re-enqueues — explicit retry only:
+
+## POST /jobs/{job_id}/retry
+
+```json
+{"job_id": "job_002", "footage_key": "a1b2"}
+```
+Resets the entry to `indexing` and enqueues a fresh job. Unknown id → 404.
+
+## POST /footage/{footage_key}/retry
+
+Same, addressed by footage key — covers orphaned entries (service
+restarted, panel reloaded, job id lost). Unknown key → 404.
+
 ## GET /footage
 
 ```json
@@ -65,6 +81,15 @@ Proxied to Colab (same §3.5 fusion); tunneled budget with timeout —
 ## GET /thumb/{footage_key}/{shot_id}.jpg
 
 Keyframe JPEG with cache headers. Served over HTTP (never `file://`).
+Cloud-indexed footage falls back to the Colab thumb proxy (then cached
+locally); Colab-side failures surface as `COLAB_ASLEEP`/`COLAB_TIMEOUT`.
+
+## GET /host/{name}.jsx
+
+Serves `panel/host/{json2.js,host.jsx}` verbatim (`text/plain`, `no-store`).
+Loader fallback: if the panel boots with `typeof tempoListFootage !=
+"function"` (CEP skipped manifest ScriptPath evaluation), it fetches and
+`evalScript`s these sources on demand. Anything else → 404.
 
 ## Panel ↔ host (ExtendScript bridge, ES3, JSON strings)
 

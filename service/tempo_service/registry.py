@@ -68,10 +68,13 @@ def diff(
 ) -> dict[str, list[str]]:
     """Diff project footage against the registry.
 
-    - added:   key not in registry
+    - added:   key not in registry, or entry is stale but the fingerprint
+               matches again (re-imported → revive + re-enqueue; D7 stale is
+               about *absent* footage, not a free pass to skip present work)
     - changed: size/mtime differ, or stored format_version mismatches
     - removed: in registry (and not already stale) but absent from project
-    - unchanged: fingerprint + format_version match
+    - unchanged: fingerprint + format_version match (any non-stale state —
+               `error` stays unchanged: explicit retry only, never auto-loop)
     """
     fmt = settings.format_version if format_version is None else format_version
     seen: set[str] = set()
@@ -84,6 +87,11 @@ def diff(
         seen.add(key)
         entry = registry.get(key)
         if entry is None:
+            added.append(key)
+        elif entry.get("state") == "stale":
+            # Fingerprint matches but the entry was left for dead while the
+            # footage was out of the project → revive as added (fresh
+            # fingerprint written + job enqueued by apply_sync).
             added.append(key)
         elif (
             entry.get("size") != item.size
@@ -121,9 +129,12 @@ def apply_sync(
         if not matches:
             continue
         item = matches[0]
+        from .drive import drive_path_for
+
         registry[key] = {
             "footage_key": key,
             "path": item.path,
+            "drive_path": drive_path_for(key, item.path),
             "size": item.size,
             "mtime_ns": item.mtime_ns,
             "item_id": item.item_id,

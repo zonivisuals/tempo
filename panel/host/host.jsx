@@ -15,15 +15,18 @@
 
 function tempoListFootage() {
     var out = [];
+    var seen = 0;
+    var skipped = 0;
     try {
-        if (!app.project) { return JSON.stringify(out); }
+        if (!app.project) { try { $.writeln("[Tempo] list: no project"); } catch (e0) {} return JSON.stringify(out); }
         var n = app.project.items.length;
         for (var i = 1; i <= n; i++) {
             var item = app.project.items[i];
-            if (!(item instanceof FootageItem)) { continue; }
+            seen++;
+            if (!(item instanceof FootageItem)) { skipped++; continue; }
             var src = null;
-            try { src = item.mainSource; } catch (e1) { continue; }
-            if (!(src instanceof FileSource)) { continue; }
+            try { src = item.mainSource; } catch (e1) { skipped++; continue; }
+            if (!(src instanceof FileSource)) { skipped++; continue; }
             var file = null;
             try { file = src.file; } catch (e2) { continue; }
             if (!file) { continue; }
@@ -42,8 +45,10 @@ function tempoListFootage() {
             });
         }
     } catch (e) {
+        try { $.writeln("[Tempo] list: throw " + (e && e.message || e)); } catch (e9) {}
         return JSON.stringify(out);
     }
+    try { $.writeln("[Tempo] list: items=" + seen + " footage=" + out.length + " skipped=" + skipped); } catch (e8) {}
     return JSON.stringify(out);
 }
 
@@ -112,7 +117,13 @@ function tempoInsertOrFocusInner(payload) {
     if (app.project.activeItem instanceof CompItem) {
         comp = app.project.activeItem;
     } else {
-        var base = payload.source_path.replace(/^.*[\\/]/, "");
+        /* No regex: some ExtendScript builds mis-lex `/` inside a regex
+           literal (reports "Expected: )" at parse time). Plain string ops. */
+        var base = payload.source_path;
+        var k = base.lastIndexOf("/");
+        var k2 = base.lastIndexOf("\\");
+        if (k2 > k) { k = k2; }
+        if (k >= 0) { base = base.substring(k + 1); }
         var w = 1920, h = 1080, fps = 25.0;
         try { w = footage.width; h = footage.height; fps = footage.frameRate; } catch (e) {}
         comp = app.project.items.addComp("Tempo — " + base, w, h, 1.0, 60.0, fps);

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 log = logging.getLogger("tempo.jobs")
 
 STAGES = [
+    "upload",  # Drive leg (stage 0, §3.2): bytes visible on Drive before handoff
     "shots",
     "visual_embed",
     "cluster",

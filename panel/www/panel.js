@@ -6,6 +6,7 @@
 
 const store = {
   online: false,
+  colab: { reachable: false, gpu: false },
   footages: [],
   jobs: {},       // job_id -> last job payload
   activeJobs: [], // job_ids still running
@@ -18,11 +19,28 @@ const store = {
 const cs = (typeof CSInterface !== "undefined") ? new CSInterface() : null;
 const $ = (id) => document.getElementById(id);
 
+const bootLines = [];
+function dbg(line, pin) {
+  // Single copy-paste surface: DevTools console + #debug box. No tokens logged.
+  try { console.log("[Tempo] " + line); } catch (e) { /* headless */ }
+  try {
+    const el = $("debug");
+    if (!el) return;
+    if (pin) bootLines.push(line);
+    const tail = (el.dataset.tail || "").split("\n").filter(Boolean);
+    if (!pin) {
+      tail.push(line);
+      el.dataset.tail = tail.slice(-60).join("\n");
+    }
+    el.textContent = bootLines.concat(["---"], (el.dataset.tail || "").split("\n")).join("\n");
+  } catch (e) { /* ignore */ }
+}
+
 function evalScript(expr) {
   return new Promise((resolve) => {
-    if (!cs) { resolve(null); return; }
+    if (!cs) { dbg("evalScript: NO CSInterface (panel opened outside AE?) expr=" + expr); resolve(null); return; }
     try { cs.evalScript(expr, (r) => resolve(r)); }
-    catch (e) { resolve(null); }
+    catch (e) { dbg("evalScript: throw " + e); resolve(null); }
   });
 }
 
@@ -65,12 +83,18 @@ function esc(s) {
 
 function renderStatus() {
   $("svc").textContent = store.online ? "service ok" : "service offline";
+  const c = $("colab");
+  if (c) {
+    c.textContent = !store.online ? "colab unknown"
+      : store.colab.reachable ? (store.colab.gpu ? "colab gpu" : "colab ok")
+      : "colab unreachable";
+  }
 }
 
 function renderJobs() {
   const box = $("jobs");
   const ids = Object.keys(store.jobs);
-  if (!ids.length) { box.innerHTML = ""; return; }
+  if (!ids.length) { box.innerHTML = ""; renderFootageActions(); return; }
   box.innerHTML = ids.map((id) => {
     const j = store.jobs[id];
     const rows = (j.stages || []).map((s) => {
@@ -78,9 +102,76 @@ function renderJobs() {
       return `<div>${esc(s.name)} ${s.state}${s.total ? ` ${s.done}/${s.total}` : ""}` +
         `<div class="bar"><div style="width:${pct}%"></div></div></div>`;
     }).join("");
-    const err = j.state === "error" ? `<div class="job err">${esc(j.error || "error")}</div>` : "";
+    const err = j.state === "error"
+      ? `<div class="job err">${esc(j.error || "error")}<div><button type="button" data-retry="${esc(id)}">Retry</button></div></div>`
+      : "";
     return `<div class="job"><div>Indexing ${esc(id)} · ${esc(j.state)}</div>${rows}${err}</div>`;
   }).join("");
+  box.querySelectorAll("[data-retry]").forEach((btn) => {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); retryJob(btn.dataset.retry); });
+  });
+  renderFootageActions();
+}
+
+async function footageRetry(key) {
+  dbg(`footage-retry: key=${key}`);
+  const res = await TempoAPI.retryFootage(key);
+  dbg(`footage-retry: ok=${res.ok} status=${res.status} body=${JSON.stringify(res.body).slice(0, 200)}`);
+  if (!res.ok) { showError("RETRY_FAILED", "status " + res.status); return; }
+  showError(null);
+  const nid = res.body.job_id;
+  store.jobs[nid] = { job_id: nid, footage_key: key, state: "queued", stages: [] };
+  store.activeJobs = [...new Set([...store.activeJobs, nid])];
+  renderJobs();
+}
+
+function renderFootageActions() {
+  // Retry/Resume per footage state (explicit clicks only — auto-sync never
+  // re-enqueues). Covers error entries and orphaned indexing entries whose
+  // job id was lost (service restart / panel reload).
+  const box = $("footage-actions");
+  if (!box) return;
+  const covered = new Set(
+    store.activeJobs.map((id) => store.jobs[id] && store.jobs[id].footage_key).filter(Boolean)
+  );
+  // Jobs created locally have no footage_key until their first poll — can't
+  // prove orphan, so suppress Resume until coverage is known (500ms poll).
+  const unknown = store.activeJobs.some((id) => !(store.jobs[id] && store.jobs[id].footage_key));
+  // Every footage gets one factual state row — this is how you tell what
+  // indexing is doing without opening DevTools. Buttons only where an
+  // explicit click can do work (error → Retry, orphaned → Resume).
+  const rows = [];
+  for (const f of store.footages) {
+    const base = esc(String(f.path).split(/[\\/]/).pop());
+    const detail = f.state === "ready" && f.shot_count
+      ? ` · ${f.shot_count} shots` : "";
+    if (f.state === "error") {
+      rows.push(`<div class="job"><div>${base} · error — copy to Drive, then Retry</div>` +
+        `<div><button type="button" data-fretry="${esc(f.footage_key)}">Retry</button></div></div>`);
+    } else if (!unknown && (f.state === "indexing" || f.state === "uploading") && !covered.has(f.footage_key)) {
+      rows.push(`<div class="job"><div>${base} · ${esc(f.state)} (no active job)</div>` +
+        `<div><button type="button" data-fretry="${esc(f.footage_key)}">Resume</button></div></div>`);
+    } else {
+      const live = (f.state === "indexing" || f.state === "uploading") ? " · working (see stages below)" : "";
+      rows.push(`<div class="job"><div>${base} · ${esc(f.state)}${detail}${live}</div></div>`);
+    }
+  }
+  box.innerHTML = rows.join("");
+  box.querySelectorAll("[data-fretry]").forEach((btn) => {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); footageRetry(btn.dataset.fretry); });
+  });
+}
+
+async function retryJob(id) {
+  dbg(`retry: job=${id}`);
+  const res = await TempoAPI.retry(id);
+  dbg(`retry: ok=${res.ok} status=${res.status} body=${JSON.stringify(res.body).slice(0, 200)}`);
+  if (!res.ok) { showError("RETRY_FAILED", "status " + res.status); return; }
+  showError(null);
+  const nid = res.body.job_id;
+  store.jobs[nid] = { job_id: nid, state: "queued", stages: [] };
+  store.activeJobs = [...new Set([...store.activeJobs, nid])];
+  renderJobs();
 }
 
 function skeletonHTML() {
@@ -143,6 +234,7 @@ function renderFilter() {
     sel.hidden = true;
     store.filter = "";
   }
+  renderFootageActions();
 }
 
 /* ---------- actions ---------- */
@@ -155,13 +247,33 @@ async function refreshCompFps() {
   } catch (e) { /* project fps stays default */ }
 }
 
+async function refreshHealth() {
+  const res = await TempoAPI.health();
+  if (res.ok && res.body) {
+    store.online = true;
+    store.colab = res.body.colab || { reachable: false, gpu: false };
+    dbg(`health: ok online=true colab=${JSON.stringify(store.colab)} base=${TempoAPI.base()}`);
+  } else {
+    store.online = false;
+    store.colab = { reachable: false, gpu: false };
+    dbg(`health: FAIL ok=${res.ok} status=${res.status} offline=${!!res.offline} base=${TempoAPI.base()}`);
+  }
+  renderStatus();
+}
+
 async function syncNow() {
   const raw = await evalScript("tempoListFootage()");
+  dbg(`sync: evalScript raw type=${typeof raw} len=${(raw || "").length} raw=${String(raw).slice(0, 300)}`);
+  if (raw === null) dbg("sync: host returned null (CSInterface missing or panel outside AE?)");
+  else if (raw === "") dbg("sync: host returned EMPTY string (host.jsx not loaded — reinstall panel + restart AE)");
   let footages = [];
-  try { footages = JSON.parse(raw) || []; } catch (e) { footages = []; }
+  try { footages = JSON.parse(raw) || []; } catch (e) { dbg(`sync: JSON.parse failed: ${e}`); footages = []; }
+  dbg(`sync: parsed footages=${footages.length} ${footages.slice(0, 3).map((f) => f.path).join(" | ")}`);
   const res = await TempoAPI.sync(footages);
+  dbg(`sync: POST /sync ok=${res.ok} status=${res.status} offline=${!!res.offline} body=${JSON.stringify(res.body).slice(0, 300)}`);
   store.online = res.ok;
-  renderStatus();
+  if (res.ok) await refreshHealth();
+  else renderStatus();
   if (!res.ok) {
     showError("SYNC_FAILED", res.offline ? "service offline" : "status " + res.status);
     return;
@@ -170,12 +282,15 @@ async function syncNow() {
   const b = res.body;
   $("sync-summary").textContent =
     `+${b.added.length} ~${b.changed.length} -${b.removed.length} =${b.unchanged.length}`;
+  dbg(`sync: diff +${b.added.length} ~${b.changed.length} -${b.removed.length} =${b.unchanged.length} jobs=${JSON.stringify(b.jobs)} uploads=${JSON.stringify(b.uploads)}`);
+  if (!footages.length) dbg("sync: 0 footages from host — check AE project has FileSource footage (not solid/sequence/missing) + host.jsx loaded");
   for (const id of b.jobs) {
     store.jobs[id] = { job_id: id, state: "queued", stages: [] };
   }
   store.activeJobs = [...new Set([...store.activeJobs, ...b.jobs])];
   renderJobs();
   const fl = await TempoAPI.footage();
+  dbg(`sync: GET /footage ok=${fl.ok} count=${fl.ok ? (fl.body || []).length : "?"}`);
   if (fl.ok) {
     store.footages = fl.body || [];
     renderFilter();
@@ -187,9 +302,10 @@ async function pollJobs() {
   const still = [];
   for (const id of store.activeJobs) {
     const res = await TempoAPI.job(id);
-    if (!res.ok) { still.push(id); continue; }
+    if (!res.ok) { dbg(`jobs: id=${id} poll FAIL status=${res.status} offline=${!!res.offline}`); still.push(id); continue; }
     store.jobs[id] = res.body;
-    if (res.body.state === "running" || res.body.state === "queued") still.push(id);
+    dbg(`jobs: id=${id} state=${res.body.state} stages=${(res.body.stages || []).map((s) => `${s.name}:${s.state}`).join(",")}`);
+    if (["running", "queued", "uploading", "queued-for-colab"].includes(res.body.state)) still.push(id);
   }
   store.activeJobs = still;
   renderJobs();
@@ -215,10 +331,12 @@ async function doSearch() {
   if (!res.ok) {
     const code = (res.body && res.body.error && res.body.error.code) ||
       (res.offline ? "SERVICE_OFFLINE" : "SEARCH_FAILED");
+    dbg(`search: q=${JSON.stringify(q)} FAIL code=${code} status=${res.status} offline=${!!res.offline}`);
     showError(code, res.offline ? "service offline" : "status " + res.status);
     store.results = [];
   } else {
     store.results = res.body.results || [];
+    dbg(`search: q=${JSON.stringify(q)} ok results=${store.results.length} took_ms=${res.body.took_ms}`);
   }
   renderResults();
 }
@@ -229,20 +347,92 @@ async function insertResult(r) {
     source_path: r.source_path, start_s: r.start_s, end_s: r.end_s,
   });
   // One evalScript call does the whole job (locate/import, comp, trim, playhead).
-  const raw = await evalScript(`tempoInsertOrFocus(${payload})`);
+  // The JSON is embedded as an ExtendScript string literal: every backslash
+  // must be doubled or Windows paths mangle ("C:\Users" parses to "C:Users",
+  // so lookup misses and import reports "source missing from disk").
+  const expr = "tempoInsertOrFocus(" + payload.replace(/\\/g, "\\\\") + ")";
+  const raw = await evalScript(expr);
+  dbg(`insert: payload=${payload.slice(0, 200)} raw=${String(raw).slice(0, 200)}`);
   try {
     const out = JSON.parse(raw);
-    if (!out || !out.ok) showError("INSERT_FAILED", out && out.error);
+    if (!out || !out.ok) { dbg(`insert: FAIL ${JSON.stringify(out).slice(0, 200)}`); showError("INSERT_FAILED", out && out.error); }
+    else dbg(`insert: ok comp=${out.comp_id} layer=${out.layer_id}`);
   } catch (e) {
+    dbg(`insert: bad host response raw=${String(raw).slice(0, 200)}`);
     showError("INSERT_FAILED", "bad host response");
   }
 }
 
 /* ---------- boot ---------- */
 
-function boot() {
+function bootColabRow() {
+  const input = $("colab-url");
+  const btn = $("colab-save");
+  if (!input || !btn) return;
+  try { input.value = TempoAPI.colabUrl() || ""; } catch (e) { /* ignore */ }
+  btn.addEventListener("click", async () => {
+    const url = input.value.trim();
+    TempoAPI.setColabUrl(url);
+    showError(null);
+    dbg(`colab-save: url=${url || "(cleared)"}`);
+    // Push to the local service so proxy + /health use the per-session tunnel.
+    try {
+      const r = await TempoAPI.setServiceColabUrl(url);
+      dbg(`colab-save: service push ok=${r.ok} status=${r.status} body=${JSON.stringify(r.body).slice(0, 200)}`);
+    } catch (e) { dbg(`colab-save: service push throw ${e}`); }
+    refreshHealth();
+  });
+}
+
+const PANEL_VERSION = "dbg5";
+
+function probe(expr) {
+  return new Promise((resolve) => {
+    if (!cs) { resolve(null); return; }
+    try { cs.evalScript(expr, (r) => resolve(r)); }
+    catch (e) { resolve(null); }
+  });
+}
+
+async function ensureHost() {
+  // Loader fallback: some environments load the panel UI but skip manifest
+  // ScriptPath evaluation (host functions stay undefined). The service serves
+  // the repo files verbatim (GET /host/*.jsx); evalScript them on demand.
+  // Probes decide — never blindly re-evaluates over a working host.
+  if (!cs) { dbg("loader: no CSInterface, skipping", true); return; }
+  const kind = await probe("typeof tempoListFootage");
+  if (kind === "function") { dbg("loader: host present via ScriptPath, no action", true); return; }
+  dbg(`loader: host missing (typeof=${kind}), fetching sources from service`, true);
+  const needJson2 = (await probe("typeof JSON")) !== "object";
+  for (const name of needJson2 ? ["json2", "host"] : ["host"]) {
+    const res = await TempoAPI.hostJs(name);
+    dbg(`loader: GET /host/${name}.jsx ok=${res.ok} status=${res.status} bytes=${(res.text || "").length}`);
+    if (!res.ok || !res.text) { dbg(`loader: fetch ${name} failed, host stays missing`, true); return; }
+    const applied = await new Promise((resolve) => {
+      try { cs.evalScript(res.text, () => resolve(true)); }
+      catch (e) { resolve(false); }
+    });
+    dbg(`loader: evalScript ${name} sent=${applied}`);
+  }
+  const after = await probe("typeof tempoListFootage");
+  dbg(`loader: typeof tempoListFootage=${after} (want function)`, true);
+}
+
+async function boot() {
+  dbg(`boot: panel=${PANEL_VERSION} cs=${cs ? "yes" : "NO"} base=${TempoAPI.base()}`, true);
+  try {
+    cs.evalScript("1+1", (r) => dbg(`boot: bridge 1+1=${r} (want 2)`, true));
+  } catch (e) { dbg(`boot: bridge probe throw ${e}`, true); }
+  try {
+    cs.evalScript("typeof tempoListFootage", (r) => dbg(`boot: typeof tempoListFootage=${r} (want function)`, true));
+  } catch (e) { dbg(`boot: host probe throw ${e}`, true); }
+  try {
+    cs.evalScript("typeof JSON", (r) => dbg(`boot: host typeof JSON=${r} (want object; undefined=json2.js failed)`, true));
+  } catch (e) { dbg(`boot: JSON probe throw ${e}`, true); }
+  await ensureHost();
   applyTheme();
-  $("sync-now").addEventListener("click", syncNow);
+  bootColabRow();
+  $("sync-now").addEventListener("click", () => { dbg("ui: Sync now clicked"); syncNow(); });
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
   $("footage-filter").addEventListener("change", (e) => { store.filter = e.target.value; });
   renderStatus();
@@ -252,4 +442,7 @@ function boot() {
   setInterval(pollJobs, 500);   // job progress poll while jobs run
 }
 
+window.addEventListener("error", (e) => {
+  try { console.log("[Tempo] window.onerror: " + (e && e.message)); } catch (_e) { /* ignore */ }
+});
 document.addEventListener("DOMContentLoaded", boot);

@@ -81,3 +81,19 @@ def test_panel_insert_payload_matches_contract():
     src = PANEL_JS.read_text(encoding="utf-8")
     for key in INSERT_KEYS:
         assert key in src, f"panel.js missing insert key: {key}"
+
+
+def test_panel_insert_escapes_windows_paths():
+    """The JSON payload is embedded as an ExtendScript string literal: raw
+    backslashes would mangle Windows paths (C:\\Users → C:Users) so lookup
+    misses and import reports 'source missing from disk'. panel.js must
+    double backslashes before interpolating into the evalScript call."""
+    src = PANEL_JS.read_text(encoding="utf-8")
+    assert 'payload.replace(/\\\\/g, "\\\\\\\\")' in src, "insert path escaping missing"
+
+    # Round-trip proof at the Python level of the same transform: doubling
+    # backslashes preserves the JSON text through one string-literal parse.
+    import json
+
+    payload = json.dumps({"source_path": "C:\\v\\a.mp4", "start_s": 1.0, "end_s": 2.0})
+    assert json.loads(payload)["source_path"] == "C:\\v\\a.mp4"

@@ -33,3 +33,6 @@ Thumbs.db
 .env
 .env.local
 *.log
+
+tempo_pipeline_v3.ipynb
+colab/

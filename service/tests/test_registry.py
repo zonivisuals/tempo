@@ -35,6 +35,29 @@ def test_diff_added_changed_removed_unchanged():
     assert reg[registry.footage_key_for(c.path)]["state"] == "stale"
 
 
+def test_stale_revives_on_reimport():
+    a = _item()
+    key = registry.footage_key_for(a.path)
+    reg = {}
+    r1 = registry.diff([a], reg)
+    registry.apply_sync([a], r1, reg)
+    assert reg[key]["state"] == "indexing"
+    # footage leaves the project → stale
+    r2 = registry.diff([], reg)
+    assert r2["removed"] == [key]
+    registry.apply_sync([], r2, reg)
+    assert reg[key]["state"] == "stale"
+    # same file re-imported → added again (revive + re-enqueue), not unchanged
+    r3 = registry.diff([a], reg)
+    assert r3["added"] == [key] and not r3["unchanged"]
+    registry.apply_sync([a], r3, reg)
+    assert reg[key]["state"] == "indexing"
+    # error entries with matching fingerprint stay put (explicit retry only)
+    reg[key]["state"] = "error"
+    r4 = registry.diff([a], reg)
+    assert r4["unchanged"] == [key] and not r4["added"]
+
+
 def test_format_bump_forces_reindex_and_prune_is_explicit():
     a = _item()
     reg = {}
