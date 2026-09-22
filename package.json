@@ -1,0 +1,14 @@
+{
+  "name": "tempo-lint",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Repo lint tooling: ES3 gate for ExtendScript (AGENTS.md §7.1)",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint panel/host/host.jsx panel/host/ae_smoke.jsx"
+  },
+  "devDependencies": {
+    "eslint": "9.18.0",
+    "globals": "17.12.0"
+  }
+}

@@ -10,9 +10,6 @@ propagates so the job records the stage + message (F4).
 import logging
 import os
 import traceback
-from pathlib import Path
-
-import numpy as np
 
 log = logging.getLogger("tempo.pipeline")
 

@@ -29,8 +29,6 @@ def get_clip_vision():  # type: ignore[no-untyped-def]
     from .models import load
 
     def factory():  # type: ignore[no-untyped-def]
-        import torch
-
         device = _device()
         return (
             CLIPVisionModelWithProjection.from_pretrained(
@@ -49,8 +47,6 @@ def get_clip_text():  # type: ignore[no-untyped-def]
     from .models import load
 
     def factory():  # type: ignore[no-untyped-def]
-        import torch
-
         device = _device()
         return (
             CLIPTextModelWithProjection.from_pretrained(_model_name()).to(device).eval(),

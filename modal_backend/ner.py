@@ -9,8 +9,6 @@ Deviations from verbatim:
   - _get_ner_pipeline becomes an explicit import from .singletons
     (was a notebook global). Body otherwise verbatim.
 """
-import re
-
 from .singletons import _get_ner_pipeline
 
 

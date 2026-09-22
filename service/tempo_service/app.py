@@ -268,6 +268,20 @@ def create_app() -> FastAPI:
             "sync: diff added=%s changed=%s removed=%s unchanged=%s",
             result["added"], result["changed"], result["removed"], result["unchanged"],
         )
+        from . import entitlements as entitlements_module
+
+        allowed, code, message = entitlements_module.check_new_work(
+            result["added"], result["changed"], result["unchanged"],
+            registry, settings.plan,
+        )
+        if not allowed:
+            log.info("sync: quota deny plan=%s (%s)", settings.plan, message)
+            return JSONResponse(  # type: ignore[return-value]
+                status_code=403,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code=code, message=message)
+                ).model_dump(),
+            )
         registry_module.apply_sync(body.footages, result, registry)
         registry_module.save_registry(registry)
         job_ids = [

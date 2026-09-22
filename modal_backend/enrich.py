@@ -9,8 +9,10 @@ Deviations from verbatim:
   - BLIP-2 model name reads env with notebook default;
   - cross-cell names (_get_clip_text_model, _extract_entities) become
     explicit imports; caption hyperparams (40/1.25/3) kept literal;
+  - `del x; gc.collect(); …` semicolons kept verbatim (ruff E702 exempt file-wide);
   - _need() guards at entries.
 """
+# ruff: noqa: E702
 import gc
 import re
 

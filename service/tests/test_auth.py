@@ -138,8 +138,6 @@ def test_protected_routes_need_session(tmp_path, monkeypatch):
 
 
 def test_login_logout_me_flow(tmp_path, monkeypatch):
-    import tempo_service.app as app_module
-
     client = _authed_client(tmp_path, monkeypatch)
 
     def fake_sign_in(self, email, password):

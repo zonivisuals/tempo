@@ -277,7 +277,8 @@ async function syncNow() {
   else renderStatus();
   if (!res.ok) {
     if (res.status === 401) { showLogin("session expired — sign in"); return; }
-    showError("SYNC_FAILED", res.offline ? "service offline" : "status " + res.status);
+    const code = authCode(res);
+    showError(code || "SYNC_FAILED", res.offline ? "service offline" : "status " + res.status);
     return;
   }
   showError(null);

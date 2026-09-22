@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from tempo_service.storage import S3Backend, StorageError, get_storage
+from tempo_service.storage import S3Backend, get_storage
 from tempo_service.storage import s3 as s3_module
 
 ENDPOINT = "https://x.r2.cloudflarestorage.com"
@@ -37,7 +37,6 @@ def _botocore_url(method, op):
     from botocore.config import Config
 
     frozen = datetime.datetime(2024, 1, 2, 3, 4, 5)
-    monkey_target = "botocore.auth.get_current_datetime"
     import botocore.auth
 
     orig = botocore.auth.get_current_datetime
@@ -189,7 +188,7 @@ def test_proxy_uploads_real_bytes_and_purges(tmp_path, monkeypatch):
                 "size": 2048, "mtime_ns": 1, "format_version": 1, "state": "indexing",
                 "shot_count": 0, "duration_s": 0.0, "indexed_at": None}}
     )
-    seen, deleted = [], []
+    deleted = []
     import tempo_service.backends as backends_module
 
     fake_provider = type("P", (), {

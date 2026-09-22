@@ -9,10 +9,12 @@ Deviations from verbatim:
   - download_youtube_video DROPPED (Modal ingests from storage, not
     YouTube; kept in notebook only);
   - cross-cell names become explicit imports via ._deps;
+  - top-level `import os` dropped (the function-level import serves makedirs);
+  - `del x; gc.collect(); …` semicolons kept verbatim (ruff E702 exempt file-wide);
   - _need() guards at entries.
 """
+# ruff: noqa: E702
 import gc
-import os
 
 import numpy as np
 

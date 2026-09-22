@@ -89,5 +89,9 @@ class Settings(BaseSettings):
     storage_presign_ttl: int = 3600
     storage_retention: str = "delete"
 
+    # Plans (ADR-0007). Free tier locked: 1 footage, 7 footage-minutes.
+    # Supabase licenses override this once billing lands.
+    plan: str = "free"
+
 
 settings = Settings()

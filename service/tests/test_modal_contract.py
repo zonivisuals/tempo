@@ -40,7 +40,6 @@ def test_stages_import_clean_and_guards_name_packages():
     import modal_backend.audio_ocr as ao
     import modal_backend.enrich as en
     import modal_backend.indices as ix
-    import modal_backend.ner as ner
     import modal_backend.shots_visual as sv
     import modal_backend.singletons as sg
 

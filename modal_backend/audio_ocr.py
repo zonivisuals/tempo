@@ -8,8 +8,10 @@ pipeline change (golden + parity tests guard drift).
 Deviations from verbatim:
   - cross-cell names become explicit imports via ._deps;
   - EasyOCR keeps its function-level import (honest ModuleNotFoundError);
+  - `del x; gc.collect(); …` semicolons kept verbatim (ruff E702 exempt file-wide);
   - _need() guards at entries.
 """
+# ruff: noqa: E702
 import concurrent.futures
 import gc
 

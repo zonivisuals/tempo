@@ -17,7 +17,6 @@ log = logging.getLogger("tempo.shots")
 
 def detect_shots(video_path: str, thumbs_dir: str, progress=None) -> tuple[list[dict], float, float]:  # type: ignore[no-untyped-def]
     import cv2
-    import numpy as np
     from scenedetect import SceneManager, open_video
     from scenedetect.detectors import AdaptiveDetector
 

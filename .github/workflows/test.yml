@@ -14,5 +14,36 @@ jobs:
           python-version: "3.11"
       - name: Install service (pinned + dev)
         run: pip install ./service "./service[dev]"
+      - name: Ruff (pinned config in service/pyproject.toml)
+        run: python -m ruff check service modal_backend
       - name: Run service tests
         run: python -m pytest service/tests -q
+
+  panel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install lint tooling (pinned lockfile)
+        run: npm ci
+      - name: ES3 gate for ExtendScript (AGENTS.md §7.1)
+        run: npx eslint panel/host/host.jsx panel/host/ae_smoke.jsx
+      - name: Panel syntax (modern Chromium is fine here)
+        run: node --check panel/www/panel.js && node --check panel/www/api.js
+
+  auth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: auth/package-lock.json
+      - name: Install auth service (pinned lockfile)
+        run: npm ci --prefix auth
+      - name: Auth syntax
+        run: node --check auth/server.mjs && node --check auth/auth.mjs

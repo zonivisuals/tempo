@@ -25,6 +25,8 @@ Response (added/changed enter `uploading`, then auto-handoff to the backend; imm
 {"added": ["a1b2"], "changed": [], "removed": [], "unchanged": [],
  "jobs": ["job_001"], "uploads": ["job_001"]}
 ```
+Plans enforced on new work only (D14): over quota → `403 QUOTA_EXCEEDED`
+(free: 1 footage, 7 footage-minutes). Unchanged-only syncs always pass.
 
 ## GET /jobs/{job_id}
 

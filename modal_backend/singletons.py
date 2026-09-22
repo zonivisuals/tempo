@@ -11,8 +11,6 @@ Deviations from verbatim:
   - model names read from env with notebook defaults (configurability);
   - _need() guards at entries (CPU/test hosts get a named error).
 """
-import gc
-
 from . import _deps
 from ._deps import _need
 
