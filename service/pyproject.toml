@@ -28,6 +28,7 @@ dev = [
     "pytest==8.3.3",
     "httpx==0.27.2",
     "ruff==0.6.9",
+    "boto3==1.43.99",  # test-only SigV4 ground truth (never imported by tempo_service)
 ]
 
 [build-system]

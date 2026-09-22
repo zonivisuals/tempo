@@ -152,7 +152,7 @@ Stages 1–9 run **on the backend** (`modal_backend/` port, D11); stage 0
 (upload) runs locally. Progress for every stage is polled at 500 ms and
 rendered by the panel (§5, F4).
 
-| 0 | `upload` | bytes sent | — (Drive API, resumable, local service) |
+| 0 | `upload` | bytes sent | — (storage provider stream, real progress; manual copy when unconfigured) |
 | # | Stage | Progress unit | Model |
 |---|-------|---------------|-------|
 | 1 | `shots` | frames sampled | — (OpenCV + scenedetect AdaptiveDetector) |
@@ -283,7 +283,7 @@ Artifacts are the only durable state. The service must be restartable at any mom
 
 ### 3.7 Configuration
 
-`Settings` via environment variables + optional config file; documented defaults; zero absolute paths in code. Required knobs: port, artifact root, model cache dir, weights (§3.5), job poll/pacing values, `prune_stale` flag, log level, `backend` (`local|http`), `backend_url`, `backend_token` (env only), `drive_folder` (`tempo/` root), Drive chunk size, OAuth token path. Frame rates, sizes, and durations always come from data (pipeline or project), never constants. `requires-python >=3.11`.
+`Settings` via environment variables + optional config file; documented defaults; zero absolute paths in code. Required knobs: port, artifact root, model cache dir, weights (§3.5), job poll/pacing values, `prune_stale` flag, log level, `backend` (`local|http`), `backend_url`, `backend_token` (env only), `drive_folder` (`tempo/` root), Drive chunk size, OAuth token path, `auth_mode`, `auth_url`, `token_store`, `storage_provider` (`none|s3`), storage endpoint/bucket/credentials/region/TTL (env only), `storage_retention` (`delete|keep`). Frame rates, sizes, and durations always come from data (pipeline or project), never constants. `requires-python >=3.11`.
 
 ---
 
@@ -497,6 +497,7 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
 - **D10 Drive auto-upload on AE import** — deterministic `tempo/<key>/<basename>`, `uploading` + `queued-for-backend` states (see `docs/decisions/0003-drive-auto-upload.md`).
 - **D11 Modal-hosted pipeline behind the backend seam** — §2.1 (`modal_backend/` port, mechanical extraction with provenance; `backends/` provider interface; server-config URL + token, never user input — see `docs/decisions/0004-modal-backend.md`).
 - **D12 Better Auth identity, sidecar session gate** — `auth/` service (email+password, Google/GitHub) on Postgres; opaque sessions validated by the sidecar and cached by expiry; keychain persistence; panel holds no tokens (see `docs/decisions/0005-identity.md`).
+- **D13 Storage providers, presigned uploads, raw retention** — `storage/` seam (SigV4 stdlib, botocore-parity-tested); Modal Volumes day-zero, B2 step-up, R2 later; real byte progress; raw purged post-index (see `docs/decisions/0006-storage.md`).
 
 Known debt (tracked, not silently fixed):
 - **K1 Key-scale calibration:** text↔text keys out-signal text↔image keys in `max()` fusion (§3.5). Fix planned: per-key normalization + `format_version` bump + golden update.

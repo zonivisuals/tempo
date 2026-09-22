@@ -63,7 +63,7 @@ def handle(job, progress) -> None:  # type: ignore[no-untyped-def]
         job.footage_key, entry.get("path", "")
     )
     try:
-        _handoff(job, progress, provider, drive_path)
+        _handoff(job, progress, provider, drive_path, entry)
     except Exception as exc:
         # Honest terminal state for Retry: entry keeps the message, job keeps
         # the failed stages (jobs._run marks them). Re-raised so the job
@@ -80,15 +80,36 @@ def handle(job, progress) -> None:  # type: ignore[no-untyped-def]
         raise
 
 
-def _handoff(job, progress, provider, drive_path: str) -> None:  # type: ignore[no-untyped-def]
+def _handoff(job, progress, provider, drive_path: str, entry: dict) -> None:  # type: ignore[no-untyped-def]
     from . import jobs as jobs_module
     from . import registry as registry_module
+    from .config import settings
+    from .storage import StorageError, get_storage
 
     jobs_module.jobs._set(job.job_id, state="queued-for-backend")
-    try:
-        progress("upload", 0, 1)
-    except Exception:
-        pass
+    storage = get_storage(
+        settings.storage_provider, settings.storage_endpoint, settings.storage_bucket,
+        settings.storage_key, settings.storage_secret, settings.storage_region,
+        settings.storage_presign_ttl,
+    )
+    if storage is not None:
+        # Real byte movement with real progress (ADR-0006). No storage ->
+        # manual-copy leg: the backend verifies presence and errors honestly.
+        local_path = entry.get("path", "")
+        if not local_path:
+            raise RuntimeError("registry entry has no local path; cannot upload")
+        try:
+            storage.upload_file(
+                local_path, drive_path,
+                progress=lambda d, t: progress("upload", d, t),
+            )
+        except StorageError as exc:
+            raise RuntimeError(str(exc))
+    else:
+        try:
+            progress("upload", 0, 1)
+        except Exception:
+            pass
 
     ok, status, body, code = provider.submit_index(drive_path)
     if not ok:
@@ -102,10 +123,8 @@ def _handoff(job, progress, provider, drive_path: str) -> None:  # type: ignore[
     if not backend_id:
         raise RuntimeError("Backend handoff returned no job_id.")
 
-    try:
-        progress("upload", 1, 1)
-    except Exception:
-        pass
+    # Upload stage already shows real bytes (storage leg) or the 0/1 manual
+    # marker — handoff success only flips the job state, never progress.
     jobs_module.jobs._set(job.job_id, state="running")
 
     while True:
@@ -137,6 +156,16 @@ def _handoff(job, progress, provider, drive_path: str) -> None:  # type: ignore[
                 err += f" (copy local file to Drive/{drive_path})"
             raise RuntimeError(err)
         time.sleep(POLL_S)
+
+    # Retention call (locked): raw upload purged once artifacts persist.
+    # Delete failure never fails indexed work — it only warns.
+    if storage is not None:
+        if settings.storage_retention == "delete":
+            try:
+                storage.delete_key(drive_path)
+                log.info("proxy job %s purged raw %s", job.job_id, drive_path)
+            except StorageError as exc:
+                log.warning("proxy job %s raw purge failed (%s)", job.job_id, exc)
 
     # Mark registry ready from backend completion (shot_count/duration honest).
     registry = registry_module.load_registry()

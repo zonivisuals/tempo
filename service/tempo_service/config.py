@@ -76,5 +76,18 @@ class Settings(BaseSettings):
     auth_timeout_s: float = 10.0
     token_store: str = "keyring"  # keyring (OS credential vault) | memory (tests)
 
+    # Storage (ADR-0006). provider="none" keeps the manual-copy behavior;
+    # "s3" speaks any S3-compatible store (R2, B2) via presigned URLs.
+    # Credentials via env only, never logged. retention="delete" purges the
+    # raw upload after artifacts persist (locked product call); "keep" skips.
+    storage_provider: str = "none"
+    storage_endpoint: str = ""
+    storage_bucket: str = "tempo"
+    storage_key: str = ""
+    storage_secret: str = ""
+    storage_region: str = "auto"
+    storage_presign_ttl: int = 3600
+    storage_retention: str = "delete"
+
 
 settings = Settings()
