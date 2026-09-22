@@ -1,9 +1,14 @@
-"""Modal deployment wiring (ADR-0004). Imported ONLY on deploy hosts.
+"""Modal deployment wiring (ADR-0004).
 
 Deploy: `modal deploy modal_backend/modal_app.py` (needs `pip install modal`
 plus a Modal token — never in git). Verify decorator/option names against
 https://modal.com/docs/guide before first deploy; the interface contract
 (docs/api.md backend subset) is what CI pins, not these options.
+
+Everything Modal-related lives at module scope on purpose: Modal only
+imports functions defined in global scope (nested defs fail deploy with
+LocalFunctionError), and `modal deploy` looks for the module-level `app`.
+Importing this file without `modal` installed fails loudly naming it.
 
 Layout on Modal:
   Volume "tempo-artifacts"   mounted at /artifacts   (shots.json, npz, thumbs)
@@ -17,6 +22,8 @@ Layout on Modal:
                              (indexing + query embedding run in-process on T4;
                              the worker calls pipeline.run_all directly)
 """
+
+import modal
 
 APP_NAME = "tempo"
 ARTIFACTS_MOUNT = "/artifacts"
@@ -43,45 +50,34 @@ PINNED_DEPS = [
     "rank-bm25==0.2.2",
 ]
 
+app = modal.App(APP_NAME)
+image = modal.Image.debian_slim(python_version="3.11").pip_install(*PINNED_DEPS)
+artifacts = modal.Volume.from_name("tempo-artifacts", create_if_missing=True)
+checkpoints = modal.Volume.from_name("tempo-checkpoints", create_if_missing=True)
+ingress = modal.Volume.from_name("tempo-ingress", create_if_missing=True)
+secrets = modal.Secret.from_name("tempo-secrets")
 
-def build():
-    """Construct the Modal App. Called by `modal deploy`, never by tests."""
-    import modal
 
-    app = modal.App(APP_NAME)
-    image = modal.Image.debian_slim(python_version="3.11").pip_install(*PINNED_DEPS)
-    artifacts = modal.Volume.from_name("tempo-artifacts", create_if_missing=True)
-    checkpoints = modal.Volume.from_name("tempo-checkpoints", create_if_missing=True)
-    ingress = modal.Volume.from_name("tempo-ingress", create_if_missing=True)
-    secrets = modal.Secret.from_name("tempo-secrets")
+@app.function(
+    image=image,
+    gpu="T4",
+    volumes={
+        ARTIFACTS_MOUNT: artifacts,
+        CHECKPOINTS_MOUNT: checkpoints,
+        INGRESS_MOUNT: ingress,
+    },
+    secrets=[secrets],
+    timeout=3600,
+)
+@modal.asgi_app()
+def api():
+    import os
 
-    @app.function(
-        image=image,
-        gpu="T4",
-        volumes={
-            ARTIFACTS_MOUNT: artifacts,
-            CHECKPOINTS_MOUNT: checkpoints,
-            INGRESS_MOUNT: ingress,
-        },
-        secrets=[secrets],
-        timeout=3600,
+    from modal_backend.modal_api import create_app, ingress_resolver
+
+    return create_app(
+        auth_token=os.environ.get("BACKEND_TOKEN", ""),
+        artifacts_root=ARTIFACTS_MOUNT,
+        checkpoint_root=CHECKPOINTS_MOUNT,
+        resolve_source=ingress_resolver(INGRESS_MOUNT),
     )
-    @modal.asgi_app()
-    def api():
-        import os
-
-        from modal_backend.modal_api import create_app, ingress_resolver
-
-        return create_app(
-            auth_token=os.environ.get("BACKEND_TOKEN", ""),
-            artifacts_root=ARTIFACTS_MOUNT,
-            checkpoint_root=CHECKPOINTS_MOUNT,
-            resolve_source=ingress_resolver(INGRESS_MOUNT),
-        )
-
-    return app
-
-
-# Module level on purpose: `modal deploy` looks for `app`, and importing
-# this file anywhere without `modal` installed fails loudly naming it.
-app = build()
