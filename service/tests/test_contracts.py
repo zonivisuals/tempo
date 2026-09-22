@@ -19,6 +19,8 @@ from tempo_service.schemas import (
 )
 
 PANEL_JS = Path(__file__).resolve().parents[2] / "panel" / "www" / "panel.js"
+PANEL_API_JS = Path(__file__).resolve().parents[2] / "panel" / "www" / "api.js"
+PANEL_HTML = Path(__file__).resolve().parents[2] / "panel" / "www" / "index.html"
 
 INSERT_KEYS = {"source_path", "start_s", "end_s"}
 
@@ -81,6 +83,20 @@ def test_panel_insert_payload_matches_contract():
     src = PANEL_JS.read_text(encoding="utf-8")
     for key in INSERT_KEYS:
         assert key in src, f"panel.js missing insert key: {key}"
+
+
+def test_panel_auth_surface_matches_contract():
+    """Login/logout/me must exist in api.js and the authbox in index.html
+    (ADR-0005: panel holds no tokens; sidecar keychain is the session)."""
+    api = PANEL_API_JS.read_text(encoding="utf-8")
+    for fn in ("login", "signup", "logout", "me:"):
+        assert fn in api, f"api.js missing auth fn: {fn}"
+    # No tokens in panel code or storage: sidecar keychain owns sessions.
+    assert "Authorization" not in api
+    assert "tempo_colab_url" not in api
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    for el in ("authbox", "auth-email", "auth-pass", "auth-login", "auth-signup", "logout"):
+        assert el in html, f"index.html missing auth element: {el}"
 
 
 def test_panel_insert_escapes_windows_paths():

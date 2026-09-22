@@ -115,3 +115,25 @@ class DriveAuthRequest(BaseModel):
 class JobRetryResponse(BaseModel):
     job_id: str
     footage_key: str
+
+
+class AuthSignupRequest(BaseModel):
+    name: str = ""
+    email: str = ""
+    password: str = ""
+
+
+class AuthLoginRequest(BaseModel):
+    email: str = ""
+    password: str = ""
+
+
+class AuthSessionResponse(BaseModel):
+    user_id: str
+    email: str = ""
+
+
+class AuthMeResponse(BaseModel):
+    logged_in: bool = False
+    user_id: str = ""
+    email: str = ""

@@ -1,0 +1,20 @@
+{
+  "name": "tempo-auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tempo identity service: Better Auth (email+password, Google/GitHub) on Postgres",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "migrate": "npx @better-auth/cli migrate",
+    "check": "node --check server.mjs && node --check auth.mjs"
+  },
+  "dependencies": {
+    "better-auth": "1.7.5",
+    "express": "5.2.1",
+    "pg": "^8.13.1"
+  }
+}

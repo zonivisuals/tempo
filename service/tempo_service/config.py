@@ -67,5 +67,14 @@ class Settings(BaseSettings):
     drive_chunk_mb: int = 8
     oauth_token_path: str = "./secrets/drive_token.json"
 
+    # Identity (ADR-0005). auth_mode="off" leaves every route open (dev and
+    # tests); production sets "on" + auth_url, after which /sync, /search,
+    # /jobs and retries require a Better Auth session. Tokens live in the
+    # OS keychain, never in git, never in panel localStorage.
+    auth_mode: str = "off"
+    auth_url: str = ""
+    auth_timeout_s: float = 10.0
+    token_store: str = "keyring"  # keyring (OS credential vault) | memory (tests)
+
 
 settings = Settings()

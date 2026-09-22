@@ -5,7 +5,7 @@
 <title>Tempo</title>
 <!-- ?v= cache buster: CEF caches panel assets aggressively across AE
      restarts; bump on any www/ change so the installed panel reloads. -->
-<link rel="stylesheet" href="panel.css?v=0.1.3">
+<link rel="stylesheet" href="panel.css?v=0.1.4">
 </head>
 <body>
 <div id="app">
@@ -13,7 +13,16 @@
     <span id="svc">service…</span>
     <span id="backend">backend…</span>
     <span id="sync-summary"></span>
+    <button id="logout" type="button" hidden>Sign out</button>
     <button id="sync-now" type="button">Sync now</button>
+  </div>
+  <div id="authbox" hidden>
+    <input id="auth-name" type="text" placeholder="Name (sign up only)" autocomplete="off">
+    <input id="auth-email" type="text" placeholder="Email" autocomplete="off">
+    <input id="auth-pass" type="password" placeholder="Password" autocomplete="off">
+    <button id="auth-login" type="button">Sign in</button>
+    <button id="auth-signup" type="button">Sign up</button>
+    <span id="auth-msg"></span>
   </div>
   <div id="searchrow">
     <input id="q" type="text" placeholder="Search footage…" autocomplete="off">
@@ -26,7 +35,7 @@
   <details id="debugbox"><summary>debug (copy-paste)</summary><pre id="debug">boot…</pre></details>
 </div>
 <script src="../CSXS/CSInterface.js"></script>
-<script src="api.js?v=0.1.3"></script>
-<script src="panel.js?v=0.1.3"></script>
+<script src="api.js?v=0.1.4"></script>
+<script src="panel.js?v=0.1.4"></script>
 </body>
 </html>

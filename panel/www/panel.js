@@ -262,6 +262,7 @@ async function refreshHealth() {
 }
 
 async function syncNow() {
+  if (!store.authed) return;  // logged out: stay quiet until sign-in
   const raw = await evalScript("tempoListFootage()");
   dbg(`sync: evalScript raw type=${typeof raw} len=${(raw || "").length} raw=${String(raw).slice(0, 300)}`);
   if (raw === null) dbg("sync: host returned null (CSInterface missing or panel outside AE?)");
@@ -275,6 +276,7 @@ async function syncNow() {
   if (res.ok) await refreshHealth();
   else renderStatus();
   if (!res.ok) {
+    if (res.status === 401) { showLogin("session expired — sign in"); return; }
     showError("SYNC_FAILED", res.offline ? "service offline" : "status " + res.status);
     return;
   }
@@ -298,11 +300,15 @@ async function syncNow() {
 }
 
 async function pollJobs() {
-  if (!store.activeJobs.length) return;
+  if (!store.activeJobs.length || !store.authed) return;
   const still = [];
   for (const id of store.activeJobs) {
     const res = await TempoAPI.job(id);
-    if (!res.ok) { dbg(`jobs: id=${id} poll FAIL status=${res.status} offline=${!!res.offline}`); still.push(id); continue; }
+    if (!res.ok) {
+      dbg(`jobs: id=${id} poll FAIL status=${res.status} offline=${!!res.offline}`);
+      if (res.status === 401) { showLogin("session expired — sign in"); return; }
+      still.push(id); continue;
+    }
     store.jobs[id] = res.body;
     dbg(`jobs: id=${id} state=${res.body.state} stages=${(res.body.stages || []).map((s) => `${s.name}:${s.state}`).join(",")}`);
     if (["running", "queued", "uploading", "queued-for-backend"].includes(res.body.state)) still.push(id);
@@ -332,7 +338,8 @@ async function doSearch() {
     const code = (res.body && res.body.error && res.body.error.code) ||
       (res.offline ? "SERVICE_OFFLINE" : "SEARCH_FAILED");
     dbg(`search: q=${JSON.stringify(q)} FAIL code=${code} status=${res.status} offline=${!!res.offline}`);
-    showError(code, res.offline ? "service offline" : "status " + res.status);
+    if (res.status === 401) showLogin("session expired — sign in");
+    else showError(code, res.offline ? "service offline" : "status " + res.status);
     store.results = [];
   } else {
     store.results = res.body.results || [];
@@ -365,7 +372,7 @@ async function insertResult(r) {
 
 /* ---------- boot ---------- */
 
-const PANEL_VERSION = "dbg6";
+const PANEL_VERSION = "dbg7";
 
 function probe(expr) {
   return new Promise((resolve) => {
@@ -399,7 +406,34 @@ async function ensureHost() {
   dbg(`loader: typeof tempoListFootage=${after} (want function)`, true);
 }
 
+function authCode(res) {
+  return res && res.body && res.body.error && res.body.error.code;
+}
+
+function showLogin(msg) {
+  store.authed = false;
+  $("authbox").hidden = false;
+  $("logout").hidden = true;
+  $("auth-msg").textContent = msg || "";
+  dbg(`auth: show login (${msg || "signed out"})`);
+}
+
+function hideLogin(userId) {
+  store.authed = true;
+  $("authbox").hidden = true;
+  $("auth-msg").textContent = "";
+  // Local dev (auth off) reports user "local" — no sign-out needed there.
+  $("logout").hidden = !(userId && userId !== "local");
+}
+
+async function refreshSession() {
+  const res = await TempoAPI.me();
+  if (res.ok && res.body && res.body.logged_in) hideLogin(res.body.user_id);
+  else showLogin(res.ok ? "signed out" : "service offline");
+}
+
 async function boot() {
+  store.authed = true;
   dbg(`boot: panel=${PANEL_VERSION} cs=${cs ? "yes" : "NO"} base=${TempoAPI.base()}`, true);
   try {
     cs.evalScript("1+1", (r) => dbg(`boot: bridge 1+1=${r} (want 2)`, true));
@@ -412,14 +446,34 @@ async function boot() {
   } catch (e) { dbg(`boot: JSON probe throw ${e}`, true); }
   await ensureHost();
   applyTheme();
+  wireAuth();
   $("sync-now").addEventListener("click", () => { dbg("ui: Sync now clicked"); syncNow(); });
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
   $("footage-filter").addEventListener("change", (e) => { store.filter = e.target.value; });
   renderStatus();
   renderResults();
+  await refreshSession();
   syncNow();
   setInterval(syncNow, 2000);   // project sync poll (AGENTS.md D2)
   setInterval(pollJobs, 500);   // job progress poll while jobs run
+}
+
+function wireAuth() {
+  $("auth-login").addEventListener("click", async () => {
+    const res = await TempoAPI.login($("auth-email").value.trim(), $("auth-pass").value);
+    if (res.ok) { hideLogin(res.body.user_id); refreshHealth(); syncNow(); }
+    else { showLogin(authCode(res) || "sign-in failed"); dbg(`auth: login FAIL status=${res.status}`); }
+  });
+  $("auth-signup").addEventListener("click", async () => {
+    const res = await TempoAPI.signup(
+      $("auth-name").value.trim(), $("auth-email").value.trim(), $("auth-pass").value);
+    if (res.ok) { hideLogin(res.body.user_id); refreshHealth(); syncNow(); }
+    else { showLogin(authCode(res) || "sign-up failed"); dbg(`auth: signup FAIL status=${res.status}`); }
+  });
+  $("logout").addEventListener("click", async () => {
+    await TempoAPI.logout();
+    showLogin("signed out");
+  });
 }
 
 window.addEventListener("error", (e) => {

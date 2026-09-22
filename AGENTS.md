@@ -236,9 +236,11 @@ Implementation notes:
   cache instantly, results arrive on backend time; every fetch has a timeout
   and failures surface inline with clear codes (`BACKEND_UNREACHABLE`,
   `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`) — never spinners, never hangs.
-- The backend URL is server config; the deploy bearer token is the entire
-  auth model until P1 identity lands. Tokens live in secret stores + local
-  config, never in git, never in panel input.
+- The backend URL is server config; user identity is Better Auth sessions
+  (D12): panel signs in through the sidecar (`POST /auth/login`), sessions
+  persist in the OS keychain, and `/sync` + `/search` + `/jobs` require one
+  (`401 AUTH_REQUIRED`) whenever `auth_mode=on`. Panel code and storage
+  never hold tokens. The deploy bearer token remains backend-to-backend only.
 - Thumbnails are served over HTTP (not `file://`) — avoids CEF file-access flags entirely. Add cache headers. Thumbs + `shots.json` sync down at job completion; embeddings stay on the backend.
 - `/search` may filter by `footage_keys`; global shot row order is defined as (footage registry order, then shot_id) and MUST stay stable so the stacked key matrices remain valid across requests.
 
@@ -494,6 +496,7 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
 - **D9 Colab-hosted pipeline, local service as proxy** — SUPERSEDED by D11 (tunnel deleted; notebook kept as frozen reference — see `docs/decisions/0002-colab-remote-pipeline.md`).
 - **D10 Drive auto-upload on AE import** — deterministic `tempo/<key>/<basename>`, `uploading` + `queued-for-backend` states (see `docs/decisions/0003-drive-auto-upload.md`).
 - **D11 Modal-hosted pipeline behind the backend seam** — §2.1 (`modal_backend/` port, mechanical extraction with provenance; `backends/` provider interface; server-config URL + token, never user input — see `docs/decisions/0004-modal-backend.md`).
+- **D12 Better Auth identity, sidecar session gate** — `auth/` service (email+password, Google/GitHub) on Postgres; opaque sessions validated by the sidecar and cached by expiry; keychain persistence; panel holds no tokens (see `docs/decisions/0005-identity.md`).
 
 Known debt (tracked, not silently fixed):
 - **K1 Key-scale calibration:** text↔text keys out-signal text↔image keys in `max()` fusion (§3.5). Fix planned: per-key normalization + `format_version` bump + golden update.

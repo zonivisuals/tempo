@@ -41,6 +41,24 @@ Failed jobs keep their stage errors and the registry entry keeps
 `state: error` + message (e.g. Drive file missing with the exact
 `Drive/<drive_path>` copy hint). Auto-sync never re-enqueues — explicit retry only:
 
+## POST /auth/signup · POST /auth/login
+
+```json
+{"user_id": "u_123", "email": "ed@studio.com"}
+```
+Body: signup `{name, email, password}`, login `{email, password}`.
+Credentials transit localhost only, to the Better Auth service (D12);
+the session persists in the OS keychain. Rejected → 401 `AUTH_REJECTED`.
+
+## POST /auth/logout → `{"ok": true}` (clears the stored session)
+
+## GET /auth/me → `{"logged_in": true, "user_id": "...", "email": "..."}`
+
+Identity gate: whenever `auth_mode=on`, `/sync`, `/search`, `/jobs/*`
+and both retry endpoints require a valid session (`401 AUTH_REQUIRED`).
+`/health`, `/footage`, `/thumb`, `/host` stay public (pre-login loader,
+headerless thumbnails, local reads).
+
 ## POST /jobs/{job_id}/retry
 
 ```json
