@@ -18,12 +18,21 @@ Layout on Modal:
                               tempo/<key>/<basename>`; B2 presigned uploads
                              replace this copy step in P2-full)
   Secret "tempo-secrets"     provides BACKEND_TOKEN (the entire auth model)
-  api (below)                GPU ASGI app: /health /index /jobs /search/thumb
-                             (indexing + query embedding run in-process on T4;
+  api (below)                ASGI app: /health /index /jobs /search/thumb
+                             (indexing + query embedding run in-process;
                              the worker calls pipeline.run_all directly)
+
+GPU selection (Modal gates ALL GPUs behind a payment method on file):
+  TEMPO_MODAL_GPU=T4 (default) — full trial, needs a card on the account.
+  TEMPO_MODAL_GPU="" (empty)   — CPU-only contract smoke, runs on the
+                             no-card $5/mo credits. Proves auth, job
+                             lifecycle, checkpoints, scoring, thumbs;
+                             model stages will 503/error without CUDA.
+                             Read at deploy time on the deploy machine.
 """
 
 import modal
+import os as _os
 
 APP_NAME = "tempo"
 ARTIFACTS_MOUNT = "/artifacts"
@@ -58,9 +67,12 @@ ingress = modal.Volume.from_name("tempo-ingress", create_if_missing=True)
 secrets = modal.Secret.from_name("tempo-secrets")
 
 
+_gpu = _os.environ.get("TEMPO_MODAL_GPU", "T4") or None
+
+
 @app.function(
     image=image,
-    gpu="T4",
+    gpu=_gpu,
     volumes={
         ARTIFACTS_MOUNT: artifacts,
         CHECKPOINTS_MOUNT: checkpoints,
