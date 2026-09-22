@@ -9,10 +9,14 @@ touches passwords after login: it validates the opaque session token against
 ```sh
 cd auth
 cp .env.example .env   # fill secrets; .env is gitignored
-npm install
-npm run migrate        # Better Auth CLI creates auth tables (never hand-made)
-npm start              # 127.0.0.1:18099
+pnpm install
+pnpm migrate           # migrate.mjs via the installed library (never hand-made)
+pnpm start             # 127.0.0.1:18099
 ```
+
+If `migrate` times out on the pooler port (6543 filtered by some
+networks — verified with `Test-NetConnection`), switch `DATABASE_URL` to
+the direct host (`db.<ref>.supabase.co`, port 5432) and retry.
 
 Dev database: any Postgres (Supabase free tier works, no card). Tables for
 auth itself are CLI-managed; app tables live in `supabase/`.

@@ -30,7 +30,7 @@
   expiry (expired = panel silently dead, no user warning).
 - Sidecar/MSI: EV cert; SmartScreen reputation accrues per binary.
 - Secrets rotation rehearsed: Modal Secret, R2/B2 keys, Stripe webhooks,
-  `BETTER_AUTH_SECRET` overlap rotation.
+  `BETTER_AUTH_API_KEY` overlap rotation.
 
 ## Rollout
 

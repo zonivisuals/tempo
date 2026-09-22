@@ -26,7 +26,9 @@ node --check auth/server.mjs; node --check auth/auth.mjs
 ## 2. Database (Supabase, free)
 
 1. Create project → Settings → Database → copy the **pooler** connection
-   string (port 6548) into `auth/.env` as `DATABASE_URL`.
+   string (port 6543) into `auth/.env` as `DATABASE_URL`. If your network
+   filters 6543 (test: `Test-NetConnection <host> -Port 6543`), use the
+   **direct** host (`db.<ref>.supabase.co`, port 5432) instead.
 2. Apply app tables: `psql "$DATABASE_URL" -f supabase/licenses.sql`
    (auth tables are CLI-managed, never hand-written).
 3. Keep the project touched weekly (free tier pauses after 1 week idle).
@@ -35,10 +37,10 @@ node --check auth/server.mjs; node --check auth/auth.mjs
 
 ```powershell
 cd auth
-cp .env.example .env   # BETTER_AUTH_SECRET (>=32 chars), BETTER_AUTH_URL, DATABASE_URL
-npm install
-npm run migrate        # creates user/session/account/verification/jwks tables
-npm start              # 127.0.0.1:18099
+cp .env.example .env   # BETTER_AUTH_API_KEY (>=32 chars), BETTER_AUTH_URL, DATABASE_URL
+pnpm install
+pnpm migrate           # migrate.mjs via installed better-auth (never hand-made)
+pnpm start             # 127.0.0.1:18099
 ```
 
 Verify (shapes pinned in `service/tests/test_auth.py`):

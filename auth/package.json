@@ -9,12 +9,13 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "migrate": "npx @better-auth/cli migrate",
+    "migrate": "node migrate.mjs",
     "check": "node --check server.mjs && node --check auth.mjs"
   },
   "dependencies": {
     "better-auth": "1.7.5",
+    "dotenv": "18.0.3",
     "express": "5.2.1",
-    "pg": "^8.13.1"
+    "pg": "8.13.1"
   }
 }
