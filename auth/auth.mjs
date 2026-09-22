@@ -6,7 +6,8 @@
 // bearer + jwt plugins). Auth tables are created by `npm run migrate`
 // (Better Auth CLI) — never hand-written (see README + supabase/).
 import { betterAuth } from "better-auth";
-import { Pool } from "pg";
+import pg from "pg"; // pg is CommonJS: default-import then destructure
+const { Pool } = pg;
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 
