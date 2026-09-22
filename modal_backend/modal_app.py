@@ -73,6 +73,10 @@ _gpu = _os.environ.get("TEMPO_MODAL_GPU", "T4") or None
 @app.function(
     image=image,
     gpu=_gpu,
+    # torch + transformers import ~1GB RSS; Modal's default container memory
+    # OOM-kills the import loop (requests hang instead of answering). 8GB
+    # covers import + single-shot CPU inference headroom for the trial.
+    memory=8192,
     volumes={
         ARTIFACTS_MOUNT: artifacts,
         CHECKPOINTS_MOUNT: checkpoints,
