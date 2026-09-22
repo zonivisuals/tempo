@@ -84,6 +84,20 @@ def test_pure_functions_match_notebook_behavior():
     assert shots[0]["text_context"] == "hello hi"
 
 
+def test_ingress_resolver_maps_and_rejects():
+    from modal_backend.modal_api import ingress_resolver
+
+    resolve = ingress_resolver("/ingress")
+    assert str(resolve("tempo/k9/clip.mp4")).replace("\\", "/").endswith(
+        "/ingress/tempo/k9/clip.mp4")
+    for bad in ("/abs/path.mp4", "tempo/../../etc.mp4", "../x.mp4"):
+        try:
+            resolve(bad)
+            raise AssertionError(f"should reject {bad!r}")
+        except ValueError:
+            pass
+
+
 def test_scoring_parity_with_service():
     from modal_backend import scoring as modal_scoring
     from tempo_service import search as service_search

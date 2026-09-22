@@ -42,6 +42,27 @@ def _blank_stages():
     return {n: {"name": n, "state": "pending", "done": 0, "total": 0} for n in STAGES}
 
 
+def ingress_resolver(mount):
+    """Build a resolve_source mapping storage refs under a volume mount.
+
+    drive_path arrives as tempo/<key>/<basename> and the leading folder is
+    part of the on-volume layout (no stripping). Absolute paths and `..`
+    segments are rejected (fail closed — a malicious ref must never escape
+    the mount).
+    """
+
+    def resolve(drive_path):
+        from pathlib import Path as _Path
+        from pathlib import PurePosixPath
+
+        rel = PurePosixPath(drive_path)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise ValueError(f"unsafe storage ref: {drive_path!r}")
+        return _Path(mount) / rel.as_posix()
+
+    return resolve
+
+
 def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
                embed_query=None, resolve_source=None):
     """Build the FastAPI app.
