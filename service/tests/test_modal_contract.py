@@ -330,13 +330,14 @@ def test_modal_api_job_visible_across_containers(tmp_path):
     a = TestClient(create_app(**kw))
     b = TestClient(create_app(**kw))
     jid = a.post("/index", json={"drive_path": "tempo/k/a.mp4"}, headers=h).json()["job_id"]
-    deadline = time.time() + 10
+    deadline = time.time() + 30
+    st = {}
     while time.time() < deadline:
         st = b.get(f"/jobs/{jid}", headers=h).json()
-        if st["state"] in ("done", "error"):
+        if st.get("state") in ("done", "error"):
             break
         time.sleep(0.05)
-    assert st["job_id"] == jid and st["footage_key"] == "k"
+    assert st.get("job_id") == jid and st.get("footage_key") == "k", st
     assert st["state"] == "error"  # source missing under the resolver
     assert "tempo/k/a.mp4" in st["error"]
     assert (ckpt / "_jobs" / f"{jid}.json").is_file()

@@ -96,31 +96,42 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
     work = queue.Queue()
     lock = threading.Lock()
 
+    def atomic_write(path, text):
+        # Readers live on sibling containers; a torn read parses as corrupt
+        # JSON and looks exactly like a missing job. Tmp + os.replace keeps
+        # every observable state complete.
+        try:
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError as exc:
+            log.warning("atomic write failed %s (%s)", path, exc)
+
     def checkpoint(key, stage, entry):
         try:
             d = checkpoint_root / key
             d.mkdir(parents=True, exist_ok=True)
-            (d / f"{stage}.json").write_text(
-                json.dumps({"stage": stage, "entry": entry}), encoding="utf-8")
+            atomic_write(d / f"{stage}.json",
+                         json.dumps({"stage": stage, "entry": entry}))
         except OSError as exc:
             log.warning("checkpoint write failed %s/%s: %s", key, stage, exc)
 
     def save_job(job):
-        # Durable job envelope: any container serves status for any job, so
+        # Durable job envelopes: any container serves status for any job, so
         # concurrent panel polling across containers never sees a false 404.
         # Same Volume family as stage checkpoints (local-SSD fast); small
         # JSONs, pruned never (a job record is forensic history).
         try:
             d = checkpoint_root / "_jobs"
             d.mkdir(parents=True, exist_ok=True)
-            (d / f"{job['job_id']}.json").write_text(json.dumps({
+            atomic_write(d / f"{job['job_id']}.json", json.dumps({
                 "job_id": job["job_id"], "footage_key": job["footage_key"],
                 "drive_path": job["drive_path"], "state": job["state"],
                 "shot_count": job.get("shot_count", 0),
                 "duration_s": job.get("duration_s", 0.0),
                 "stages": [job["stages"][n] for n in STAGES],
                 "error": job["error"],
-            }), encoding="utf-8")
+            }))
         except OSError as exc:
             log.warning("job envelope write failed %s (%s)", job["job_id"], exc)
 
