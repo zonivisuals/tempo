@@ -373,7 +373,7 @@ async function insertResult(r) {
 
 /* ---------- boot ---------- */
 
-const PANEL_VERSION = "dbg7";
+const PANEL_VERSION = "dbg8";
 
 function probe(expr) {
   return new Promise((resolve) => {
@@ -428,9 +428,13 @@ function hideLogin(userId) {
 }
 
 async function refreshSession() {
+  // Restore silently when the service is unreachable (offline reads as
+  // offline via sync/search errors, never as logged-out). The form appears
+  // only when the service answers and the session is missing/invalid.
   const res = await TempoAPI.me();
   if (res.ok && res.body && res.body.logged_in) hideLogin(res.body.user_id);
-  else showLogin(res.ok ? "signed out" : "service offline");
+  else if (res.ok) showLogin("signed out");
+  else { store.authed = false; $("logout").hidden = true; }
 }
 
 async function boot() {
@@ -453,8 +457,10 @@ async function boot() {
   $("footage-filter").addEventListener("change", (e) => { store.filter = e.target.value; });
   renderStatus();
   renderResults();
-  await refreshSession();
-  syncNow();
+  // No proactive login prompt: the form appears only if the service answers
+  // 401 (auth_mode=on with no session). Dev runs auth_mode=off and never
+  // sees auth UI at all. Session restore is silent via refreshSession().
+  refreshSession().then(() => syncNow());
   setInterval(syncNow, 2000);   // project sync poll (AGENTS.md D2)
   setInterval(pollJobs, 500);   // job progress poll while jobs run
 }
