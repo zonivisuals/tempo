@@ -101,10 +101,46 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
             d = checkpoint_root / key
             d.mkdir(parents=True, exist_ok=True)
             (d / f"{stage}.json").write_text(
-                json.dumps({"stage": stage, "entry": entry}), encoding="utf-8"
-            )
+                json.dumps({"stage": stage, "entry": entry}), encoding="utf-8")
         except OSError as exc:
             log.warning("checkpoint write failed %s/%s: %s", key, stage, exc)
+
+    def save_job(job):
+        # Durable job envelope: any container serves status for any job, so
+        # concurrent panel polling across containers never sees a false 404.
+        # Same Volume family as stage checkpoints (local-SSD fast); small
+        # JSONs, pruned never (a job record is forensic history).
+        try:
+            d = checkpoint_root / "_jobs"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"{job['job_id']}.json").write_text(json.dumps({
+                "job_id": job["job_id"], "footage_key": job["footage_key"],
+                "drive_path": job["drive_path"], "state": job["state"],
+                "shot_count": job.get("shot_count", 0),
+                "duration_s": job.get("duration_s", 0.0),
+                "stages": [job["stages"][n] for n in STAGES],
+                "error": job["error"],
+            }), encoding="utf-8")
+        except OSError as exc:
+            log.warning("job envelope write failed %s (%s)", job["job_id"], exc)
+
+    def load_job(jid):
+        try:
+            body = json.loads((checkpoint_root / "_jobs" / f"{jid}.json").read_text(
+                encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(body, dict) or body.get("job_id") != jid:
+            return None
+        stages = {s["name"]: s for s in body.get("stages", []) if "name" in s}
+        return {
+            "job_id": body["job_id"], "footage_key": body.get("footage_key", ""),
+            "drive_path": body.get("drive_path", ""), "state": body.get("state", "error"),
+            "shot_count": body.get("shot_count", 0), "duration_s": body.get("duration_s", 0.0),
+            "stages": {n: stages.get(n, {"name": n, "state": "pending", "done": 0, "total": 0})
+                       for n in STAGES},
+            "error": body.get("error"),
+        }
 
     def progress(jid, stage, done, total):
         with lock:
@@ -115,6 +151,7 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
                 "name": stage, "state": "running", "done": int(done), "total": int(total),
             }
             key = job["footage_key"]
+            save_job(job)
         checkpoint(key, stage, {"name": stage, "state": "running", "done": int(done), "total": int(total)})
 
     def worker():
@@ -127,6 +164,7 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
                     continue
                 with lock:
                     job["state"] = "running"
+                    save_job(job)
                 out = artifacts_root / job["footage_key"]
                 progress(jid, "upload", 0, 1)
                 src = resolve_source(job["drive_path"])
@@ -145,6 +183,7 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
                     job["state"] = "done"
                     job["shot_count"] = summary["shot_count"]
                     job["duration_s"] = summary["duration_s"]
+                    save_job(job)
             except Exception as exc:  # noqa: BLE001 — job error, never a crash
                 log.exception("job %s failed: %s", jid, exc)
                 with lock:
@@ -152,6 +191,7 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
                     if job is not None:
                         job["state"] = "error"
                         job["error"] = str(exc)[:500]
+                        save_job(job)
             finally:
                 work.task_done()
 
@@ -204,6 +244,7 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
                 "state": "queued", "shot_count": 0,
                 "duration_s": 0.0, "stages": _blank_stages(), "error": None,
             }
+            save_job(jobs[jid])
         work.put(jid)
         return {"job_id": jid, "drive_path": body.drive_path, "footage_key": key}
 
@@ -214,17 +255,21 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
             return err
         with lock:
             job = jobs.get(jid)
-            if job is None:
-                return JSONResponse(
-                    status_code=404,
-                    content={"error": {"code": "NOT_FOUND", "message": "unknown job"}},
-                )
-            return {
-                "job_id": job["job_id"], "footage_key": job["footage_key"],
-                "state": job["state"], "shot_count": job["shot_count"],
-                "duration_s": job["duration_s"],
-                "stages": [job["stages"][n] for n in STAGES], "error": job["error"],
-            }
+        if job is None:
+            # Cross-container read: the job may live on a sibling that has
+            # since scaled to zero. Envelopes persist on the shared Volume.
+            job = load_job(jid)
+        if job is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": {"code": "NOT_FOUND", "message": "unknown job"}},
+            )
+        return {
+            "job_id": job["job_id"], "footage_key": job["footage_key"],
+            "state": job["state"], "shot_count": job["shot_count"],
+            "duration_s": job["duration_s"],
+            "stages": [job["stages"][n] for n in STAGES], "error": job["error"],
+        }
 
     @app.get("/search")
     def search(

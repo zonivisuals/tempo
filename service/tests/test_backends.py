@@ -211,6 +211,84 @@ def test_proxy_handoff_marks_ready(tmp_path, monkeypatch):
     assert saved["k1"]["shot_count"] == 7
 
 
+def test_proxy_poll_misses_then_recovers(tmp_path, monkeypatch):
+    """Transient poll misses (volume propagation, container routing) ride
+    through; the job succeeds once polls land."""
+    import tempo_service.app as app_module
+    import tempo_service.backends as backends_module
+    from tempo_service import jobs as jobs_module
+    from tempo_service import registry as reg
+
+    monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
+    monkeypatch.setattr(reg.settings, "artifact_root", tmp_path)
+    monkeypatch.setattr(app_module.settings, "backend", "http")
+    reg.save_registry(
+        {"kr": {"footage_key": "kr", "path": "C:\\v\\r.mp4", "drive_path": "tempo/kr/r.mp4",
+                "size": 1, "mtime_ns": 1, "format_version": 1, "state": "indexing",
+                "shot_count": 0, "duration_s": 0.0, "indexed_at": None}}
+    )
+    calls = {"n": 0}
+
+    def flaky_poll(*a, **k):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return False, 502, None, "BACKEND_UNREACHABLE"
+        return (True, 200, {"job_id": "bj", "state": "done", "shot_count": 2,
+                            "duration_s": 3.0, "stages": []}, None)
+
+    fake = _fake_provider(
+        submit_index=lambda *a, **k: (True, 200, {"job_id": "bj", "footage_key": "kr"}, None),
+        job_status=flaky_poll,
+    )
+    monkeypatch.setattr(backends_module, "get_provider", lambda *a, **k: fake)
+    monkeypatch.setattr("tempo_service.proxy.time.sleep", lambda s: None)
+
+    from tempo_service.proxy import handle
+
+    handle(jobs_module.Job(job_id="job_flaky", footage_key="kr"), lambda *a: None)
+    assert calls["n"] == 3
+    assert reg.load_registry()["kr"]["state"] == "ready"
+
+
+def test_proxy_poll_persistent_miss_fails_after_retries(tmp_path, monkeypatch):
+    import tempo_service.app as app_module
+    import tempo_service.backends as backends_module
+    from tempo_service import jobs as jobs_module
+    from tempo_service import registry as reg
+    from tempo_service import proxy as proxy_module
+
+    monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
+    monkeypatch.setattr(reg.settings, "artifact_root", tmp_path)
+    monkeypatch.setattr(app_module.settings, "backend", "http")
+    reg.save_registry(
+        {"kz": {"footage_key": "kz", "path": "C:\\v\\z.mp4", "drive_path": "tempo/kz/z.mp4",
+                "size": 1, "mtime_ns": 1, "format_version": 1, "state": "indexing",
+                "shot_count": 0, "duration_s": 0.0, "indexed_at": None}}
+    )
+    calls = {"n": 0}
+
+    def always_miss(*a, **k):
+        calls["n"] += 1
+        return False, 404, None, "BACKEND_UNREACHABLE"
+
+    fake = _fake_provider(
+        submit_index=lambda *a, **k: (True, 200, {"job_id": "bj", "footage_key": "kz"}, None),
+        job_status=always_miss,
+    )
+    monkeypatch.setattr(backends_module, "get_provider", lambda *a, **k: fake)
+    monkeypatch.setattr("tempo_service.proxy.time.sleep", lambda s: None)
+
+    from tempo_service.proxy import handle
+
+    try:
+        handle(jobs_module.Job(job_id="job_miss", footage_key="kz"), lambda *a: None)
+        raise AssertionError("persistent miss should raise")
+    except RuntimeError as exc:
+        assert "BACKEND_UNREACHABLE" in str(exc)
+    assert calls["n"] == proxy_module.POLL_MISS_RETRIES
+    assert reg.load_registry()["kz"]["state"] == "error"
+
+
 def test_proxy_failure_marks_entry_error_and_retry(tmp_path, monkeypatch):
     import tempo_service.app as app_module
     import tempo_service.backends as backends_module

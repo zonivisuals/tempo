@@ -35,6 +35,10 @@ backend change without touching panel, scoring, or contracts.
 - **Kept working:** the gitignored `colab/tempo_shim.py` still speaks the
   contract, so `backend="http"` pointed at a tunnel stays a valid dev setup —
   it is simply no longer special-cased anywhere.
+- **Durable job envelopes:** every job transition persists to
+  `checkpoints/_jobs/<id>.json`, so any container serves status for any job
+  (concurrent panel polling across containers never false-404s). The proxy
+  additionally rides out transient poll misses (5×1s) before failing a job.
 - **Kept:** scoring contract (§3.5) byte-identical (parity test), job states
   (renamed `queued-for-colab` → `queued-for-backend`), retry flows, thumb
   fallback + cache, source_path backfill, loader fallback, Drive-shaped

@@ -220,6 +220,37 @@ def test_modal_api_lifecycle_and_search(tmp_path):
     assert client2.get("/thumb/k/9.jpg", headers=h).status_code == 404
 
 
+def test_modal_api_job_visible_across_containers(tmp_path):
+    """Two app instances sharing a checkpoint root: a job submitted on one
+    is pollable on the other. This is the multi-container Modal case that
+    false-404'd before durable envelopes (proxy killed jobs on first miss)."""
+    from modal_backend.modal_api import create_app
+    from fastapi.testclient import TestClient
+
+    art = tmp_path / "art"
+    ckpt = tmp_path / "ckpt"
+    art.mkdir()
+    ckpt.mkdir()
+    kw = dict(auth_token="sekret", artifacts_root=art, checkpoint_root=ckpt,
+              run_all=_fake_run_all_factory(None),
+              resolve_source=lambda ref: tmp_path / "missing" / ref)
+    h = {"Authorization": "Bearer sekret"}
+    a = TestClient(create_app(**kw))
+    b = TestClient(create_app(**kw))
+    jid = a.post("/index", json={"drive_path": "tempo/k/a.mp4"}, headers=h).json()["job_id"]
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        st = b.get(f"/jobs/{jid}", headers=h).json()
+        if st["state"] in ("done", "error"):
+            break
+        time.sleep(0.05)
+    assert st["job_id"] == jid and st["footage_key"] == "k"
+    assert st["state"] == "error"  # source missing under the resolver
+    assert "tempo/k/a.mp4" in st["error"]
+    assert (ckpt / "_jobs" / f"{jid}.json").is_file()
+    assert b.get("/jobs/nope", headers=h).status_code == 404
+
+
 def test_modal_api_search_empty_corpus_needs_no_model(tmp_path):
     client, _, _ = _api(tmp_path, embed_query=None)
     h = {"Authorization": "Bearer sekret"}

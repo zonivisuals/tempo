@@ -17,6 +17,7 @@ import time
 log = logging.getLogger("tempo.proxy")
 
 POLL_S = 0.5
+POLL_MISS_RETRIES = 5  # transient poll misses before a job is failed
 
 
 def _local_handler():  # type: ignore[no-untyped-def]
@@ -127,6 +128,7 @@ def _handoff(job, progress, provider, drive_path: str, entry: dict) -> None:  # 
     # marker — handoff success only flips the job state, never progress.
     jobs_module.jobs._set(job.job_id, state="running")
 
+    misses = 0
     while True:
         ok, status, cjob, code = provider.job_status(backend_id)
         if not ok:
@@ -134,7 +136,17 @@ def _handoff(job, progress, provider, drive_path: str, entry: dict) -> None:  # 
                 jobs_module.jobs._set(job.job_id, state="queued-for-backend")
                 time.sleep(2.0)
                 continue
-            raise RuntimeError(f"Backend poll failed ({code or status}).")
+            # Transient misses (volume propagation, brief restarts, routing
+            # to a container that hasn't seen the envelope yet) get a short
+            # runway; genuinely unknown ids still fail, just after retries.
+            misses += 1
+            log.info("proxy job %s poll miss %d/%d (%s, http %s)",
+                     job.job_id, misses, POLL_MISS_RETRIES, code, status)
+            if misses >= POLL_MISS_RETRIES:
+                raise RuntimeError(f"Backend poll failed ({code or status}).")
+            time.sleep(1.0)
+            continue
+        misses = 0
         for st in (cjob or {}).get("stages", []):
             name = st.get("name", "")
             if name in jobs_module.STAGES:
