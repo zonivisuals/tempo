@@ -48,24 +48,32 @@ def run_all(src, out_dir, progress):
     if not src.is_file():
         raise FileNotFoundError(f"footage not found: {src}")
 
+    # Start markers (done=0) precede each stage so a failure lands on a
+    # `running` stage instead of leaving its predecessor marked done while
+    # the next sits `pending` — the panel then names the guilty stage.
     shots = shots_visual.extract_shots_and_keyframes(str(src), out_dir=str(thumbs))
     progress("shots", len(shots), len(shots))
 
+    progress("visual_embed", 0, len(shots))
     shots_visual.get_visual_embeddings_and_cluster(shots)
     progress("visual_embed", len(shots), len(shots))
     progress("cluster", len({s.get("cluster_id", 0) for s in shots}), len(shots))
 
+    progress("transcribe", 0, 1)
     segments = audio_ocr.transcribe_audio(str(src))
     progress("transcribe", len(segments), max(1, len(segments)))
+    progress("ocr", 0, len(shots))
     audio_ocr.extract_ocr_text(shots)
     progress("ocr", len(shots), len(shots))
     audio_ocr.assign_text_to_shots(shots, segments)
 
+    progress("captions", 0, len(shots))
     enrich.enrich_with_local_models(shots)
     progress("captions", sum(1 for s in shots if s.get("caption")), len(shots))
     progress("text_embed", len(shots), len(shots))
     progress("ner", sum(1 for s in shots if "entities" in s), len(shots))
 
+    progress("build_index", 0, len(shots))
     products = indices.build_search_indices(shots)
     progress("build_index", len(shots), len(shots))
 

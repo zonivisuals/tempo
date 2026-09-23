@@ -185,12 +185,18 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
                     job["duration_s"] = summary["duration_s"]
                     save_job(job)
             except Exception as exc:  # noqa: BLE001 — job error, never a crash
+                import traceback
+
                 log.exception("job %s failed: %s", jid, exc)
+                # Traceback tail (not just str(exc)): names the failing call
+                # (e.g. which model load deserialized badly). Capped; paths
+                # only, never secrets.
+                tail = traceback.format_exc(limit=5)[-1200:]
                 with lock:
                     job = jobs.get(jid)
                     if job is not None:
                         job["state"] = "error"
-                        job["error"] = str(exc)[:500]
+                        job["error"] = f"{exc}\n{tail}"[:2000]
                         save_job(job)
             finally:
                 work.task_done()
@@ -390,5 +396,51 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
             status_code=404,
             content={"error": {"code": "NOT_FOUND", "message": "unknown thumbnail"}},
         )
+
+    @app.get("/debug/disk")
+    def debug_disk(authorization: str | None = Header(default=None)):
+        # Trial diagnostics (auth-gated like everything else): disk pressure
+        # and model-cache inventory. Distinguishes truncated downloads
+        # (small/corrupt files) from version mismatches without container SSH.
+        # Sizes only — never file contents, never secrets.
+        import shutil
+
+        err = check(authorization)
+        if err is not None:
+            return err
+        try:
+            usage = shutil.disk_usage(str(artifacts_root))
+        except OSError:
+            usage = None
+        cache_roots = []
+        for var in ("HF_HOME", "HF_HUB_CACHE", "EASYOCR_MODULE_PATH"):
+            val = os.environ.get(var)
+            if val:
+                cache_roots.append(val)
+        cache_roots.append(os.path.expanduser("~/.cache/huggingface"))
+        inventory = []
+        seen = set()
+        for root in cache_roots:
+            p = Path(root)
+            if not p.is_dir() or str(p) in seen:
+                continue
+            seen.add(str(p))
+            total, files = 0, []
+            for f in sorted(p.rglob("*"))[:200]:
+                if f.is_file():
+                    try:
+                        sz = f.stat().st_size
+                    except OSError:
+                        sz = -1
+                    total += max(sz, 0)
+                    files.append({"path": str(f.relative_to(p)), "bytes": sz})
+            inventory.append({"root": str(p), "bytes": total, "files": files})
+        return {
+            "disk": (
+                {"total": usage.total, "used": usage.used, "free": usage.free}
+                if usage else None
+            ),
+            "caches": inventory,
+        }
 
     return app

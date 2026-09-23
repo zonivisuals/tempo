@@ -84,6 +84,80 @@ def test_pure_functions_match_notebook_behavior():
     assert shots[0]["text_context"] == "hello hi"
 
 
+def test_pipeline_marks_stage_start(tmp_path, monkeypatch):
+    import modal_backend.pipeline as pl
+
+    def fake_shots(src, out_dir):
+        return [{"shot_id": 0, "start_time": 0.0, "end_time": 1.0,
+                 "transcript": "t", "caption": "c", "ocr_text": "",
+                 "entities": [], "cluster_id": 0,
+                 "visual_embedding": [0.0], "dialogue_embedding": [0.0],
+                 "caption_embedding": [0.0]}]
+
+    monkeypatch.setattr(pl.shots_visual, "extract_shots_and_keyframes", fake_shots)
+    monkeypatch.setattr(pl.shots_visual, "get_visual_embeddings_and_cluster",
+                        lambda shots: None)
+    monkeypatch.setattr(pl.audio_ocr, "transcribe_audio", lambda src: (_ for _ in ()).throw(
+        RuntimeError("boom-stage")))
+    src = tmp_path / "v.mp4"
+    src.write_bytes(b"\x00")
+    seen = []
+    try:
+        pl.run_all(src, tmp_path / "out", lambda st, d, t: seen.append((st, d, t)))
+        raise AssertionError("should raise")
+    except RuntimeError:
+        pass
+    starts = {(st, d) for st, d, t in seen}
+    assert ("visual_embed", 0) in starts  # start marker precedes the failure
+    assert ("shots", 1) in starts  # completed shots reported after
+
+
+def test_modal_job_error_carries_traceback_tail(tmp_path):
+    from modal_backend.modal_api import create_app
+    from fastapi.testclient import TestClient
+
+    art = tmp_path / "art"
+    ckpt = tmp_path / "ckpt"
+    art.mkdir()
+    ckpt.mkdir()
+
+    def failing_run_all(src, out_dir, progress):
+        raise ValueError("boom-tail-check")
+
+    client = TestClient(create_app(auth_token="sekret", artifacts_root=art,
+                                   checkpoint_root=ckpt, run_all=failing_run_all,
+                                   resolve_source=lambda ref: tmp_path / "v.mp4"))
+    h = {"Authorization": "Bearer sekret"}
+    (tmp_path / "v.mp4").write_bytes(b"\x00")
+    jid = client.post("/index", json={"drive_path": "tempo/k/a.mp4"}, headers=h).json()["job_id"]
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        st = client.get(f"/jobs/{jid}", headers=h).json()
+        if st["state"] in ("done", "error"):
+            break
+        time.sleep(0.05)
+    assert st["state"] == "error"
+    assert "boom-tail-check" in st["error"]
+    assert "Traceback" in st["error"]
+
+
+def test_modal_debug_disk_gated_and_shaped(tmp_path):
+    from modal_backend.modal_api import create_app
+    from fastapi.testclient import TestClient
+
+    art = tmp_path / "art"
+    ckpt = tmp_path / "ckpt"
+    art.mkdir()
+    ckpt.mkdir()
+    client = TestClient(create_app(auth_token="sekret", artifacts_root=art,
+                                   checkpoint_root=ckpt))
+    assert client.get("/debug/disk").status_code == 401
+    body = client.get("/debug/disk",
+                      headers={"Authorization": "Bearer sekret"}).json()
+    assert set(body) == {"disk", "caches"}
+    assert body["disk"] is None or set(body["disk"]) == {"total", "used", "free"}
+
+
 def test_ingress_resolver_maps_and_rejects():
     from modal_backend.modal_api import ingress_resolver
 
