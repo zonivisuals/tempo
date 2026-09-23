@@ -60,12 +60,18 @@ PINNED_DEPS = [
 ]
 
 app = modal.App(APP_NAME)
-image = modal.Image.debian_slim(python_version="3.11").pip_install(*PINNED_DEPS)
+# `modal deploy <file>` uploads only that file; the modal_backend package
+# (api, pipeline, stages, scoring) ships as an image layer so the
+# `from modal_backend...` imports resolve on the worker.
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install(*PINNED_DEPS)
+    .add_local_dir("modal_backend", remote_path="/root/modal_backend")
+)
 artifacts = modal.Volume.from_name("tempo-artifacts", create_if_missing=True)
 checkpoints = modal.Volume.from_name("tempo-checkpoints", create_if_missing=True)
 ingress = modal.Volume.from_name("tempo-ingress", create_if_missing=True)
 secrets = modal.Secret.from_name("tempo-secrets")
-
 
 _gpu = _os.environ.get("TEMPO_MODAL_GPU", "T4") or None
 
