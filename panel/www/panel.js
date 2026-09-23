@@ -262,7 +262,7 @@ async function refreshHealth() {
 }
 
 async function syncNow() {
-  if (!store.authed) return;  // logged out: stay quiet until sign-in
+  if (!store.authed) { dbg("sync: skipped (signed out — sign in or run auth_mode=off)"); return; }
   const raw = await evalScript("tempoListFootage()");
   dbg(`sync: evalScript raw type=${typeof raw} len=${(raw || "").length} raw=${String(raw).slice(0, 300)}`);
   if (raw === null) dbg("sync: host returned null (CSInterface missing or panel outside AE?)");
@@ -373,7 +373,7 @@ async function insertResult(r) {
 
 /* ---------- boot ---------- */
 
-const PANEL_VERSION = "dbg8";
+const PANEL_VERSION = "dbg9";
 
 function probe(expr) {
   return new Promise((resolve) => {
@@ -435,6 +435,9 @@ async function refreshSession() {
   if (res.ok && res.body && res.body.logged_in) hideLogin(res.body.user_id);
   else if (res.ok) showLogin("signed out");
   else { store.authed = false; $("logout").hidden = true; }
+  // Service reachability is public and independent of session state —
+  // without this the statusbar lies "service offline" while logged out.
+  await refreshHealth();
 }
 
 async function boot() {
