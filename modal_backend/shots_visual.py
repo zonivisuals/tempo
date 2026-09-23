@@ -23,35 +23,41 @@ from ._deps import _need
 
 try:
     import cv2
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("opencv-python", _err)
     cv2 = None  # type: ignore[no-redef,assignment]
 
 try:
     from scenedetect import open_video, SceneManager, AdaptiveDetector
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("scenedetect", _err)
     open_video = None  # type: ignore[no-redef,assignment]
     SceneManager = None  # type: ignore[no-redef,assignment]
     AdaptiveDetector = None  # type: ignore[no-redef,assignment]
 
 try:
     from transformers import CLIPProcessor, CLIPVisionModelWithProjection
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("transformers", _err)
     CLIPProcessor = None  # type: ignore[no-redef,assignment]
     CLIPVisionModelWithProjection = None  # type: ignore[no-redef,assignment]
 
 try:
     from sklearn.cluster import KMeans
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("scikit-learn", _err)
     KMeans = None  # type: ignore[no-redef,assignment]
 
 try:
     from sklearn.metrics import silhouette_score
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("scikit-learn", _err)
     silhouette_score = None  # type: ignore[no-redef,assignment]
 
 try:
     import torch
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("torch", _err)
     torch = None  # type: ignore[no-redef,assignment]
 DEVICE = _deps.device()
 

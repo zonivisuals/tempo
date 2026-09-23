@@ -146,7 +146,7 @@ function renderFootageActions() {
     const detail = f.state === "ready" && f.shot_count
       ? ` · ${f.shot_count} shots` : "";
     if (f.state === "error") {
-      rows.push(`<div class="job"><div>${base} · error — copy to Drive, then Retry</div>` +
+      rows.push(`<div class="job"><div>${base} · error — read the job message, then Retry</div>` +
         `<div><button type="button" data-fretry="${esc(f.footage_key)}">Retry</button></div></div>`);
     } else if (!unknown && (f.state === "indexing" || f.state === "uploading") && !covered.has(f.footage_key)) {
       rows.push(`<div class="job"><div>${base} · ${esc(f.state)} (no active job)</div>` +
@@ -380,7 +380,7 @@ async function insertResult(r) {
 
 /* ---------- boot ---------- */
 
-const PANEL_VERSION = "dbg10";
+const PANEL_VERSION = "dbg11";
 
 function probe(expr) {
   return new Promise((resolve) => {

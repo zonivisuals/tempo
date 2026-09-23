@@ -98,6 +98,24 @@ def test_ingress_resolver_maps_and_rejects():
             pass
 
 
+def test_need_names_root_cause():
+    from modal_backend import _deps
+
+    _deps.note("scenedetect", ImportError("libGL.so.1: cannot open shared object file"))
+    try:
+        _deps._need(None, "scenedetect")
+        raise AssertionError("should raise")
+    except ImportError as exc:
+        assert "pip install scenedetect" in str(exc)
+        assert "libGL.so.1" in str(exc)
+    _deps._why.pop("scenedetect", None)
+    try:
+        _deps._need(None, "never-recorded-pkg")
+        raise AssertionError("should raise")
+    except ImportError as exc:
+        assert "import failed" not in str(exc)
+
+
 def test_scoring_parity_with_service():
     from modal_backend import scoring as modal_scoring
     from tempo_service import search as service_search

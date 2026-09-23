@@ -27,12 +27,14 @@ from .singletons import _get_clip_text_model
 
 try:
     import torch
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("torch", _err)
     torch = None  # type: ignore[no-redef,assignment]
 
 try:
     from transformers import Blip2ForConditionalGeneration, Blip2Processor
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("transformers", _err)
     Blip2ForConditionalGeneration = None  # type: ignore[no-redef,assignment]
     Blip2Processor = None  # type: ignore[no-redef,assignment]
 DEVICE = _deps.device()

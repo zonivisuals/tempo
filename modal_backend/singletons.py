@@ -16,7 +16,8 @@ from ._deps import _need
 
 try:
     from transformers import CLIPProcessor, CLIPTextModelWithProjection, pipeline
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("transformers", _err)
     CLIPProcessor = None  # type: ignore[no-redef,assignment]
     CLIPTextModelWithProjection = None  # type: ignore[no-redef,assignment]
     pipeline = None  # type: ignore[no-redef,assignment]

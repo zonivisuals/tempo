@@ -13,16 +13,19 @@ Deviations from verbatim:
 """
 import numpy as np
 
+from . import _deps
 from ._deps import _need
 
 try:
     import faiss
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("faiss-cpu", _err)
     faiss = None  # type: ignore[no-redef,assignment]
 
 try:
     from rank_bm25 import BM25Okapi
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("rank-bm25", _err)
     BM25Okapi = None  # type: ignore[no-redef,assignment]
 
 def _build_faiss(emb_matrix):

@@ -20,17 +20,20 @@ from ._deps import _need
 
 try:
     import cv2
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("opencv-python", _err)
     cv2 = None  # type: ignore[no-redef,assignment]
 
 try:
     from faster_whisper import WhisperModel
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("faster-whisper", _err)
     WhisperModel = None  # type: ignore[no-redef,assignment]
 
 try:
     import torch
-except ImportError:  # CPU/test host: guarded, _need() explains at call
+except ImportError as _err:  # guarded; failure recorded for _need()
+    _deps.note("torch", _err)
     torch = None  # type: ignore[no-redef,assignment]
 DEVICE = _deps.device()
 

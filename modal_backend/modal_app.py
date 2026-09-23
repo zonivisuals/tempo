@@ -63,9 +63,15 @@ app = modal.App(APP_NAME)
 # `modal deploy <file>` uploads only that file; the modal_backend package
 # (api, pipeline, stages, scoring) ships as an image layer so the
 # `from modal_backend...` imports resolve on the worker.
+# debian-slim omits shared libs the pipeline needs at import: libGL for
+# opencv-python (cv2/scenedetect fail without it) and ffmpeg for audio
+# extraction. Without these, stages die with bare ImportErrors that the
+# _why recorder then surfaces verbatim in the job payload.
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg", "libgl1", "libglib2.0-0")
     .pip_install(*PINNED_DEPS)
+    # Code last: redeploys after a stage edit reuse the cached apt+pip layers.
     .add_local_dir("modal_backend", remote_path="/root/modal_backend")
 )
 artifacts = modal.Volume.from_name("tempo-artifacts", create_if_missing=True)

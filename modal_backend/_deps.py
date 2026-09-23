@@ -26,13 +26,25 @@ BLIP2_MODEL_NAME = os.environ.get(
 )
 NER_MODEL_NAME = os.environ.get("TEMPO_NER_MODEL", "dslim/bert-base-NER")
 
+# Import-failure reasons, keyed by pip name. Guarded `except ImportError`
+# blocks record here so _need() can name the ROOT cause (e.g. a missing
+# system .so that breaks an otherwise-installed package) instead of just
+# the missing Python name. Never logged wholesale (may contain paths).
+_why: dict[str, str] = {}
+
+
+def note(pip_name: str, exc: BaseException) -> None:
+    _why[pip_name] = str(exc)[:200]
+
 
 def _need(obj: object, pip_name: str) -> None:
     """Tripwire for guarded heavy imports. Raises before the first cryptic
     AttributeError so CPU/test hosts learn exactly what to install (or that
     the stage only runs on a GPU image)."""
     if obj is None:
+        reason = _why.get(pip_name, "")
+        hint = f" (import failed: {reason})" if reason else ""
         raise ImportError(
             f"modal stage needs {pip_name} (GPU image only): "
-            f"pip install {pip_name}"
+            f"pip install {pip_name}{hint}"
         )
