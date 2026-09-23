@@ -261,8 +261,11 @@ async function refreshHealth() {
   renderStatus();
 }
 
-async function syncNow() {
-  if (!store.authed) { dbg("sync: skipped (signed out — sign in or run auth_mode=off)"); return; }
+async function syncNow(force) {
+  // Auto-poll stays quiet while logged out; an explicit click always tries —
+  // otherwise a service restarted into auth_mode=off leaves the form stuck
+  // on screen with a dead Sync button and no recovery but reload.
+  if (!store.authed && !force) { dbg("sync: skipped (signed out — sign in or run auth_mode=off)"); return; }
   const raw = await evalScript("tempoListFootage()");
   dbg(`sync: evalScript raw type=${typeof raw} len=${(raw || "").length} raw=${String(raw).slice(0, 300)}`);
   if (raw === null) dbg("sync: host returned null (CSInterface missing or panel outside AE?)");
@@ -281,6 +284,10 @@ async function syncNow() {
     showError(code || "SYNC_FAILED", res.offline ? "service offline" : "status " + res.status);
     return;
   }
+  // Success reconciles session UI (e.g. service restarted passwordless
+  // while the form was up): the form must not outlive its reason.
+  store.authed = true;
+  refreshSession();
   showError(null);
   const b = res.body;
   $("sync-summary").textContent =
@@ -373,7 +380,7 @@ async function insertResult(r) {
 
 /* ---------- boot ---------- */
 
-const PANEL_VERSION = "dbg9";
+const PANEL_VERSION = "dbg10";
 
 function probe(expr) {
   return new Promise((resolve) => {
@@ -455,7 +462,7 @@ async function boot() {
   await ensureHost();
   applyTheme();
   wireAuth();
-  $("sync-now").addEventListener("click", () => { dbg("ui: Sync now clicked"); syncNow(); });
+  $("sync-now").addEventListener("click", () => { dbg("ui: Sync now clicked"); syncNow(true); });
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
   $("footage-filter").addEventListener("change", (e) => { store.filter = e.target.value; });
   renderStatus();
