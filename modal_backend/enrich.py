@@ -96,15 +96,18 @@ def _caption_one(blip_proc, blip_model, image):
 
 
 def _load_blip_processor():
-    """Load the BLIP-2 processor, self-healing a corrupt tokenizer cache.
+    """Load the BLIP-2 processor with the slow (pure-Python) tokenizer.
 
-    Serde-shaped failure (`did not match any variant ...`) means truncated
-    bytes on disk (observed live at tokenizer.json line 250373): purge the
-    cached copies and raise retryable, so the next attempt re-downloads
-    instead of failing forever. Other errors propagate untouched.
+    Proven necessary, not precautionary: the repo's tokenizer.json parses
+    and encodes fine under tokenizers >=0.23 but the pinned 0.19.1 Rust
+    loader rejects it (`did not match any variant ... at line 250373`,
+    observed live twice). `use_fast` forwards through ProcessorMixin to the
+    tokenizer loader (verified in transformers 4.44 processing_utils.py);
+    slow/fast parity is a transformers invariant, so captions are unchanged.
+    Weights, prompts, and hyperparams are untouched by this change.
     """
     try:
-        return Blip2Processor.from_pretrained(_deps.BLIP2_MODEL_NAME)
+        return Blip2Processor.from_pretrained(_deps.BLIP2_MODEL_NAME, use_fast=False)
     except Exception as exc:
         if "did not match any variant" in str(exc):
             gone = _deps.purge_hf_file(_deps.BLIP2_MODEL_NAME, "tokenizer.json")

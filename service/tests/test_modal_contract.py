@@ -239,9 +239,12 @@ def test_blip_processor_load_purges_on_serde(tmp_path, monkeypatch):
     (base / "tokenizer.json").write_bytes(b"bad")
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
 
+    seen = {}
+
     class FakeProc:
         @staticmethod
-        def from_pretrained(name):
+        def from_pretrained(name, **kw):
+            seen.update(kw)
             raise Exception("data did not match any variant of untagged enum X at line 1 column 2")
 
     monkeypatch.setattr(enrich_module, "Blip2Processor", FakeProc)
@@ -250,11 +253,12 @@ def test_blip_processor_load_purges_on_serde(tmp_path, monkeypatch):
         raise AssertionError("should raise retryable")
     except RuntimeError as exc:
         assert "purged 1" in str(exc) and "retry the job" in str(exc)
+    assert seen.get("use_fast") is False  # slow tokenizer: immune to Rust serde gaps
     assert not (base / "tokenizer.json").exists()
 
     class FakeOther:
         @staticmethod
-        def from_pretrained(name):
+        def from_pretrained(name, **kw):
             raise RuntimeError("plain boom")
 
     monkeypatch.setattr(enrich_module, "Blip2Processor", FakeOther)
