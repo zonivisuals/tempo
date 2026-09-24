@@ -79,7 +79,8 @@ checkpoints = modal.Volume.from_name("tempo-checkpoints", create_if_missing=True
 ingress = modal.Volume.from_name("tempo-ingress", create_if_missing=True)
 secrets = modal.Secret.from_name("tempo-secrets")
 
-_gpu = _os.environ.get("TEMPO_MODAL_GPU", "T4") or None
+#_gpu = _os.environ.get("TEMPO_MODAL_GPU", "T4") or None
+_gpu = None
 
 
 @app.function(

@@ -123,6 +123,8 @@ def _handoff(job, progress, provider, drive_path: str, entry: dict) -> None:  # 
     backend_id = (body or {}).get("job_id", "")
     if not backend_id:
         raise RuntimeError("Backend handoff returned no job_id.")
+    log.info("proxy job %s handed off as backend %s (ref=%s)",
+             job.job_id, backend_id, drive_path)
 
     # Upload stage already shows real bytes (storage leg) or the 0/1 manual
     # marker — handoff success only flips the job state, never progress.
