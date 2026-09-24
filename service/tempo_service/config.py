@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     backend_token: str = ""
     backend_timeout_s: float = 20.0
     backend_health_timeout_s: float = 3.0
+    # Background prober cadence (lifespan thread; /health serves the cache).
+    backend_health_interval_s: float = 15.0
 
     # Drive auto-upload (P9 / ADR-0003). Deterministic `tempo/<key>/<basename>`.
     drive_folder: str = "tempo"

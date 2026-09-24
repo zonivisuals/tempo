@@ -12,10 +12,28 @@
 
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tempo_service import registry
 from tempo_service.drive import drive_path_for
+
+
+@pytest.fixture(autouse=True)
+def _fresh_backend_cache():
+    """The health cache is process-global; reset per test so backend-mode
+    tests never leak reachability into each other."""
+    import tempo_service.app as app_module
+
+    with app_module._backend_lock:
+        app_module._backend_status.update(
+            {"reachable": False, "gpu": False, "checked_at": 0.0}
+        )
+    yield
+    with app_module._backend_lock:
+        app_module._backend_status.update(
+            {"reachable": False, "gpu": False, "checked_at": 0.0}
+        )
 
 
 def _client(tmp_path, monkeypatch):
@@ -65,6 +83,32 @@ def test_colab_url_endpoint_gone(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     r = client.post("/colab-url", json={"url": "https://x.example"})
     assert r.status_code == 404
+
+
+def test_health_serves_cache_without_probing(tmp_path, monkeypatch):
+    import tempo_service.app as app_module
+
+    client = _client(tmp_path, monkeypatch)
+    with app_module._backend_lock:
+        import time as _time
+
+        app_module._backend_status.update(
+            {"reachable": True, "gpu": True, "checked_at": _time.monotonic()}
+        )
+
+    def explode(*a, **k):
+        raise AssertionError("cached health must not probe")
+
+    monkeypatch.setattr(app_module, "get_provider", explode)
+    body = client.get("/health").json()
+    assert body["backend"] == {"reachable": True, "gpu": True}
+
+
+def test_probe_never_raises_on_misconfig(monkeypatch):
+    import tempo_service.app as app_module
+
+    monkeypatch.setattr(app_module.settings, "backend", "bogus-name")
+    assert app_module._probe_backend_once() == (False, False)
 
 
 def test_sync_includes_uploads_and_drive_path(tmp_path, monkeypatch):

@@ -6,6 +6,8 @@ weights resident) and reported via /health `models_loaded`.
 """
 
 import logging
+import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
@@ -132,8 +134,82 @@ async def lifespan(app: FastAPI):
     from .proxy import register as register_proxy
 
     register_proxy()  # backend handoff when configured, else local pipeline
+    _log_backend_line()
+    _start_backend_prober()
     yield
     log.info("tempo shutdown")
+
+
+_backend_status = {"reachable": False, "gpu": False, "checked_at": 0.0}
+_backend_lock = threading.Lock()
+_prober_started = False
+
+
+def _probe_backend_once():
+    """One synchronous backend probe. Returns (reachable, gpu). Never raises,
+    never logs tokens — the URL host is the most sensitive thing printed."""
+    try:
+        provider = get_provider(
+            settings.backend, settings.backend_url, settings.backend_token,
+            settings.backend_health_timeout_s,
+        )
+        if provider is None:
+            return False, False
+        probe = provider.health()
+        return bool(probe.get("reachable")), bool(probe.get("gpu", False))
+    except Exception as exc:  # defensive: misconfig must not crash lifespan
+        log.warning("backend probe crashed (%s)", exc)
+        return False, False
+
+
+def _log_backend_line():
+    host = ""
+    try:
+        from urllib.parse import urlsplit
+
+        host = urlsplit(settings.backend_url).netloc or "(unset)"
+    except ValueError:
+        host = "(invalid)"
+    reachable, gpu = _probe_backend_once()
+    with _backend_lock:
+        _backend_status.update(
+            {"reachable": reachable, "gpu": gpu, "checked_at": time.monotonic()}
+        )
+    log.info(
+        "tempo backend: mode=%s url=%s reachable=%s gpu=%s",
+        settings.backend, host, reachable, gpu,
+    )
+
+
+def _start_backend_prober():
+    """Background prober (daemon): refreshes the cached backend status every
+    interval and logs only on flips. GET /health then serves the cache
+    instantly instead of timing out against cold backends on every panel
+    poll — stale-while-revalidating."""
+    global _prober_started
+    if _prober_started:
+        return
+    _prober_started = True
+
+    def loop():
+        last = (None, None)
+        while True:
+            try:
+                time.sleep(settings.backend_health_interval_s)
+                reachable, gpu = _probe_backend_once()
+                with _backend_lock:
+                    _backend_status.update(
+                        {"reachable": reachable, "gpu": gpu,
+                         "checked_at": time.monotonic()}
+                    )
+                if (reachable, gpu) != last:
+                    log.info("tempo backend: reachable=%s gpu=%s", reachable, gpu)
+                    last = (reachable, gpu)
+            except Exception as exc:  # thread must never die
+                log.warning("backend prober error (%s)", exc)
+
+    worker = threading.Thread(target=loop, daemon=True, name="tempo-backend-prober")
+    worker.start()
 
 
 def create_app() -> FastAPI:
@@ -219,16 +295,23 @@ def create_app() -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
-        provider = get_provider(
-            settings.backend, settings.backend_url, settings.backend_token,
-            settings.backend_health_timeout_s,
-        )
-        probe = provider.health() if provider else {"reachable": False, "gpu": False}
+        # Cached backend status (background prober); a synchronous probe only
+        # runs when the cache never populated (first boot before lifespan).
+        with _backend_lock:
+            cached = dict(_backend_status)
+        if cached["checked_at"] <= 0:
+            reachable, gpu = _probe_backend_once()
+            with _backend_lock:
+                _backend_status.update(
+                    {"reachable": reachable, "gpu": gpu,
+                     "checked_at": time.monotonic()}
+                )
+            cached = dict(_backend_status)
         return HealthResponse(
             status="ok",
             models_loaded=dict(models_loaded),
             artifact_root=str(settings.artifact_root),
-            backend=BackendStatus(reachable=probe["reachable"], gpu=probe["gpu"]),
+            backend=BackendStatus(reachable=cached["reachable"], gpu=cached["gpu"]),
         )
 
     @app.post("/drive-auth")
