@@ -79,8 +79,10 @@ checkpoints = modal.Volume.from_name("tempo-checkpoints", create_if_missing=True
 ingress = modal.Volume.from_name("tempo-ingress", create_if_missing=True)
 secrets = modal.Secret.from_name("tempo-secrets")
 
-#_gpu = _os.environ.get("TEMPO_MODAL_GPU", "T4") or None
-_gpu = None
+# CPU by default (no-card safe): set TEMPO_MODAL_GPU=T4 at deploy time to
+# opt into GPU explicitly. Never the reverse — a default GPU silently burns
+# paid compute on every deploy.
+_gpu = _os.environ.get("TEMPO_MODAL_GPU") or None
 
 
 @app.function(
