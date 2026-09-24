@@ -95,11 +95,31 @@ def _caption_one(blip_proc, blip_model, image):
     return _clean_caption(raw)
 
 
+def _load_blip_processor():
+    """Load the BLIP-2 processor, self-healing a corrupt tokenizer cache.
+
+    Serde-shaped failure (`did not match any variant ...`) means truncated
+    bytes on disk (observed live at tokenizer.json line 250373): purge the
+    cached copies and raise retryable, so the next attempt re-downloads
+    instead of failing forever. Other errors propagate untouched.
+    """
+    try:
+        return Blip2Processor.from_pretrained(_deps.BLIP2_MODEL_NAME)
+    except Exception as exc:
+        if "did not match any variant" in str(exc):
+            gone = _deps.purge_hf_file(_deps.BLIP2_MODEL_NAME, "tokenizer.json")
+            raise RuntimeError(
+                f"model cache corrupt (purged {len(gone)} tokenizer copies); "
+                f"retry the job"
+            ) from exc
+        raise
+
+
 def enrich_with_local_models(shots):
     _need(torch, "torch")
     _need(Blip2Processor, "transformers")
     print("Loading BLIP-2 for cluster reps...")
-    blip_proc  = Blip2Processor.from_pretrained(_deps.BLIP2_MODEL_NAME)
+    blip_proc = _load_blip_processor()
     blip_model = Blip2ForConditionalGeneration.from_pretrained(
         _deps.BLIP2_MODEL_NAME, torch_dtype=torch.float16, device_map="auto"
     )

@@ -17,10 +17,14 @@ Layout on Modal:
                              `modal volume put tempo-ingress <file>
                               tempo/<key>/<basename>`; B2 presigned uploads
                              replace this copy step in P2-full)
+  Volume "tempo-models"      mounted at /root/.cache/huggingface (verified
+                             model cache — see seed.py; runtimes resolve it
+                             with zero code changes via HF defaults)
   Secret "tempo-secrets"     provides BACKEND_TOKEN (the entire auth model)
   api (below)                ASGI app: /health /index /jobs /search/thumb
                              (indexing + query embedding run in-process;
                              the worker calls pipeline.run_all directly)
+  seed_cache (below)         one-off CPU seeder: `modal run ...::seed_cache`
 
 GPU selection (Modal gates ALL GPUs behind a payment method on file):
   TEMPO_MODAL_GPU=T4 (default) — full trial, needs a card on the account.
@@ -38,6 +42,10 @@ APP_NAME = "tempo"
 ARTIFACTS_MOUNT = "/artifacts"
 CHECKPOINTS_MOUNT = "/checkpoints"
 INGRESS_MOUNT = "/ingress"
+# Default HF cache path (huggingface_hub + transformers + faster-whisper all
+# resolve here when HF_HUB_CACHE is unset). Mounting the models Volume here
+# makes the seeded cache visible with zero code changes anywhere.
+CACHE_MOUNT = "/root/.cache/huggingface"
 
 
 # Pinned to service/pyproject.toml versions where the stacks overlap, so the
@@ -77,6 +85,7 @@ image = (
 artifacts = modal.Volume.from_name("tempo-artifacts", create_if_missing=True)
 checkpoints = modal.Volume.from_name("tempo-checkpoints", create_if_missing=True)
 ingress = modal.Volume.from_name("tempo-ingress", create_if_missing=True)
+models = modal.Volume.from_name("tempo-models", create_if_missing=True)
 secrets = modal.Secret.from_name("tempo-secrets")
 
 # CPU by default (no-card safe): set TEMPO_MODAL_GPU=T4 at deploy time to
@@ -96,6 +105,7 @@ _gpu = _os.environ.get("TEMPO_MODAL_GPU") or None
         ARTIFACTS_MOUNT: artifacts,
         CHECKPOINTS_MOUNT: checkpoints,
         INGRESS_MOUNT: ingress,
+        CACHE_MOUNT: models,
     },
     secrets=[secrets],
     timeout=3600,
@@ -112,3 +122,21 @@ def api():
         checkpoint_root=CHECKPOINTS_MOUNT,
         resolve_source=ingress_resolver(INGRESS_MOUNT),
     )
+
+
+@app.function(
+    image=image,
+    volumes={CACHE_MOUNT: models},
+    secrets=[secrets],
+    timeout=7200,
+)
+def seed_cache():
+    """Populate the shared model cache (CPU-only, pure download + verify).
+
+    Run once per model revision: `modal run modal_backend/modal_app.py::seed_cache`.
+    Seeding is idempotent (verified files are skipped by the hub client);
+    size mismatches raise SeedError LOUDLY instead of poisoning runs.
+    """
+    from modal_backend import seed
+
+    return seed.seed_all()

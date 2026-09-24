@@ -172,6 +172,99 @@ def test_ingress_resolver_maps_and_rejects():
             pass
 
 
+def test_seed_verifies_sizes_and_fails_loud(tmp_path, monkeypatch):
+    from modal_backend import seed as seed_module
+
+    monkeypatch.setattr(seed_module, "MANIFEST", [
+        ("org/model", ["*.json"], [("tokenizer.json", 10), ("config.json", 4)]),
+    ])
+
+    def fake_download(repo_id, allow_patterns):
+        assert allow_patterns == ["*.json"]
+        root = tmp_path / "snap"
+        root.mkdir(exist_ok=True)
+        (root / "tokenizer.json").write_bytes(b"0123456789")
+        (root / "config.json").write_bytes(b"abcd")
+        return str(root)
+
+    report = seed_module.seed_all(cache_dir=tmp_path / "cache", downloader=fake_download)
+    assert report["org/model"]["ok"] is True
+    assert report["org/model"]["files"] == ["tokenizer.json", "config.json"]
+
+    def fake_truncated(repo_id, allow_patterns):
+        root = tmp_path / "snap_bad"
+        root.mkdir(exist_ok=True)
+        (root / "tokenizer.json").write_bytes(b"short")
+        (root / "config.json").write_bytes(b"abcd")
+        return str(root)
+
+    try:
+        seed_module.seed_all(cache_dir=tmp_path / "cache", downloader=fake_truncated)
+        raise AssertionError("truncated file must fail loudly")
+    except seed_module.SeedError as exc:
+        assert "tokenizer.json" in str(exc) and "!=" in str(exc)
+
+
+def test_seed_manifest_covers_all_repos_with_checks():
+    from modal_backend import seed as seed_module
+
+    repos = [row[0] for row in seed_module.MANIFEST]
+    assert "Salesforce/blip2-opt-2.7b" in repos
+    assert "openai/clip-vit-large-patch14" in repos
+    assert "Systran/faster-whisper-large-v3" in repos
+    for repo_id, patterns, checks in seed_module.MANIFEST:
+        assert patterns and checks, repo_id
+        assert any("tokenizer.json" in c[0] for c in checks), repo_id
+
+
+def test_purge_hf_file_removes_only_target(tmp_path, monkeypatch):
+    from modal_backend import _deps
+
+    base = tmp_path / "hub" / "models--Salesforce--blip2-opt-2.7b" / "snapshots" / "abc"
+    base.mkdir(parents=True)
+    (base / "tokenizer.json").write_bytes(b"bad")
+    (base / "config.json").write_bytes(b"keep")
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+    gone = _deps.purge_hf_file("Salesforce/blip2-opt-2.7b", "tokenizer.json")
+    assert len(gone) == 1 and gone[0].endswith("tokenizer.json")
+    assert (base / "config.json").is_file()
+    assert _deps.purge_hf_file("Nope/none", "tokenizer.json") == []
+
+
+def test_blip_processor_load_purges_on_serde(tmp_path, monkeypatch):
+    from modal_backend import enrich as enrich_module
+
+    base = tmp_path / "hub" / "models--Salesforce--blip2-opt-2.7b" / "snapshots" / "abc"
+    base.mkdir(parents=True)
+    (base / "tokenizer.json").write_bytes(b"bad")
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+
+    class FakeProc:
+        @staticmethod
+        def from_pretrained(name):
+            raise Exception("data did not match any variant of untagged enum X at line 1 column 2")
+
+    monkeypatch.setattr(enrich_module, "Blip2Processor", FakeProc)
+    try:
+        enrich_module._load_blip_processor()
+        raise AssertionError("should raise retryable")
+    except RuntimeError as exc:
+        assert "purged 1" in str(exc) and "retry the job" in str(exc)
+    assert not (base / "tokenizer.json").exists()
+
+    class FakeOther:
+        @staticmethod
+        def from_pretrained(name):
+            raise RuntimeError("plain boom")
+
+    monkeypatch.setattr(enrich_module, "Blip2Processor", FakeOther)
+    try:
+        enrich_module._load_blip_processor()
+        raise AssertionError("should propagate")
+    except RuntimeError as exc:
+        assert "plain boom" in str(exc) and "purged" not in str(exc)
+
+
 def test_need_names_root_cause():
     from modal_backend import _deps
 

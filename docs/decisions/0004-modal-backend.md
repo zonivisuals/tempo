@@ -39,6 +39,12 @@ backend change without touching panel, scoring, or contracts.
   `checkpoints/_jobs/<id>.json`, so any container serves status for any job
   (concurrent panel polling across containers never false-404s). The proxy
   additionally rides out transient poll misses (5×1s) before failing a job.
+- **Verified model cache:** `modal_backend/seed.py` pre-fetches weights into
+  the `tempo-models` Volume (mounted at the default HF cache path, so
+  runtimes resolve it with zero code changes), asserting byte sizes read
+  from the HuggingFace API — a truncated `tokenizer.json` once failed every
+  Retry identically on one warm container. Serde-shaped load failures also
+  self-heal: the corrupt file is purged and the job errors retryable.
 - **Kept:** scoring contract (§3.5) byte-identical (parity test), job states
   (renamed `queued-for-colab` → `queued-for-backend`), retry flows, thumb
   fallback + cache, source_path backfill, loader fallback, Drive-shaped
