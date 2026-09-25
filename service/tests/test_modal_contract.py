@@ -449,6 +449,26 @@ def test_modal_api_search_empty_corpus_needs_no_model(tmp_path):
     assert r.json()["results"] == []
 
 
+def test_default_embed_query_needs_torch_or_weights(monkeypatch):
+    import builtins
+
+    from modal_backend import modal_api
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "torch":
+            raise ImportError("no torch on this host")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    try:
+        modal_api._default_embed_query("hi")
+        raise AssertionError("should raise without torch")
+    except ImportError as exc:
+        assert "torch" in str(exc)
+
+
 def test_modal_api_search_without_model_is_503(tmp_path):
     import pickle
 

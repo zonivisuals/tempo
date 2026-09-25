@@ -42,6 +42,38 @@ def _blank_stages():
     return {n: {"name": n, "state": "pending", "done": 0, "total": 0} for n in STAGES}
 
 
+def _require_cached(repo_id: str) -> None:
+    """Raise OSError unless the model weights are already on local disk.
+
+    Pure cache probe (`local_files_only`) — search must never trigger a
+    multi-GB download mid-query. Mirrors service/tempo_service/app.py.
+    """
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(repo_id=repo_id, local_files_only=True)
+
+
+def _default_embed_query(text: str):
+    """CLIP-text encode via the singleton (mirrors service `_embed_query`
+    and the notebook cell). Lazy imports keep module import CPU-safe;
+    missing torch/weights raise ImportError/OSError for the caller to map
+    to 503 MODEL_NOT_LOADED."""
+    import torch
+
+    from . import _deps as _deps_mod
+    from .singletons import _get_clip_text_model
+
+    _require_cached(_deps_mod.CLIP_MODEL)
+    model, proc = _get_clip_text_model()
+    device = _deps_mod.device()
+    inputs = proc(text=[text], return_tensors="pt",
+                  padding=True, truncation=True).to(device)
+    with torch.no_grad():
+        emb = model(**inputs).text_embeds
+    emb = emb / emb.norm(p=2, dim=-1, keepdim=True)
+    return emb.cpu().numpy().astype("float32")[0]
+
+
 def ingress_resolver(mount):
     """Build a resolve_source mapping storage refs under a volume mount.
 
@@ -69,9 +101,9 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
 
     run_all: fn(src_path, out_dir, progress) — defaults to pipeline.run_all
         (GPU); tests inject a fake writing fixture artifacts.
-    embed_query: fn(text) -> L2-normalized np vector — defaults to None,
-        meaning the CLIP text singleton (GPU). Tests inject a fixed vector.
-        Missing model on CPU hosts → 503 MODEL_NOT_LOADED (same honest code).
+    embed_query: fn(text) -> L2-normalized np vector — defaults to the CLIP
+        text singleton via _default_embed_query. Tests inject a fixed vector.
+        Missing torch/weights → 503 MODEL_NOT_LOADED (same honest code).
     resolve_source: fn(drive_path) -> Path mapping a storage ref to a local
         file — defaults to identity; the Modal deploy maps refs into the
         ingress Volume. Missing file → job error naming the location.
@@ -342,12 +374,15 @@ def create_app(*, auth_token, artifacts_root, checkpoint_root, run_all=None,
                 log.warning("skipping %s (%s)", key, exc)
         if not metas:
             return {"query": q, "took_ms": int((time.perf_counter() - t0) * 1000), "results": []}
-        if embed_query is None:
+        embed = embed_query or _default_embed_query
+        try:
+            qv = embed(q)
+        except (ImportError, OSError) as exc:
+            log.info("search without text model (%s)", exc)
             return JSONResponse(
                 status_code=503,
                 content={"error": {"code": "MODEL_NOT_LOADED", "message": "text model not loaded"}},
             )
-        qv = embed_query(q)
         V = _np.vstack(mats_v).astype(_np.float32)
         D = _np.vstack(mats_d).astype(_np.float32)
         C = _np.vstack(mats_c).astype(_np.float32)
