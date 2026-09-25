@@ -143,7 +143,7 @@ cert expiry (expired cert = silently dead panel).
 ## Troubleshooting (all observed in testing)
 
 | `modal stage needs X ... (import failed: ...)` | Image missing a dep or system lib | Suffix names the root cause (often a `.so` — add the apt lib to `modal_app.py`); redeploy |
-| `did not match any variant ... at line N` | Truncated model file in container cache | Run `seed_cache` (verifies sizes); the loader also purges + errors retryable — just Retry |
+| `did not match any variant ... at line N` | Version gap: pinned tokenizers 0.19.1 rejects current `tokenizer.json` (proven: 0.23.2 parses + encodes it; file byte-valid) | Fixed in code (`use_fast=False`, `99a07ec`); purge-on-serde remains for genuine corruption — just Retry |
 | Symptom | Cause | Fix |
 |---|---|---|
 | `sync +0`, `evalScript raw len=0` | CEP skipped ScriptPath eval | Loader self-heals (watch `loader:` lines); else reinstall + full AE quit |

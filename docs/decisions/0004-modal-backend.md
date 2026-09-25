@@ -45,6 +45,11 @@ backend change without touching panel, scoring, or contracts.
   from the HuggingFace API — a truncated `tokenizer.json` once failed every
   Retry identically on one warm container. Serde-shaped load failures also
   self-heal: the corrupt file is purged and the job errors retryable.
+- **BLIP-2 tokenizer version gap (trial finding):** pinned tokenizers 0.19.1
+  rejects the current `tokenizer.json` although the bytes are valid
+  (0.23.2 parses + encodes them — proven locally). Fix: slow tokenizer
+  (`use_fast=False`, token-identical by upstream parity); purge kept for
+  genuine corruption.
 - **Kept:** scoring contract (§3.5) byte-identical (parity test), job states
   (renamed `queued-for-colab` → `queued-for-backend`), retry flows, thumb
   fallback + cache, source_path backfill, loader fallback, Drive-shaped
