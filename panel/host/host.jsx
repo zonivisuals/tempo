@@ -88,6 +88,7 @@ function tempoInsertOrFocus(payloadJson) {
 }
 
 function tempoFindFootage(path) {
+    if (!app.project) { return null; }
     var n = app.project.items.length;
     for (var i = 1; i <= n; i++) {
         var item = app.project.items[i];
@@ -103,6 +104,9 @@ function tempoFindFootage(path) {
 }
 
 function tempoInsertOrFocusInner(payload) {
+    if (!app.project) {
+        return JSON.stringify({ ok: false, error: "no project open" });
+    }
     var footage = tempoFindFootage(payload.source_path);
     if (!footage) {
         var file = new File(payload.source_path);
@@ -127,6 +131,9 @@ function tempoInsertOrFocusInner(payload) {
         var w = 1920, h = 1080, fps = 25.0;
         try { w = footage.width; h = footage.height; fps = footage.frameRate; } catch (e) {}
         comp = app.project.items.addComp("Tempo — " + base, w, h, 1.0, 60.0, fps);
+    }
+    if (!comp) {
+        return JSON.stringify({ ok: false, error: "no composition available" });
     }
 
     var T = comp.time;

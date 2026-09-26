@@ -1,6 +1,11 @@
 # 0005 — Better Auth identity, sidecar session gate
 
-**Status:** accepted. **Date:** 2026-09-22.
+**Status: REMOVED (2026-09-26).** The auth wall was deleted — no
+`auth/` service, no sidecar session gate, no panel sign-in; every sidecar
+route is public on localhost by design. Kept as history; reintroduce only
+via a new ADR.
+
+**Status at acceptance:** accepted. **Date:** 2026-09-22.
 
 ## Context
 

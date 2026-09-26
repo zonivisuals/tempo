@@ -43,23 +43,12 @@ Failed jobs keep their stage errors and the registry entry keeps
 `state: error` + message (e.g. Drive file missing with the exact
 `Drive/<drive_path>` copy hint). Auto-sync never re-enqueues — explicit retry only:
 
-## POST /auth/signup · POST /auth/login
+## Authentication: none
 
-```json
-{"user_id": "u_123", "email": "ed@studio.com"}
-```
-Body: signup `{name, email, password}`, login `{email, password}`.
-Credentials transit localhost only, to the Better Auth service (D12);
-the session persists in the OS keychain. Rejected → 401 `AUTH_REJECTED`.
-
-## POST /auth/logout → `{"ok": true}` (clears the stored session)
-
-## GET /auth/me → `{"logged_in": true, "user_id": "...", "email": "..."}`
-
-Identity gate: whenever `auth_mode=on`, `/sync`, `/search`, `/jobs/*`
-and both retry endpoints require a valid session (`401 AUTH_REQUIRED`).
-`/health`, `/footage`, `/thumb`, `/host` stay public (pre-login loader,
-headerless thumbnails, local reads).
+No auth wall. The sidecar binds `127.0.0.1` and serves the single local
+editor; every route is public on localhost by design. (Identity removed —
+see `docs/decisions/0005-identity.md`. The backend-to-backend deploy token
+`TEMPO_BACKEND_TOKEN` is server config, never user input.)
 
 ## POST /jobs/{job_id}/retry
 
@@ -99,6 +88,9 @@ Empty `source_path` in backend results is backfilled from the registry
    "contributions": {"dense": 0.351, "bm25": 0.305, "anchor": 0.0, "entity_boost": 0.0},
    "transcript": "...", "caption": "...", "entities": ["Japan"]}]}
 ```
+- `raw_cos`/`contributions`/`winning_key` stay in the payload (scoring
+  stays decomposable and golden-tested) but the panel does not render
+  them — result cards show thumbnail, file, timecode, transcript/caption.
 - Must complete < 300 ms warm; never trigger model downloads (503 + `MODEL_NOT_LOADED` if text model missing).
 - Global row order `(registry order, shot_id)` is stable across requests.
 

@@ -85,18 +85,19 @@ def test_panel_insert_payload_matches_contract():
         assert key in src, f"panel.js missing insert key: {key}"
 
 
-def test_panel_auth_surface_matches_contract():
-    """Login/logout/me must exist in api.js and the authbox in index.html
-    (ADR-0005: panel holds no tokens; sidecar keychain is the session)."""
+def test_panel_has_no_auth_surface():
+    """No auth wall: api.js carries no login/signup/logout/me fns and
+    index.html carries no authbox (identity removed — the localhost
+    sidecar serves one editor, no sessions, no tokens)."""
     api = PANEL_API_JS.read_text(encoding="utf-8")
-    for fn in ("login", "signup", "logout", "me:"):
-        assert fn in api, f"api.js missing auth fn: {fn}"
-    # No tokens in panel code or storage: sidecar keychain owns sessions.
+    for fn in ("login", "signup", "logout", "/auth/me"):
+        assert fn not in api, f"api.js still references auth: {fn}"
+    # No tokens in panel code or storage: nothing to hold anymore.
     assert "Authorization" not in api
     assert "tempo_colab_url" not in api
     html = PANEL_HTML.read_text(encoding="utf-8")
-    for el in ("authbox", "auth-email", "auth-pass", "auth-login", "auth-signup", "logout"):
-        assert el in html, f"index.html missing auth element: {el}"
+    for el in ("authbox", "auth-email", "auth-pass", "auth-login", "auth-signup"):
+        assert el not in html, f"index.html still has auth element: {el}"
 
 
 def test_panel_insert_escapes_windows_paths():

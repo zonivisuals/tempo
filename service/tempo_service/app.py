@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import drive as drive_module
@@ -23,10 +23,6 @@ from .backends import get_provider
 from .config import settings
 from .indexer.models import MODELS_LOADED as models_loaded
 from .schemas import (
-    AuthLoginRequest,
-    AuthMeResponse,
-    AuthSessionResponse,
-    AuthSignupRequest,
     BackendStatus,
     Contributions,
     DriveAuthRequest,
@@ -125,10 +121,9 @@ async def lifespan(app: FastAPI):
     # https://fastapi.tiangolo.com/advanced/events/
     # Registry/worker wiring only — model weights stay lazy per stage (D8).
     log.info(
-        "tempo startup: artifact_root=%s format_version=%d auth_mode=%s",
+        "tempo startup: artifact_root=%s format_version=%d",
         settings.artifact_root,
         settings.format_version,
-        settings.auth_mode,
     )
     Path(settings.artifact_root).mkdir(parents=True, exist_ok=True)
     from .proxy import register as register_proxy
@@ -213,85 +208,10 @@ def _start_backend_prober():
 
 
 def create_app() -> FastAPI:
-    from . import auth as auth_module
-
+    # No auth wall: the sidecar serves one local editor over 127.0.0.1
+    # (see docs/decisions/0005-identity.md — identity removed).
+    # Every route below is public on localhost by design.
     app = FastAPI(title="Tempo", lifespan=lifespan)
-    auth_client = auth_module.AuthClient(settings.auth_url, settings.auth_timeout_s)
-    token_store = auth_module.TokenStore(backend=settings.token_store)
-
-    def _bearer(request) -> str | None:  # type: ignore[no-untyped-def]
-        raw = request.headers.get("authorization", "")
-        if raw[:7].lower() == "bearer ":
-            return raw[7:].strip() or None
-        return None
-
-    def _user(request):  # type: ignore[no-untyped-def]
-        """Identity for protected routes. 401 AUTH_REQUIRED when auth_mode
-        is on and neither the request token nor the stored session validates.
-        Localhost-only sidecar serving one editor; the production gateway
-        re-enforces per request (ADR-0005)."""
-        if settings.auth_mode != "on":
-            return {"user_id": "local", "email": ""}
-        ident = auth_module.current_user(_bearer(request), auth_client, token_store)
-        if ident is None:
-            return JSONResponse(
-                status_code=401,
-                content=ErrorEnvelope(
-                    error=ErrorBody(code="AUTH_REQUIRED", message="sign in first")
-                ).model_dump(),
-            )
-        return ident
-
-    @app.post("/auth/signup", response_model=AuthSessionResponse)
-    def auth_signup(body: AuthSignupRequest):  # type: ignore[no-untyped-def]
-        try:
-            token, user = auth_client.sign_up(body.name, body.email, body.password)
-        except auth_module.AuthError as exc:
-            log.info("auth signup rejected (%s)", exc)
-            return JSONResponse(
-                status_code=401,
-                content=ErrorEnvelope(
-                    error=ErrorBody(code="AUTH_REJECTED", message="sign-up rejected")
-                ).model_dump(),
-            )
-        ident = auth_client.validate(token) or {"expires_at": 0.0}
-        token_store.save(token, user["user_id"], user["email"], ident.get("expires_at", 0.0))
-        log.info("auth signup ok user=%s", user["user_id"])
-        return AuthSessionResponse(user_id=user["user_id"], email=user["email"])
-
-    @app.post("/auth/login", response_model=AuthSessionResponse)
-    def auth_login(body: AuthLoginRequest):  # type: ignore[no-untyped-def]
-        try:
-            token, user = auth_client.sign_in(body.email, body.password)
-        except auth_module.AuthError as exc:
-            log.info("auth login rejected (%s)", exc)
-            return JSONResponse(
-                status_code=401,
-                content=ErrorEnvelope(
-                    error=ErrorBody(code="AUTH_REJECTED", message="sign-in rejected")
-                ).model_dump(),
-            )
-        ident = auth_client.validate(token) or {"expires_at": 0.0}
-        token_store.save(token, user["user_id"], user["email"], ident.get("expires_at", 0.0))
-        log.info("auth login ok user=%s", user["user_id"])
-        return AuthSessionResponse(user_id=user["user_id"], email=user["email"])
-
-    @app.post("/auth/logout")
-    def auth_logout(request: Request):  # type: ignore[no-untyped-def]
-        token = _bearer(request)
-        saved = token_store.load()
-        auth_client.drop(token or (saved or {}).get("token", ""))
-        token_store.clear()
-        return {"ok": True}
-
-    @app.get("/auth/me", response_model=AuthMeResponse)
-    def auth_me(request: Request):  # type: ignore[no-untyped-def]
-        if settings.auth_mode != "on":
-            return AuthMeResponse(logged_in=True, user_id="local", email="")
-        ident = auth_module.current_user(_bearer(request), auth_client, token_store)
-        if ident is None:
-            return AuthMeResponse(logged_in=False)
-        return AuthMeResponse(logged_in=True, user_id=ident["user_id"], email=ident["email"])
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -330,10 +250,7 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/sync", response_model=SyncResponse)
-    def sync(request: Request, body: SyncRequest) -> SyncResponse:
-        maybe = _user(request)
-        if isinstance(maybe, JSONResponse):
-            return maybe  # type: ignore[return-value]
+    def sync(body: SyncRequest) -> SyncResponse:
         # Immediate diff + enqueue; indexing runs in the single worker (P3).
         # Explicit logging: paste the whole block when debugging empty syncs.
         log.info("sync: received footages=%d", len(body.footages))
@@ -395,10 +312,7 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/jobs/{job_id}", response_model=JobStatus)
-    def job_status(request: Request, job_id: str) -> JobStatus:
-        maybe = _user(request)
-        if isinstance(maybe, JSONResponse):
-            return maybe  # type: ignore[return-value]
+    def job_status(job_id: str) -> JobStatus:
         job = jobs_module.jobs.get(job_id)
         if job is None:
             log.info("jobs: id=%s -> 404 NOT_FOUND", job_id)
@@ -466,13 +380,10 @@ def create_app() -> FastAPI:
         return JobRetryResponse(job_id=new_id, footage_key=key)
 
     @app.post("/jobs/{job_id}/retry", response_model=JobRetryResponse)
-    def job_retry(request: Request, job_id: str):  # type: ignore[no-untyped-def]
+    def job_retry(job_id: str):  # type: ignore[no-untyped-def]
         # Explicit re-enqueue of a failed job's footage (one click = one job).
         # Auto-sync never re-enqueues (would hot-loop every 2s); only explicit
         # retry turns an `error`/orphaned entry back into `indexing` + a job.
-        maybe = _user(request)
-        if isinstance(maybe, JSONResponse):
-            return maybe
         job = jobs_module.jobs.get(job_id)
         if job is None:
             return JSONResponse(
@@ -486,13 +397,10 @@ def create_app() -> FastAPI:
         return resp
 
     @app.post("/footage/{footage_key}/retry", response_model=JobRetryResponse)
-    def footage_retry(request: Request, footage_key: str):  # type: ignore[no-untyped-def]
+    def footage_retry(footage_key: str):  # type: ignore[no-untyped-def]
         # Same as job retry, addressed by footage key — covers orphaned
         # entries (service restarted, panel reloaded, job id lost) and lets
         # the panel offer Retry/Resume straight from the footage list.
-        maybe = _user(request)
-        if isinstance(maybe, JSONResponse):
-            return maybe
         import re as _re
 
         if not _re.fullmatch(r"[A-Za-z0-9_-]{1,64}", footage_key):
@@ -541,16 +449,12 @@ def create_app() -> FastAPI:
 
     @app.get("/search", response_model=SearchResponse)
     def search(
-        request: Request,
         q: str = Query(min_length=1),
         top_k: int = Query(default=8, ge=1, le=50),
         footage_keys: str | None = Query(default=None),
     ) -> SearchResponse:
         import time
 
-        maybe = _user(request)
-        if isinstance(maybe, JSONResponse):
-            return maybe  # type: ignore[return-value]
         t0 = time.perf_counter()
         provider = get_provider(
             settings.backend, settings.backend_url, settings.backend_token,

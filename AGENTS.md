@@ -236,11 +236,10 @@ Implementation notes:
   cache instantly, results arrive on backend time; every fetch has a timeout
   and failures surface inline with clear codes (`BACKEND_UNREACHABLE`,
   `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`) — never spinners, never hangs.
-- The backend URL is server config; user identity is Better Auth sessions
-  (D12): panel signs in through the sidecar (`POST /auth/login`), sessions
-  persist in the OS keychain, and `/sync` + `/search` + `/jobs` require one
-  (`401 AUTH_REQUIRED`) whenever `auth_mode=on`. Panel code and storage
-  never hold tokens. The deploy bearer token remains backend-to-backend only.
+- No auth wall: the sidecar binds 127.0.0.1 for the single local editor;
+  every route is public on localhost by design (identity removed, D12).
+  Panel code never holds tokens. The deploy bearer token remains
+  backend-to-backend only.
 - Thumbnails are served over HTTP (not `file://`) — avoids CEF file-access flags entirely. Add cache headers. Thumbs + `shots.json` sync down at job completion; embeddings stay on the backend.
 - `/search` may filter by `footage_keys`; global shot row order is defined as (footage registry order, then shot_id) and MUST stay stable so the stacked key matrices remain valid across requests.
 
@@ -283,7 +282,7 @@ Artifacts are the only durable state. The service must be restartable at any mom
 
 ### 3.7 Configuration
 
-`Settings` via environment variables + optional config file; documented defaults; zero absolute paths in code. Required knobs: port, artifact root, model cache dir, weights (§3.5), job poll/pacing values, `prune_stale` flag, log level, `backend` (`local|http`), `backend_url`, `backend_token` (env only), `drive_folder` (`tempo/` root), Drive chunk size, OAuth token path, `auth_mode`, `auth_url`, `token_store`, `storage_provider` (`none|s3`), storage endpoint/bucket/credentials/region/TTL (env only), `storage_retention` (`delete|keep`), `plan` (`free|pro|studio`, Supabase licenses override later). Frame rates, sizes, and durations always come from data (pipeline or project), never constants. `requires-python >=3.11`.
+`Settings` via environment variables + optional config file; documented defaults; zero absolute paths in code. Required knobs: port, artifact root, model cache dir, weights (§3.5), job poll/pacing values, `prune_stale` flag, log level, `backend` (`local|http`), `backend_url`, `backend_token` (env only), `drive_folder` (`tempo/` root), Drive chunk size, OAuth token path, `storage_provider` (`none|s3`), storage endpoint/bucket/credentials/region/TTL (env only), `storage_retention` (`delete|keep`), `plan` (`free|pro|studio`, Supabase licenses override later). Frame rates, sizes, and durations always come from data (pipeline or project), never constants. `requires-python >=3.11`.
 
 ---
 
@@ -353,7 +352,7 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 - Footage removed from project → marked stale (upload cancelled); data pruned only on explicit prune. Acceptance: sync report shows added/changed/removed/unchanged counts that a human can verify against the project panel.
 
 **F2 — Fast search + result preview**
-- Enter submits. Results render as cards: keyframe thumbnail, footage name, timecode range (comp-fps timecode, from project fps), duration, transcript snippet, caption, and the four contribution bars (`dense/<winning_key>`, `bm25`, `anchor`, `entity boost`) sorted by contribution, with percentages — identical semantics to the notebook preview. The winning key is visible without hovering.
+- Enter submits. Results render as cards: keyframe thumbnail, footage name, timecode range (comp-fps timecode, from project fps), duration, transcript snippet, caption, and one Insert action. (The API still returns the decomposable score breakdown per result; the panel no longer renders it.)
 - Search across all ready footage by default; footage filter dropdown when more than one footage exists. Acceptance: thumbs render from the local cache instantly; results arrive on backend time with a timeout; failures surface inline with codes (`BACKEND_UNREACHABLE`, `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`). No < 300 ms bar over a network hop — the local `score_query` matmul path stays < 300 ms warm (asserted in a service test) as the contract guarantee.
 
 **F3 — Skeleton loading while searching**
@@ -496,7 +495,7 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
 - **D9 Colab-hosted pipeline, local service as proxy** — SUPERSEDED by D11 (tunnel deleted; notebook kept as frozen reference — see `docs/decisions/0002-colab-remote-pipeline.md`).
 - **D10 Drive auto-upload on AE import** — deterministic `tempo/<key>/<basename>`, `uploading` + `queued-for-backend` states (see `docs/decisions/0003-drive-auto-upload.md`).
 - **D11 Modal-hosted pipeline behind the backend seam** — §2.1 (`modal_backend/` port, mechanical extraction with provenance; `backends/` provider interface; server-config URL + token, never user input — see `docs/decisions/0004-modal-backend.md`).
-- **D12 Better Auth identity, sidecar session gate** — `auth/` service (email+password, Google/GitHub) on Postgres; opaque sessions validated by the sidecar and cached by expiry; keychain persistence; panel holds no tokens (see `docs/decisions/0005-identity.md`).
+- **D12 Identity removed** — the Better Auth service, sidecar session gate, and panel sign-in were deleted (no auth wall; the localhost sidecar serves one editor). Kept as history in `docs/decisions/0005-identity.md`; reintroduce only via a new ADR.
 - **D13 Storage providers, presigned uploads, raw retention** — `storage/` seam (SigV4 stdlib, botocore-parity-tested); Modal Volumes day-zero, B2 step-up, R2 later; real byte progress; raw purged post-index (see `docs/decisions/0006-storage.md`).
 - **D14 Plans, entitlements, and release gates** — free tier locked (1 footage, 7 min) enforced at `/sync` (new work only, `403 QUOTA_EXCEEDED`); ruff + ESLint-ES3 gates in CI; Velopack/ZXP packaging as scripts; `docs/release.md` checklist (see `docs/decisions/0007-launch-gates.md`).
 

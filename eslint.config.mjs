@@ -3,7 +3,7 @@
 // at parse time; no-restricted-syntax bans modern runtime idioms that still
 // parse (Array extras, promises, fetch); no-undef with declared globals
 // catches Node/browser-isms. Only panel/host is linted — panel/www is
-// modern Chromium by design (§7.2), auth/ is modern Node.
+// modern Chromium by design (§7.2).
 import globals from "globals";
 
 export default [

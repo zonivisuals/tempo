@@ -4,6 +4,12 @@
  * 2s project sync, 500ms job progress while jobs run. */
 "use strict";
 
+// Poll cadence mirrors service config (config.py sync_poll_s/job_poll_s).
+// Cross-runtime constants can't be shared by import (AGENTS.md §2.3);
+// keep the two in step by hand.
+const SYNC_POLL_MS = 2000;
+const JOB_POLL_MS = 500;
+
 const store = {
   online: false,
   backend: { reachable: false, gpu: false },
@@ -12,6 +18,7 @@ const store = {
   activeJobs: [], // job_ids still running
   results: [],
   searching: false,
+  inserting: -1,  // result index currently inserting, -1 when idle
   compFps: 25.0,
   filter: "",
 };
@@ -21,7 +28,7 @@ const $ = (id) => document.getElementById(id);
 
 const bootLines = [];
 function dbg(line, pin) {
-  // Single copy-paste surface: DevTools console + #debug box. No tokens logged.
+  // Single copy-paste surface: DevTools console + #debug box.
   try { console.log("[Tempo] " + line); } catch (e) { /* headless */ }
   try {
     const el = $("debug");
@@ -189,30 +196,28 @@ function renderResults() {
     box.innerHTML = `<div class="empty">No results.</div>`;
     return;
   }
-  box.innerHTML = store.results.map((r, i) => {
-    const bars = [
-      ["dense/" + r.winning_key, r.contributions.dense],
-      ["bm25", r.contributions.bm25],
-      ["anchor", r.contributions.anchor],
-      ["entity boost", r.contributions.entity_boost],
-    ].sort((a, b) => b[1] - a[1]);
-    const barHTML = bars.map(([label, val], bi) => {
-      const share = r.score > 0 ? val / r.score : 0;
-      return `<div class="barrow${bi === 0 ? " top" : ""}"><span>${esc(label)}</span>` +
-        `<span class="track"><span class="fill" style="display:block;width:${Math.round(share * 100)}%"></span></span>` +
-        `<span class="pct">${Math.round(share * 100)}%</span></div>`;
+  box.innerHTML = `<div class="res-count">${store.results.length} result${store.results.length === 1 ? "" : "s"} · click to insert at playhead</div>` +
+    store.results.map((r, i) => {
+      const dur = Math.max(0, r.end_s - r.start_s).toFixed(1);
+      const ts = r.transcript ? `<div class="snippet">${esc(r.transcript.slice(0, 140))}</div>` : "";
+      const cap = r.caption ? `<div class="snippet dim">${esc(r.caption.slice(0, 140))}</div>` : "";
+      const busy = store.inserting === i;
+      return `<div class="card${busy ? " busy" : ""}" data-i="${i}">` +
+        `<img src="${TempoAPI.thumbUrl(r.footage_key, r.shot_id)}" alt="">` +
+        `<div class="body"><div class="title">${esc(baseName(r.source_path))}</div>` +
+        `<div class="meta tc">${fmtTC(r.start_s, store.compFps)} – ${fmtTC(r.end_s, store.compFps)} · ${dur}s</div>` +
+        ts + cap +
+        `<div><button type="button" data-insert="${i}"${busy ? " disabled" : ""}>${busy ? "Inserting" : "Insert shot"}</button></div>` +
+        `</div></div>`;
     }).join("");
-    const dur = Math.max(0, r.end_s - r.start_s).toFixed(1);
-    return `<div class="card" data-i="${i}">` +
-      `<img src="${TempoAPI.thumbUrl(r.footage_key, r.shot_id)}" alt="">` +
-      `<div><div>${esc(baseName(r.source_path))}</div>` +
-      `<div class="meta tc">${fmtTC(r.start_s, store.compFps)} – ${fmtTC(r.end_s, store.compFps)} · ${dur}s</div>` +
-      `<div class="snippet">${esc(r.transcript.slice(0, 120))}</div>` +
-      `<div class="snippet">${esc(r.caption.slice(0, 120))}</div>` +
-      `<div class="bars">${barHTML}</div></div></div>`;
-  }).join("");
   box.querySelectorAll(".card").forEach((el) => {
-    el.addEventListener("click", () => insertResult(store.results[Number(el.dataset.i)]));
+    el.addEventListener("click", () => insertResult(store.results[Number(el.dataset.i)], Number(el.dataset.i)));
+  });
+  box.querySelectorAll("[data-insert]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      insertResult(store.results[Number(btn.dataset.insert)], Number(btn.dataset.insert));
+    });
   });
 }
 
@@ -261,11 +266,7 @@ async function refreshHealth() {
   renderStatus();
 }
 
-async function syncNow(force) {
-  // Auto-poll stays quiet while logged out; an explicit click always tries —
-  // otherwise a service restarted into auth_mode=off leaves the form stuck
-  // on screen with a dead Sync button and no recovery but reload.
-  if (!store.authed && !force) { dbg("sync: skipped (signed out — sign in or run auth_mode=off)"); return; }
+async function syncNow() {
   const raw = await evalScript("tempoListFootage()");
   dbg(`sync: evalScript raw type=${typeof raw} len=${(raw || "").length} raw=${String(raw).slice(0, 300)}`);
   if (raw === null) dbg("sync: host returned null (CSInterface missing or panel outside AE?)");
@@ -279,15 +280,9 @@ async function syncNow(force) {
   if (res.ok) await refreshHealth();
   else renderStatus();
   if (!res.ok) {
-    if (res.status === 401) { showLogin("session expired — sign in"); return; }
-    const code = authCode(res);
-    showError(code || "SYNC_FAILED", res.offline ? "service offline" : "status " + res.status);
+    showError(res.offline ? "SERVICE_OFFLINE" : "SYNC_FAILED", res.offline ? "service offline" : "status " + res.status);
     return;
   }
-  // Success reconciles session UI (e.g. service restarted passwordless
-  // while the form was up): the form must not outlive its reason.
-  store.authed = true;
-  refreshSession();
   showError(null);
   const b = res.body;
   $("sync-summary").textContent =
@@ -308,13 +303,12 @@ async function syncNow(force) {
 }
 
 async function pollJobs() {
-  if (!store.activeJobs.length || !store.authed) return;
+  if (!store.activeJobs.length) return;
   const still = [];
   for (const id of store.activeJobs) {
     const res = await TempoAPI.job(id);
     if (!res.ok) {
       dbg(`jobs: id=${id} poll FAIL status=${res.status} offline=${!!res.offline}`);
-      if (res.status === 401) { showLogin("session expired — sign in"); return; }
       still.push(id); continue;
     }
     store.jobs[id] = res.body;
@@ -346,8 +340,7 @@ async function doSearch() {
     const code = (res.body && res.body.error && res.body.error.code) ||
       (res.offline ? "SERVICE_OFFLINE" : "SEARCH_FAILED");
     dbg(`search: q=${JSON.stringify(q)} FAIL code=${code} status=${res.status} offline=${!!res.offline}`);
-    if (res.status === 401) showLogin("session expired — sign in");
-    else showError(code, res.offline ? "service offline" : "status " + res.status);
+    showError(code, res.offline ? "service offline" : "status " + res.status);
     store.results = [];
   } else {
     store.results = res.body.results || [];
@@ -356,31 +349,40 @@ async function doSearch() {
   renderResults();
 }
 
-async function insertResult(r) {
-  if (!r) return;
-  const payload = JSON.stringify({
-    source_path: r.source_path, start_s: r.start_s, end_s: r.end_s,
-  });
-  // One evalScript call does the whole job (locate/import, comp, trim, playhead).
-  // The JSON is embedded as an ExtendScript string literal: every backslash
-  // must be doubled or Windows paths mangle ("C:\Users" parses to "C:Users",
-  // so lookup misses and import reports "source missing from disk").
-  const expr = "tempoInsertOrFocus(" + payload.replace(/\\/g, "\\\\") + ")";
-  const raw = await evalScript(expr);
-  dbg(`insert: payload=${payload.slice(0, 200)} raw=${String(raw).slice(0, 200)}`);
+async function insertResult(r, idx) {
+  // Click a result → the [start_s, end_s] shot lands trimmed on the
+  // timeline at the playhead (host.jsx tempoInsertOrFocus, one undo step).
+  if (!r || store.inserting >= 0) return;
+  store.inserting = idx;
+  renderResults();
   try {
-    const out = JSON.parse(raw);
-    if (!out || !out.ok) { dbg(`insert: FAIL ${JSON.stringify(out).slice(0, 200)}`); showError("INSERT_FAILED", out && out.error); }
-    else dbg(`insert: ok comp=${out.comp_id} layer=${out.layer_id}`);
-  } catch (e) {
-    dbg(`insert: bad host response raw=${String(raw).slice(0, 200)}`);
-    showError("INSERT_FAILED", "bad host response");
+    const payload = JSON.stringify({
+      source_path: r.source_path, start_s: r.start_s, end_s: r.end_s,
+    });
+    // One evalScript call does the whole job (locate/import, comp, trim, playhead).
+    // The JSON is embedded as an ExtendScript string literal: every backslash
+    // must be doubled or Windows paths mangle ("C:\Users" parses to "C:Users",
+    // so lookup misses and import reports "source missing from disk").
+    const expr = "tempoInsertOrFocus(" + payload.replace(/\\/g, "\\\\") + ")";
+    const raw = await evalScript(expr);
+    dbg(`insert: payload=${payload.slice(0, 200)} raw=${String(raw).slice(0, 200)}`);
+    try {
+      const out = JSON.parse(raw);
+      if (!out || !out.ok) { dbg(`insert: FAIL ${JSON.stringify(out).slice(0, 200)}`); showError("INSERT_FAILED", out && out.error); }
+      else { dbg(`insert: ok comp=${out.comp_id} layer=${out.layer_id}`); showError(null); }
+    } catch (e) {
+      dbg(`insert: bad host response raw=${String(raw).slice(0, 200)}`);
+      showError("INSERT_FAILED", "bad host response");
+    }
+  } finally {
+    store.inserting = -1;
+    renderResults();
   }
 }
 
 /* ---------- boot ---------- */
 
-const PANEL_VERSION = "dbg11";
+const PANEL_VERSION = "0.2.0";
 
 function probe(expr) {
   return new Promise((resolve) => {
@@ -414,41 +416,7 @@ async function ensureHost() {
   dbg(`loader: typeof tempoListFootage=${after} (want function)`, true);
 }
 
-function authCode(res) {
-  return res && res.body && res.body.error && res.body.error.code;
-}
-
-function showLogin(msg) {
-  store.authed = false;
-  $("authbox").hidden = false;
-  $("logout").hidden = true;
-  $("auth-msg").textContent = msg || "";
-  dbg(`auth: show login (${msg || "signed out"})`);
-}
-
-function hideLogin(userId) {
-  store.authed = true;
-  $("authbox").hidden = true;
-  $("auth-msg").textContent = "";
-  // Local dev (auth off) reports user "local" — no sign-out needed there.
-  $("logout").hidden = !(userId && userId !== "local");
-}
-
-async function refreshSession() {
-  // Restore silently when the service is unreachable (offline reads as
-  // offline via sync/search errors, never as logged-out). The form appears
-  // only when the service answers and the session is missing/invalid.
-  const res = await TempoAPI.me();
-  if (res.ok && res.body && res.body.logged_in) hideLogin(res.body.user_id);
-  else if (res.ok) showLogin("signed out");
-  else { store.authed = false; $("logout").hidden = true; }
-  // Service reachability is public and independent of session state —
-  // without this the statusbar lies "service offline" while logged out.
-  await refreshHealth();
-}
-
 async function boot() {
-  store.authed = true;
   dbg(`boot: panel=${PANEL_VERSION} cs=${cs ? "yes" : "NO"} base=${TempoAPI.base()}`, true);
   try {
     cs.evalScript("1+1", (r) => dbg(`boot: bridge 1+1=${r} (want 2)`, true));
@@ -461,36 +429,14 @@ async function boot() {
   } catch (e) { dbg(`boot: JSON probe throw ${e}`, true); }
   await ensureHost();
   applyTheme();
-  wireAuth();
-  $("sync-now").addEventListener("click", () => { dbg("ui: Sync now clicked"); syncNow(true); });
+  $("sync-now").addEventListener("click", () => { dbg("ui: Sync now clicked"); syncNow(); });
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
   $("footage-filter").addEventListener("change", (e) => { store.filter = e.target.value; });
   renderStatus();
   renderResults();
-  // No proactive login prompt: the form appears only if the service answers
-  // 401 (auth_mode=on with no session). Dev runs auth_mode=off and never
-  // sees auth UI at all. Session restore is silent via refreshSession().
-  refreshSession().then(() => syncNow());
-  setInterval(syncNow, 2000);   // project sync poll (AGENTS.md D2)
-  setInterval(pollJobs, 500);   // job progress poll while jobs run
-}
-
-function wireAuth() {
-  $("auth-login").addEventListener("click", async () => {
-    const res = await TempoAPI.login($("auth-email").value.trim(), $("auth-pass").value);
-    if (res.ok) { hideLogin(res.body.user_id); refreshHealth(); syncNow(); }
-    else { showLogin(authCode(res) || "sign-in failed"); dbg(`auth: login FAIL status=${res.status}`); }
-  });
-  $("auth-signup").addEventListener("click", async () => {
-    const res = await TempoAPI.signup(
-      $("auth-name").value.trim(), $("auth-email").value.trim(), $("auth-pass").value);
-    if (res.ok) { hideLogin(res.body.user_id); refreshHealth(); syncNow(); }
-    else { showLogin(authCode(res) || "sign-up failed"); dbg(`auth: signup FAIL status=${res.status}`); }
-  });
-  $("logout").addEventListener("click", async () => {
-    await TempoAPI.logout();
-    showLogin("signed out");
-  });
+  refreshHealth().then(() => syncNow());
+  setInterval(syncNow, SYNC_POLL_MS);   // project sync poll (AGENTS.md D2)
+  setInterval(pollJobs, JOB_POLL_MS);   // job progress poll while jobs run
 }
 
 window.addEventListener("error", (e) => {

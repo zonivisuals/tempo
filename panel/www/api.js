@@ -68,18 +68,6 @@ const TempoAPI = (() => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
     }),
-    login: (email, password) => req("/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    }),
-    signup: (name, email, password) => req("/auth/signup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password }),
-    }),
-    logout: () => req("/auth/logout", { method: "POST" }),
-    me: () => req("/auth/me"),
     hostJs: (name) => reqText("/host/" + encodeURIComponent(name) + ".jsx"),
     thumbUrl: (key, shot_id) =>
       `${base()}/thumb/${encodeURIComponent(key)}/${shot_id}.jpg`,

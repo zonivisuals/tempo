@@ -10,8 +10,9 @@ flag and reject an element reading as "AI-generated slop".
 - [ ] 12px base / 11px metadata, system font stack, 4px spacing rhythm.
 - [ ] Monochrome + at most one accent, used only for selection/active.
 - [ ] Progress = thin flat bars; loading = opacity-pulsing skeletons only.
-- [ ] Short factual labels ("Indexing · ocr 37/157"); winning key visible
-      without hovering; contribution bars sorted with percentages.
+- [ ] Short factual labels ("Indexing · ocr 37/157"); result cards show
+      thumbnail, file name, timecode range + duration, transcript/caption
+      and one Insert action — no score bars, no percentages.
 - [ ] Errors are compact inline rows with the service error code — no modals,
       no toasts, no spinners where skeletons belong.
 - [ ] Offline service renders a usable degraded state (search disabled
