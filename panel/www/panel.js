@@ -12,7 +12,7 @@ const JOB_POLL_MS = 500;
 
 const store = {
   online: false,
-  backend: { reachable: false, gpu: false },
+  backend: { reachable: false, gpu: false, tunnel: "off" },
   footages: [],
   jobs: {},       // job_id -> last job payload
   activeJobs: [], // job_ids still running
@@ -21,6 +21,9 @@ const store = {
   inserting: -1,  // result index currently inserting, -1 when idle
   compFps: 25.0,
   filter: "",
+  // Indexing detail: opens when a job starts, closes when all jobs finish or a
+  // search runs; a manual toggle wins until the next job starts.
+  index: { open: false, manual: false },
 };
 
 const cs = (typeof CSInterface !== "undefined") ? new CSInterface() : null;
@@ -82,42 +85,121 @@ function baseName(path) {
 }
 
 function esc(s) {
+  // Used in text and attribute positions alike.
   return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 /* ---------- render ---------- */
 
+// Display names for the engine's stage names (presentation only: the stage
+// list itself comes from the service, unknown names render as-is).
+const STAGE_LABELS = {
+  upload: "Upload", shots: "Shots", visual: "Visual", transcribe: "Speech",
+  ocr: "OCR", captions: "Captions", text: "Text", index: "Index",
+};
+const JOB_STATE_LABELS = {
+  queued: "queued", uploading: "uploading", "queued-for-backend": "waiting for engine",
+  running: "indexing", done: "done", error: "error", cancelled: "cancelled",
+};
+const LIVE_JOB_STATES = ["queued", "uploading", "queued-for-backend", "running"];
+const MB = 1024 * 1024;
+
+const stageLabel = (name) => STAGE_LABELS[name] || name;
+
+function stageCount(s) {
+  if (!s.total) return "";
+  if (s.name === "upload") return `${(s.done / MB).toFixed(1)}/${(s.total / MB).toFixed(1)} MB`;
+  if (s.name === "transcribe") return `${s.done}/${s.total} s`;
+  return `${s.done}/${s.total}`;
+}
+
+function footageName(key) {
+  const f = store.footages.find((x) => x.footage_key === key);
+  return f ? baseName(f.path) : "";
+}
+
+function currentStage(job) {
+  const stages = job.stages || [];
+  return stages.filter((s) => s.state === "running").pop() ||
+    stages.find((s) => s.state === "pending") || null;
+}
+
 function renderStatus() {
   $("svc").textContent = store.online ? "service ok" : "service offline";
-  const c = $("backend");
-  if (c) {
-    c.textContent = !store.online ? "backend unknown"
-      : store.backend.reachable ? (store.backend.gpu ? "backend gpu" : "backend ok")
-      : "local only";
+  const b = store.backend;
+  $("backend").textContent = !store.online ? "engine unknown"
+    : b.tunnel === "down" ? "tunnel down"
+    : b.tunnel === "starting" ? "tunnel starting"
+    : b.reachable ? (b.gpu ? "engine gpu" : "engine cpu")
+    : "engine offline";
+}
+
+function indexSummary() {
+  const live = store.activeJobs.map((id) => store.jobs[id]).filter(Boolean);
+  if (live.length) {
+    const j = live[0];
+    const st = currentStage(j);
+    const name = footageName(j.footage_key) || "footage";
+    const step = st ? ` · ${stageLabel(st.name)}${st.total ? " " + stageCount(st) : ""}` : "";
+    const waiting = j.state === "queued-for-backend" ? " · waiting for engine" : "";
+    const more = live.length > 1 ? ` · +${live.length - 1} queued` : "";
+    return `Indexing · ${name}${step}${waiting}${more}`;
   }
+  const fs = store.footages;
+  if (!fs.length) return "No footage in project";
+  const count = (state) => fs.filter((f) => f.state === state).length;
+  const parts = [`${fs.length} footage`, `${count("ready")} ready`];
+  if (count("error")) parts.push(`${count("error")} error`);
+  if (count("stale")) parts.push(`${count("stale")} stale`);
+  return parts.join(" · ");
+}
+
+function setIndexOpen(open, manual) {
+  store.index.open = open;
+  store.index.manual = manual;
+  renderIndexing();
+}
+
+function renderIndexing() {
+  $("indexing-summary").textContent = indexSummary();
+  const open = store.index.open;
+  const toggle = $("indexing-toggle");
+  toggle.setAttribute("aria-pressed", open ? "true" : "false");
+  toggle.title = open ? "Hide indexing detail" : "Show indexing detail";
+  $("indexing-detail").hidden = !open;
+  if (open) { renderJobs(); renderFootageActions(); }
 }
 
 function renderJobs() {
   const box = $("jobs");
-  const ids = Object.keys(store.jobs);
-  if (!ids.length) { box.innerHTML = ""; renderFootageActions(); return; }
-  box.innerHTML = ids.map((id) => {
+  box.innerHTML = Object.keys(store.jobs).map((id) => {
     const j = store.jobs[id];
     const rows = (j.stages || []).map((s) => {
       const pct = s.total ? Math.round((s.done / s.total) * 100) : (s.state === "done" ? 100 : 0);
-      return `<div>${esc(s.name)} ${s.state}${s.total ? ` ${s.done}/${s.total}` : ""}` +
+      return `<div class="stage ${esc(s.state)}"><span>${esc(stageLabel(s.name))} · ${esc(s.state)}</span>` +
+        `<span class="count">${esc(stageCount(s))}</span>` +
         `<div class="bar"><div style="width:${pct}%"></div></div></div>`;
     }).join("");
     const err = j.state === "error"
       ? `<div class="job err">${esc(j.error || "error")}<div><button type="button" data-retry="${esc(id)}">Retry</button></div></div>`
       : "";
-    return `<div class="job"><div>Indexing ${esc(id)} · ${esc(j.state)}</div>${rows}${err}</div>`;
+    const name = footageName(j.footage_key) || id;
+    return `<div class="job"><div>${esc(name)} · ${esc(JOB_STATE_LABELS[j.state] || j.state)}</div>${rows}${err}</div>`;
   }).join("");
   box.querySelectorAll("[data-retry]").forEach((btn) => {
     btn.addEventListener("click", (e) => { e.stopPropagation(); retryJob(btn.dataset.retry); });
   });
-  renderFootageActions();
+}
+
+function trackJob(id, footageKey) {
+  // A new job opens the indexing detail again (manual hide lasts until then).
+  const fresh = !store.activeJobs.includes(id);
+  store.jobs[id] = store.jobs[id] || { job_id: id, footage_key: footageKey, state: "queued", stages: [] };
+  store.activeJobs = [...new Set([...store.activeJobs, id])];
+  if (fresh) setIndexOpen(true, false);
+  else renderIndexing();
 }
 
 async function footageRetry(key) {
@@ -126,10 +208,7 @@ async function footageRetry(key) {
   dbg(`footage-retry: ok=${res.ok} status=${res.status} body=${JSON.stringify(res.body).slice(0, 200)}`);
   if (!res.ok) { showError("RETRY_FAILED", "status " + res.status); return; }
   showError(null);
-  const nid = res.body.job_id;
-  store.jobs[nid] = { job_id: nid, footage_key: key, state: "queued", stages: [] };
-  store.activeJobs = [...new Set([...store.activeJobs, nid])];
-  renderJobs();
+  trackJob(res.body.job_id, key);
 }
 
 function renderFootageActions() {
@@ -137,30 +216,27 @@ function renderFootageActions() {
   // re-enqueues). Covers error entries and orphaned indexing entries whose
   // job id was lost (service restart / panel reload).
   const box = $("footage-actions");
-  if (!box) return;
   const covered = new Set(
     store.activeJobs.map((id) => store.jobs[id] && store.jobs[id].footage_key).filter(Boolean)
   );
   // Jobs created locally have no footage_key until their first poll — can't
   // prove orphan, so suppress Resume until coverage is known (500ms poll).
   const unknown = store.activeJobs.some((id) => !(store.jobs[id] && store.jobs[id].footage_key));
-  // Every footage gets one factual state row — this is how you tell what
-  // indexing is doing without opening DevTools. Buttons only where an
-  // explicit click can do work (error → Retry, orphaned → Resume).
+  // Every footage gets one factual state row. Buttons only where an explicit
+  // click can do work (error → Retry, orphaned → Resume).
   const rows = [];
   for (const f of store.footages) {
-    const base = esc(String(f.path).split(/[\\/]/).pop());
-    const detail = f.state === "ready" && f.shot_count
-      ? ` · ${f.shot_count} shots` : "";
+    const base = esc(baseName(f.path));
+    const detail = f.state === "ready"
+      ? `${f.shot_count ? ` · ${f.shot_count} shots` : ""}${f.reused ? " · reused index" : ""}` : "";
     if (f.state === "error") {
       rows.push(`<div class="job"><div>${base} · error — read the job message, then Retry</div>` +
         `<div><button type="button" data-fretry="${esc(f.footage_key)}">Retry</button></div></div>`);
     } else if (!unknown && (f.state === "indexing" || f.state === "uploading") && !covered.has(f.footage_key)) {
       rows.push(`<div class="job"><div>${base} · ${esc(f.state)} (no active job)</div>` +
         `<div><button type="button" data-fretry="${esc(f.footage_key)}">Resume</button></div></div>`);
-    } else {
-      const live = (f.state === "indexing" || f.state === "uploading") ? " · working (see stages below)" : "";
-      rows.push(`<div class="job"><div>${base} · ${esc(f.state)}${detail}${live}</div></div>`);
+    } else if (!covered.has(f.footage_key)) {
+      rows.push(`<div class="job"><div>${base} · ${esc(f.state)}${detail}</div></div>`);
     }
   }
   box.innerHTML = rows.join("");
@@ -175,10 +251,9 @@ async function retryJob(id) {
   dbg(`retry: ok=${res.ok} status=${res.status} body=${JSON.stringify(res.body).slice(0, 200)}`);
   if (!res.ok) { showError("RETRY_FAILED", "status " + res.status); return; }
   showError(null);
-  const nid = res.body.job_id;
-  store.jobs[nid] = { job_id: nid, state: "queued", stages: [] };
-  store.activeJobs = [...new Set([...store.activeJobs, nid])];
-  renderJobs();
+  const old = store.jobs[id];
+  delete store.jobs[id];
+  trackJob(res.body.job_id, old && old.footage_key);
 }
 
 function skeletonHTML() {
@@ -239,7 +314,7 @@ function renderFilter() {
     sel.hidden = true;
     store.filter = "";
   }
-  renderFootageActions();
+  renderIndexing();
 }
 
 /* ---------- actions ---------- */
@@ -256,11 +331,11 @@ async function refreshHealth() {
   const res = await TempoAPI.health();
   if (res.ok && res.body) {
     store.online = true;
-    store.backend = res.body.backend || { reachable: false, gpu: false };
+    store.backend = res.body.backend || { reachable: false, gpu: false, tunnel: "off" };
     dbg(`health: ok online=true backend=${JSON.stringify(store.backend)} base=${TempoAPI.base()}`);
   } else {
     store.online = false;
-    store.backend = { reachable: false, gpu: false };
+    store.backend = { reachable: false, gpu: false, tunnel: "off" };
     dbg(`health: FAIL ok=${res.ok} status=${res.status} offline=${!!res.offline} base=${TempoAPI.base()}`);
   }
   renderStatus();
@@ -289,11 +364,7 @@ async function syncNow() {
     `+${b.added.length} ~${b.changed.length} -${b.removed.length} =${b.unchanged.length}`;
   dbg(`sync: diff +${b.added.length} ~${b.changed.length} -${b.removed.length} =${b.unchanged.length} jobs=${JSON.stringify(b.jobs)} uploads=${JSON.stringify(b.uploads)}`);
   if (!footages.length) dbg("sync: 0 footages from host — check AE project has FileSource footage (not solid/sequence/missing) + host.jsx loaded");
-  for (const id of b.jobs) {
-    store.jobs[id] = { job_id: id, state: "queued", stages: [] };
-  }
-  store.activeJobs = [...new Set([...store.activeJobs, ...b.jobs])];
-  renderJobs();
+  for (const id of b.jobs) trackJob(id);
   const fl = await TempoAPI.footage();
   dbg(`sync: GET /footage ok=${fl.ok} count=${fl.ok ? (fl.body || []).length : "?"}`);
   if (fl.ok) {
@@ -313,14 +384,17 @@ async function pollJobs() {
     }
     store.jobs[id] = res.body;
     dbg(`jobs: id=${id} state=${res.body.state} stages=${(res.body.stages || []).map((s) => `${s.name}:${s.state}`).join(",")}`);
-    if (["running", "queued", "uploading", "queued-for-backend"].includes(res.body.state)) still.push(id);
+    if (LIVE_JOB_STATES.includes(res.body.state)) still.push(id);
+    else if (res.body.state !== "error") delete store.jobs[id];  // done/cancelled: the footage row takes over
   }
   store.activeJobs = still;
-  renderJobs();
-  if (!still.length) {
-    const fl = await TempoAPI.footage();
-    if (fl.ok) { store.footages = fl.body || []; renderFilter(); }
-  }
+  if (still.length) { renderIndexing(); return; }
+  // All jobs finished: hide the detail unless one failed (its message + Retry stay visible).
+  const failed = Object.values(store.jobs).some((j) => j.state === "error");
+  if (!store.index.manual && !failed) store.index.open = false;
+  const fl = await TempoAPI.footage();
+  if (fl.ok) store.footages = fl.body || [];
+  renderFilter();
 }
 
 async function doSearch() {
@@ -328,6 +402,7 @@ async function doSearch() {
   if (!q) return;
   store.searching = true;
   showError(null);
+  if (store.index.open && !store.index.manual) setIndexOpen(false, false);
   renderResults();
   const t0 = Date.now();
   await refreshCompFps();
@@ -383,7 +458,7 @@ async function insertResult(r, idx) {
 
 /* ---------- boot ---------- */
 
-const PANEL_VERSION = "0.2.1";
+const PANEL_VERSION = "0.3.0";
 
 function probe(expr) {
   return new Promise((resolve) => {
@@ -433,7 +508,9 @@ async function boot() {
   $("sync-now").addEventListener("click", () => { dbg("ui: Sync now clicked"); syncNow(); });
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
   $("footage-filter").addEventListener("change", (e) => { store.filter = e.target.value; });
+  $("indexing-toggle").addEventListener("click", () => setIndexOpen(!store.index.open, true));
   renderStatus();
+  renderIndexing();
   renderResults();
   refreshHealth().then(() => syncNow());
   setInterval(syncNow, SYNC_POLL_MS);   // project sync poll (AGENTS.md D2)

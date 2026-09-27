@@ -63,11 +63,6 @@ const TempoAPI = (() => {
     retryFootage: (key) => req("/footage/" + encodeURIComponent(key) + "/retry", { method: "POST" }),
     search: (q, top_k, footage_keys) =>
       req("/search?" + qs({ q, top_k, footage_keys }), undefined, 25000),
-    driveAuth: (code) => req("/drive-auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    }),
     hostJs: (name) => reqText("/host/" + encodeURIComponent(name) + ".jsx"),
     thumbUrl: (key, shot_id) =>
       `${base()}/thumb/${encodeURIComponent(key)}/${shot_id}.jpg`,

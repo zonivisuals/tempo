@@ -5,13 +5,13 @@
 <title>Tempo</title>
 <!-- ?v= cache buster: CEF caches panel assets aggressively across AE
      restarts; bump on any www/ change so the installed panel reloads. -->
-<link rel="stylesheet" href="panel.css?v=0.2.1">
+<link rel="stylesheet" href="panel.css?v=0.3.0">
 </head>
 <body>
 <div id="app">
   <div id="statusbar">
     <span id="svc">service…</span>
-    <span id="backend">backend…</span>
+    <span id="backend">engine…</span>
     <span id="sync-summary"></span>
     <button id="sync-now" type="button">Sync now</button>
   </div>
@@ -19,14 +19,31 @@
     <input id="q" type="text" placeholder="Search footage…" autocomplete="off">
     <select id="footage-filter" hidden></select>
   </div>
-  <div id="footage-actions"></div>
-  <div id="jobs"></div>
+  <section id="indexing">
+    <div id="indexing-head">
+      <span id="indexing-summary"></span>
+      <button id="indexing-toggle" type="button" class="icon" aria-pressed="false" title="Show indexing detail">
+        <svg class="eye-open" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M1.5 8C3 5 5.3 3.5 8 3.5S13 5 14.5 8C13 11 10.7 12.5 8 12.5S3 11 1.5 8Z"/>
+          <circle cx="8" cy="8" r="2"/>
+        </svg>
+        <svg class="eye-closed" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M1.5 8C3 5 5.3 3.5 8 3.5S13 5 14.5 8C13 11 10.7 12.5 8 12.5S3 11 1.5 8Z"/>
+          <path d="M2.5 13.5 13.5 2.5"/>
+        </svg>
+      </button>
+    </div>
+    <div id="indexing-detail" hidden>
+      <div id="jobs"></div>
+      <div id="footage-actions"></div>
+    </div>
+  </section>
   <div id="results"></div>
   <div id="error" hidden></div>
   <details id="debugbox"><summary>debug (copy-paste)</summary><pre id="debug">boot…</pre></details>
 </div>
 <script src="../CSXS/CSInterface.js"></script>
-<script src="api.js?v=0.2.1"></script>
-<script src="panel.js?v=0.2.1"></script>
+<script src="api.js?v=0.3.0"></script>
+<script src="panel.js?v=0.3.0"></script>
 </body>
 </html>

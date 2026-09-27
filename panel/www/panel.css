@@ -10,6 +10,7 @@
   --dim: #9a9a9a;
   --accent: #1f7fff;
   --bar: #6a6a6a;
+  --error: #e08a8a;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -41,11 +42,34 @@ body {
   background: var(--bg2); color: var(--text);
   border: 1px solid var(--border); border-radius: 2px; font: inherit;
 }
-#jobs, #footage-actions { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+#indexing { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+#indexing-head { display: flex; align-items: center; gap: 8px; min-height: 20px; }
+#indexing-summary {
+  flex: 1; min-width: 0; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+button.icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0;
+  background: transparent; color: var(--dim);
+  border: 1px solid transparent; border-radius: 2px; cursor: pointer;
+}
+button.icon:hover { color: var(--text); border-color: var(--border); }
+button.icon[aria-pressed="true"] { color: var(--accent); }
+button.icon svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+button.icon[aria-pressed="true"] .eye-closed,
+button.icon[aria-pressed="false"] .eye-open { display: none; }
+#indexing-detail, #jobs, #footage-actions { display: flex; flex-direction: column; gap: 4px; }
+#indexing-detail[hidden] { display: none; }
+.job .stage { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 4px; }
+.job .stage .count { color: var(--dim); font-variant-numeric: tabular-nums; }
+.job .stage.pending { color: var(--dim); }
+.job .stage .bar { grid-column: 1 / -1; margin-top: 0; }
 .job { border: 1px solid var(--border); border-radius: 2px; padding: 4px 8px; }
 .job .bar { height: 3px; background: var(--border); margin-top: 4px; }
 .job .bar > div { height: 100%; background: var(--bar); }
-.job.err { color: #e08a8a; }
+.job.err { color: var(--error); }
 #jobs button, #footage-actions button {
   background: var(--bg2); color: var(--text);
   border: 1px solid var(--border); border-radius: 2px;
@@ -89,7 +113,7 @@ body {
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 #error {
   border: 1px solid var(--border); border-radius: 2px;
-  padding: 4px 8px; font-size: 11px; color: #e08a8a;
+  padding: 4px 8px; font-size: 11px; color: var(--error);
 }
 .empty { font-size: 11px; color: var(--dim); padding: 8px 0; }
 #debugbox { font-size: 11px; color: var(--dim); }
