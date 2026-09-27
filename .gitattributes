@@ -1,0 +1,5 @@
+# Scripts executed on the Brev instance (Linux) must keep LF even from Windows checkouts.
+*.sh text eol=lf
+engine/deploy/Dockerfile text eol=lf
+engine/deploy/compose.yaml text eol=lf
+engine/deploy/.env.example text eol=lf

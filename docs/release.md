@@ -5,21 +5,25 @@
 | Surface | File | Field |
 |---|---|---|
 | Sidecar | `service/pyproject.toml` | `version` |
+| Engine | `engine/pyproject.toml` | `version` (index semantics change → also `PIPELINE_VERSION` in `engine/tempo_engine/config.py`, which changes the signature and rebuilds through the stage cache) |
 | Panel bundle | `panel/CSXS/manifest.xml` | `ExtensionBundleVersion` + `Version` |
 | Panel cache | `panel/www/index.html` | `?v=` on css/js |
 | Panel debug stamp | `panel/www/panel.js` | `PANEL_VERSION` |
 
 ## Pre-release gates (all green, in order)
 
-1. `python -m pytest service/tests -q` (golden + parity + contracts).
-2. `python -m ruff check service modal_backend` (CI mirrors this).
+1. `python -m pytest service/tests engine/tests -q` (contracts, handoff, golden fusion, FAISS parity).
+2. `python -m ruff check service engine` (CI mirrors both, each with its pinned config).
 3. `npx eslint panel/host/host.jsx panel/host/ae_smoke.jsx` (ES3 gate).
 4. `node --check` on `panel/www/*.js`.
-5. `ae_smoke.jsx` on the **oldest and newest** claimed AE (`docs/ae-smoke.md`,
+5. Engine on the L4: `engine/deploy/brev-deploy.sh` for the release ref; the
+   `prefetch --verify` step and `/v1/health` (`gpu: true`, `query_models: ready`)
+   must pass before any client update ships.
+6. `ae_smoke.jsx` on the **oldest and newest** claimed AE (`docs/ae-smoke.md`,
    sign name/date/version) — AE has no cheap CI automation; manual is honest.
-6. Panel screenshot vs §6 anti-slop list (reviewer rejects gradients, pills,
+7. Panel screenshot vs §6 anti-slop list (reviewer rejects gradients, pills,
    emoji, spinners-where-skeletons-belong on sight).
-7. Fresh-machine install: Velopack Setup → import → index → search
+8. Fresh-machine install: Velopack Setup → import → index → search
    → click-insert → single-undo. Then auto-update to the previous build and
    back (channels).
 
@@ -28,7 +32,7 @@
 - ZXP: timestamped signature; calendar reminder **60 days before** cert
   expiry (expired = panel silently dead, no user warning).
 - Sidecar/MSI: EV cert; SmartScreen reputation accrues per binary.
-- Secrets rotation rehearsed: Modal Secret, R2/B2 keys, Stripe webhooks.
+- Secrets rotation rehearsed: engine token (`engine/deploy/.env` on the instance ↔ sidecar `TEMPO_BACKEND_TOKEN`), Stripe webhooks.
 
 ## Rollout
 

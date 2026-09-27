@@ -12,12 +12,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install service (pinned + dev)
-        run: pip install ./service "./service[dev]"
+      - name: Install sidecar (pinned + dev)
+        run: pip install "./service[dev]"
       - name: Ruff (pinned config in service/pyproject.toml)
         run: python -m ruff check service
-      - name: Run service tests
+      - name: Sidecar tests (contracts, handoff, tunnel, engine content-id cross-check)
         run: python -m pytest service/tests -q
+
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install engine core (pinned + dev; the [ml] extra ships in the Docker image)
+        run: pip install "./engine[dev]"
+      - name: Ruff (pinned config in engine/pyproject.toml)
+        run: python -m ruff check engine
+      - name: Engine tests (golden fusion, FAISS parity, API contract, library)
+        run: python -m pytest engine/tests -q
+      - name: Deploy script syntax
+        run: bash -n engine/deploy/brev-deploy.sh
 
   panel:
     runs-on: ubuntu-latest
@@ -36,20 +52,3 @@ jobs:
         run: pnpm lint
       - name: Panel syntax (modern Chromium is fine here)
         run: node --check panel/www/panel.js && node --check panel/www/api.js
-
-  auth:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: pnpm
-          cache-dependency-path: auth/pnpm-lock.yaml
-      - name: Install auth service (pinned lockfile)
-        run: pnpm --dir auth install --frozen-lockfile
-      - name: Auth syntax
-        run: node --check auth/server.mjs && node --check auth/auth.mjs
