@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tempo-engine"
+version = "0.1.0"
+description = "Tempo engine: v4 indexing pipeline + search behind the /v1 API (Brev L4)"
+requires-python = ">=3.11"
+# Core: importable and testable on CPU CI (API, library, search, text features).
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.30.6",
+    "pydantic==2.9.2",
+    "pydantic-settings==2.6.0",
+    "numpy==2.4.4",
+    "pillow==12.3.0",
+    "faiss-cpu==1.15.1",
+    "rank-bm25==0.2.2",
+    "rapidfuzz==3.14.6",
+]
+
+[project.optional-dependencies]
+# Models + media (the Docker image installs this). Versions follow the notebook's
+# `pip install -U` at migration time; validated on the L4 by `prefetch --verify`.
+# torch/torchvision resolve to the +cu126 builds (PyTorch cu126 index, see deploy/Dockerfile):
+# CTranslate2 (faster-whisper) needs CUDA 12 + cuDNN 9, the PyPI default torch is CUDA 13.
+ml = [
+    "torch==2.14.0",
+    "torchvision==0.29.0",
+    "transformers==5.17.0",
+    "sentence-transformers==6.1.0",
+    "faster-whisper==1.2.1",
+    "easyocr==1.7.2",
+    "scenedetect==0.6.4",
+    "opencv-python-headless==4.14.0.94",
+    "scikit-learn==1.7.2",
+]
+dev = [
+    "pytest==8.3.3",
+    "httpx==0.27.2",
+    "ruff==0.6.9",
+]
+
+[tool.setuptools.packages.find]
+include = ["tempo_engine*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
