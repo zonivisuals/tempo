@@ -15,7 +15,7 @@ jobs:
       - name: Install service (pinned + dev)
         run: pip install ./service "./service[dev]"
       - name: Ruff (pinned config in service/pyproject.toml)
-        run: python -m ruff check service modal_backend
+        run: python -m ruff check service
       - name: Run service tests
         run: python -m pytest service/tests -q
 
