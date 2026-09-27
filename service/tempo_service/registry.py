@@ -61,6 +61,13 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _readable(item: FootageItem) -> bool:
+    """A stat the host could actually measure. Non-positive size/mtime means
+    the file wasn't readable (OneDrive placeholder, media still resolving at
+    AE reopen, missing file) — never a real edit, never grounds for a job."""
+    return item.size > 0 and item.mtime_ns > 0
+
+
 def diff(
     footages: list[FootageItem],
     registry: dict,
@@ -70,44 +77,74 @@ def diff(
 
     - added:   key not in registry, or entry is stale but the fingerprint
                matches again (re-imported → revive + re-enqueue; D7 stale is
-               about *absent* footage, not a free pass to skip present work)
-    - changed: size/mtime differ, or stored format_version mismatches
+               about *absent* footage, not a free pass to skip present work).
+               Only on readable stats — unknown files are held, not indexed.
+    - changed: size/mtime drift confirmed over consecutive syncs (debounce),
+               or stored format_version mismatches (config-driven, immediate —
+               never transient, so never debounced).
     - removed: in registry (and not already stale) but absent from project
     - unchanged: fingerprint + format_version match (any non-stale state —
-               `error` stays unchanged: explicit retry only, never auto-loop)
+               `error` stays unchanged: explicit retry only, never auto-loop).
+               Also: known keys with unreadable stats (hold the stored
+               fingerprint — a file AE can't read is pending media, not an edit).
+    - pending: held keys — unreadable stats, or drift seen but unconfirmed.
+               Never enqueued. apply_sync persists the confirmation counters.
     """
     fmt = settings.format_version if format_version is None else format_version
+    need = settings.sync_change_confirmations
     seen: set[str] = set()
     added: list[str] = []
     changed: list[str] = []
     unchanged: list[str] = []
+    pending: list[str] = []
 
     for item in footages:
         key = footage_key_for(item.path)
         seen.add(key)
         entry = registry.get(key)
         if entry is None:
-            added.append(key)
-        elif entry.get("state") == "stale":
+            (added if _readable(item) else pending).append(key)
+            continue
+        if entry.get("state") == "stale":
             # Fingerprint matches but the entry was left for dead while the
             # footage was out of the project → revive as added (fresh
             # fingerprint written + job enqueued by apply_sync).
-            added.append(key)
-        elif (
-            entry.get("size") != item.size
-            or entry.get("mtime_ns") != item.mtime_ns
-            or entry.get("format_version") != fmt
-        ):
-            changed.append(key)
-        else:
+            (added if _readable(item) else pending).append(key)
+            continue
+        if not _readable(item):
             unchanged.append(key)
+            continue
+        if (
+            entry.get("size") == item.size
+            and entry.get("mtime_ns") == item.mtime_ns
+            and entry.get("format_version") == fmt
+        ):
+            unchanged.append(key)
+            continue
+        if entry.get("format_version") != fmt:
+            changed.append(key)
+            continue
+        pend = entry.get("pending_fp") or {}
+        if (pend.get("size"), pend.get("mtime_ns")) == (item.size, item.mtime_ns):
+            if int(entry.get("pending_hits", 0)) + 1 >= need:
+                changed.append(key)
+            else:
+                pending.append(key)
+        else:
+            pending.append(key)
 
     removed = [
         key
         for key, entry in registry.items()
         if key not in seen and entry.get("state") != "stale"
     ]
-    return {"added": added, "changed": changed, "removed": removed, "unchanged": unchanged}
+    return {
+        "added": added,
+        "changed": changed,
+        "removed": removed,
+        "unchanged": unchanged,
+        "pending": pending,
+    }
 
 
 def apply_sync(
@@ -145,9 +182,34 @@ def apply_sync(
             "duration_s": 0.0,
             "indexed_at": None,
         }
+    for key in result.get("pending", []):
+        # Persist debounce counters for known entries only. Unknown keys with
+        # unreadable stats need no memory: every sighting holds independently
+        # until a readable stat promotes them to added.
+        entry = registry.get(key)
+        if entry is None:
+            continue
+        matches = [item for item in footages if footage_key_for(item.path) == key]
+        if not matches:
+            continue
+        item = matches[0]
+        cur = entry.get("pending_fp") or {}
+        if (cur.get("size"), cur.get("mtime_ns")) == (item.size, item.mtime_ns):
+            entry["pending_hits"] = int(entry.get("pending_hits", 0)) + 1
+        else:
+            entry["pending_fp"] = {"size": item.size, "mtime_ns": item.mtime_ns}
+            entry["pending_hits"] = 1
     for key in result["removed"]:
         if key in registry:
             registry[key]["state"] = "stale"
+            registry[key].pop("pending_fp", None)
+            registry[key].pop("pending_hits", None)
+    for key in result["unchanged"]:
+        # Fingerprint confirmed against storage: any pending suspicion is moot.
+        entry = registry.get(key)
+        if entry is not None:
+            entry.pop("pending_fp", None)
+            entry.pop("pending_hits", None)
     return registry
 
 

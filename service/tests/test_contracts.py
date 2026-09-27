@@ -107,6 +107,10 @@ def test_panel_insert_escapes_windows_paths():
     double backslashes before interpolating into the evalScript call."""
     src = PANEL_JS.read_text(encoding="utf-8")
     assert 'payload.replace(/\\\\/g, "\\\\\\\\")' in src, "insert path escaping missing"
+    # The JSON must travel as a *string literal* (host.jsx JSON.parses it):
+    # splicing it in bare passes an Object, and every insert fails with
+    # "bad payload". The wrapping quotes are the load-bearing characters.
+    assert "tempoInsertOrFocus('" in src, "insert payload not wrapped as string literal"
 
     # Round-trip proof at the Python level of the same transform: doubling
     # backslashes preserves the JSON text through one string-literal parse.

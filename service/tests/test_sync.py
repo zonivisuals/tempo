@@ -48,3 +48,69 @@ def test_sync_round_trip(tmp_path, monkeypatch):
     r4 = client.get("/footage")
     assert r4.status_code == 200
     assert r4.json()[0]["footage_key"] == body["added"][0]
+
+
+def _hold_payload(size, mtime, path="C:\\v\\hold.mp4"):
+    return {
+        "footages": [
+            {
+                "path": path,
+                "size": size,
+                "mtime_ns": mtime,
+                "item_id": 7,
+                "frame_rate": 25.0,
+            }
+        ]
+    }
+
+
+def test_sync_holds_bad_stats_and_dedups_jobs(tmp_path, monkeypatch):
+    """Reopen race end-to-end: unreadable stats hold (no job, no entry),
+    drift needs two sightings, and confirmation reuses the live job instead
+    of minting a duplicate full pipeline run."""
+    import tempo_service.app as app_module
+
+    monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
+    monkeypatch.setattr(registry.settings, "artifact_root", tmp_path)
+    client = TestClient(create_app())
+
+    r0 = client.post("/sync", json=_hold_payload(-1, 0))
+    assert r0.status_code == 200
+    assert r0.json()["pending"] and r0.json()["jobs"] == []
+
+    r1 = client.post("/sync", json=_hold_payload(100, 1000))
+    key = r1.json()["added"][0]
+    job_a = r1.json()["jobs"][0]  # stays queued: no handler in tests
+
+    r2 = client.post("/sync", json=_hold_payload(200, 2000))
+    assert r2.json()["jobs"] == [] and not r2.json()["changed"]
+
+    r3 = client.post("/sync", json=_hold_payload(200, 2000))
+    assert r3.json()["changed"] == [key]
+    assert r3.json()["jobs"] == [job_a]  # dedup: same live job, no duplicate
+
+
+def test_retry_reuses_live_job_and_cancel_drops_queued(tmp_path, monkeypatch):
+    import tempo_service.app as app_module
+
+    monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
+    monkeypatch.setattr(registry.settings, "artifact_root", tmp_path)
+    client = TestClient(create_app())
+
+    r1 = client.post("/sync", json=_hold_payload(100, 1000, "C:\\v\\rc.mp4"))
+    key = r1.json()["added"][0]
+    job_a = r1.json()["jobs"][0]
+
+    rr = client.post(f"/footage/{key}/retry")
+    assert rr.json()["job_id"] == job_a  # idempotent while active
+
+    c1 = client.post(f"/jobs/{job_a}/cancel")
+    assert c1.status_code == 200 and c1.json()["state"] == "cancelled"
+    assert client.get(f"/jobs/{job_a}").json()["state"] == "cancelled"
+
+    c2 = client.post(f"/jobs/{job_a}/cancel")
+    assert c2.status_code == 409
+    assert client.post("/jobs/job_nope/cancel").status_code == 404
+
+    rr2 = client.post(f"/footage/{key}/retry")
+    assert rr2.json()["job_id"] != job_a  # terminal: fresh job allowed

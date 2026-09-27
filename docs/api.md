@@ -23,10 +23,23 @@ Request:
 Response (added/changed enter `uploading`, then auto-handoff to the backend; immediate):
 ```json
 {"added": ["a1b2"], "changed": [], "removed": [], "unchanged": [],
+ "pending": [],
  "jobs": ["job_001"], "uploads": ["job_001"]}
 ```
 Plans enforced on new work only (D14): over quota → `403 QUOTA_EXCEEDED`
 (free: 1 footage, 7 footage-minutes). Unchanged-only syncs always pass.
+
+Indexing-consistency guards (reopen-safe):
+- Unreadable stats (`size <= 0` or `mtime_ns <= 0` — OneDrive placeholder,
+  media still resolving at AE reopen, missing file) are never a change.
+  Unknown keys sit in `pending` until a readable stat arrives; known keys
+  keep their stored fingerprint (`unchanged`).
+- Size/mtime drift counts as `changed` only after repeating on consecutive
+  syncs (`TEMPO_SYNC_CHANGE_CONFIRMATIONS`, default 2); unconfirmed drift
+  sits in `pending`. Format-version mismatches apply immediately (never
+  transient). `pending` keys are never enqueued and never burn quota.
+- One active job per footage: sync/retry reuse the live job id instead of
+  minting duplicates. Drop a not-yet-started job explicitly:
 
 ## GET /jobs/{job_id}
 
@@ -37,7 +50,7 @@ Plans enforced on new work only (D14): over quota → `403 QUOTA_EXCEEDED`
             {"name": "ocr", "state": "running", "done": 37, "total": 157}],
  "error": null}
 ```
-`state`: `uploading|queued-for-backend|running|done|error`. Stage `state`: `pending|running|done|error`.
+`state`: `uploading|queued-for-backend|running|done|error|cancelled`. Stage `state`: `pending|running|done|error`.
 
 Failed jobs keep their stage errors and the registry entry keeps
 `state: error` + message (e.g. Drive file missing with the exact
@@ -61,6 +74,18 @@ Resets the entry to `indexing` and enqueues a fresh job. Unknown id → 404.
 
 Same, addressed by footage key — covers orphaned entries (service
 restarted, panel reloaded, job id lost). Unknown key → 404.
+Both retry routes are idempotent while a live job exists for the key
+(they return its id instead of stacking a duplicate run).
+
+## POST /jobs/{job_id}/cancel
+
+```json
+{"job_id": "job_001", "footage_key": "a1b2", "state": "cancelled",
+ "stages": [...], "error": "cancelled by user"}
+```
+Drops a job that hasn't started yet (the worker skips it). Running jobs
+can't be stopped mid-thread → `409 NOT_CANCELLABLE` (completion stays
+valid); terminal jobs → `409`; unknown id → 404.
 
 ## GET /footage
 

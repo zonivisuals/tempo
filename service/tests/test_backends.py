@@ -367,6 +367,9 @@ def test_proxy_failure_marks_entry_error_and_retry(tmp_path, monkeypatch):
     except RuntimeError as exc:
         assert "not on Drive" in str(exc)
         assert str(exc).count("Drive/tempo/k2/b.mp4") == 1  # single hint, not doubled
+    # _run terminalizes failed jobs in production; this test drives handle()
+    # directly, so record the terminal state explicitly before retrying.
+    jobs_module.jobs._set("job_err", state="error")
     saved = reg.load_registry()
     assert saved["k2"]["state"] == "error"
     assert "not on Drive" in saved["k2"]["error"]

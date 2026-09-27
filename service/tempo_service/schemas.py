@@ -31,6 +31,10 @@ class SyncResponse(BaseModel):
     changed: list[str] = Field(default_factory=list)
     removed: list[str] = Field(default_factory=list)
     unchanged: list[str] = Field(default_factory=list)
+    # Held keys: unreadable stats, or size/mtime drift not yet confirmed over
+    # consecutive syncs. Never enqueued; panel needs no changes (unknown field
+    # ignored, counts stay consistent across the other four lists).
+    pending: list[str] = Field(default_factory=list)
     jobs: list[str] = Field(default_factory=list)
     uploads: list[str] = Field(default_factory=list)
 
@@ -45,7 +49,7 @@ class StageStatus(BaseModel):
 class JobStatus(BaseModel):
     job_id: str
     footage_key: str
-    state: Literal["uploading", "queued-for-backend", "queued", "running", "done", "error"] = (
+    state: Literal["uploading", "queued-for-backend", "queued", "running", "done", "error", "cancelled"] = (
         "queued"
     )
     stages: list[StageStatus] = Field(default_factory=list)

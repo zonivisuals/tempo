@@ -178,7 +178,8 @@ Purpose: "index every imported footage once, notice changes, forget removed ones
 - **Fingerprint** = `(resolved_path, size_bytes, mtime_ns)`. Cheap, stable enough for this purpose. Resolved via `File.fsName` on the AE side (this also normalizes OS path casing/slashes).
 - **Registry** = one JSON file per artifact directory, mapping `footage_key → {fingerprint, artifact paths, format_version, stats}`. `footage_key` = deterministic short hash of the fingerprint's path component.
 - **Storage link:** each entry also stores `drive_path` = `tempo/<footage_key>/<basename>` — the deterministic key the backend imports from (uploads land in P2; manual copy until then). Same key + size already stored → bytes are skipped, straight to indexing.
-- **Sync flow:** panel asks host.jsx for the current project footage list (path + size + mtime + item id via `FootageItem.mainSource.file`), POSTs it to `POST /sync`; service diffs against the registry and returns: `added` (auto-enqueued for indexing), `changed` (re-enqueued), `removed` (marked stale), `unchanged` (skipped).
+- **Sync flow:** panel asks host.jsx for the current project footage list (path + size + mtime + item id via `FootageItem.mainSource.file`), POSTs it to `POST /sync`; service diffs against the registry and returns: `added` (auto-enqueued for indexing), `changed` (re-enqueued), `removed` (marked stale), `unchanged` (skipped), `pending` (held — never enqueued, see below).
+- **Reopen-safe guards (a transient bad stat once queued duplicate full re-indexes, so all three are load-bearing):** (1) unreadable stats (`size <= 0` or `mtime_ns <= 0` — OneDrive placeholder, media resolving at AE reopen, missing file) are never a change: unknown keys sit in `pending` until readable, known keys keep their stored fingerprint; (2) size/mtime drift counts as `changed` only after repeating on `TEMPO_SYNC_CHANGE_CONFIRMATIONS` consecutive syncs (default 2) — format-version mismatches apply immediately (config-driven, never transient); (3) one active job per footage — sync/retry reuse the live job id, and `POST /jobs/{id}/cancel` drops not-yet-started jobs (running jobs can't be stopped mid-thread; completion stays valid).
 - **Removed footage:** artifacts are marked `stale`, not deleted. Pruning is explicit (panel button or config flag) because re-indexing is expensive and users often toggle imports. Default: manual prune.
 - **Format versioning:** every artifact set carries `format_version`. On mismatch (e.g. after a scoring/captioning change), the footage is treated as `changed` and re-indexed. Bump the constant whenever artifact layout or semantics change; note it in the decisions log.
 
@@ -348,7 +349,7 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 **F1 — Automatic footage indexing (indexing consistency)**
 - Import footage in AE → within one poll interval it appears in the panel as `uploading` (byte progress), then `indexing` (stage progress); on completion it becomes searchable. Zero clicks.
 - Footage already indexed and unchanged → skipped (registry fingerprint match).
-- Changed file (size/mtime) → re-uploaded + re-indexed; artifact format bumped → re-indexed.
+- Changed file (size/mtime, confirmed over consecutive syncs) → re-uploaded + re-indexed; artifact format bumped → re-indexed.
 - Footage removed from project → marked stale (upload cancelled); data pruned only on explicit prune. Acceptance: sync report shows added/changed/removed/unchanged counts that a human can verify against the project panel.
 
 **F2 — Fast search + result preview**

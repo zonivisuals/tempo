@@ -41,7 +41,7 @@ Handler = Callable[["Job", Callable[[str, int, int], None]], None]
 class Job:
     job_id: str
     footage_key: str
-    state: str = "queued"  # queued|running|done|error
+    state: str = "queued"  # queued|running|done|error|cancelled (+queued-for-backend via proxy)
     stages: dict[str, dict] = field(default_factory=dict)
     error: str | None = None
 
@@ -81,6 +81,40 @@ class JobManager:
         log.info("enqueued %s for footage %s", job_id, footage_key)
         return job_id
 
+    # States holding a claim on a footage key: a second enqueue for the same
+    # key must reuse the live job, never mint a duplicate full pipeline run.
+    ACTIVE_STATES = ("queued", "running", "queued-for-backend")
+
+    def active_job_for(self, footage_key: str) -> str | None:
+        """Newest non-terminal job id for the key, or None. Guards the sync
+        handler and retries against double-enqueue (transient stat flips,
+        Retry-spam, restart races all converge here)."""
+        with self._lock:
+            # Reversed insertion order: newest live job wins (ids are random
+            # hex, so lexicographic order would be meaningless).
+            for job_id in reversed(list(self._jobs)):
+                job = self._jobs[job_id]
+                if job.footage_key == footage_key and job.state in self.ACTIVE_STATES:
+                    return job_id
+        return None
+
+    def cancel(self, job_id: str) -> str:
+        """Drop a job that hasn't started: 'cancelled'. Returns an outcome
+        the route maps to HTTP: 'cancelled' | 'missing' | 'terminal' |
+        'running'. Running jobs (local or backend-backed) can't be stopped
+        mid-thread — they run to completion, which is always a valid result."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return "missing"
+            if job.state in ("done", "error", "cancelled"):
+                return "terminal"
+            if job.state != "queued":
+                return "running"
+            job.state = "cancelled"
+            job.error = "cancelled by user"
+            return "cancelled"
+
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             return self._jobs.get(job_id)
@@ -119,6 +153,9 @@ class JobManager:
                 with self._lock:
                     job = self._jobs.get(job_id)
                 if job is None:
+                    continue
+                if job.state == "cancelled":
+                    log.info("job %s cancelled before start; skipping", job_id)
                     continue
                 self._set(job_id, state="running")
                 log.info("job %s started (footage %s)", job_id, job.footage_key)

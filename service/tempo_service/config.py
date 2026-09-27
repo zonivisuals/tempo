@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     # Panel polling / pacing
     sync_poll_s: float = 2.0
     job_poll_s: float = 0.5
+    # Size/mtime changes must repeat this many consecutive syncs before they
+    # count as `changed` (debounce against transient bad stats at AE reopen /
+    # OneDrive hydration). New imports are unaffected (immediate when readable).
+    sync_change_confirmations: int = 2
 
     # Removed footage is marked stale, pruned only when explicitly enabled
     prune_stale: bool = False

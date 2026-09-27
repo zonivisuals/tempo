@@ -265,8 +265,9 @@ def create_app() -> FastAPI:
         log.info("sync: registry entries=%d keys=%s", len(registry), sorted(registry)[:10])
         result = registry_module.diff(body.footages, registry)
         log.info(
-            "sync: diff added=%s changed=%s removed=%s unchanged=%s",
-            result["added"], result["changed"], result["removed"], result["unchanged"],
+            "sync: diff added=%s changed=%s removed=%s unchanged=%s pending=%s",
+            result["added"], result["changed"], result["removed"],
+            result["unchanged"], result["pending"],
         )
         from . import entitlements as entitlements_module
 
@@ -284,9 +285,13 @@ def create_app() -> FastAPI:
             )
         registry_module.apply_sync(body.footages, result, registry)
         registry_module.save_registry(registry)
-        job_ids = [
-            jobs_module.jobs.enqueue(key) for key in result["added"] + result["changed"]
-        ]
+        # One active job per footage: a second enqueue for a key that already
+        # has a live job reuses it (transient stat flips and Retry-spam must
+        # never mint duplicate full pipeline runs).
+        job_ids = []
+        for key in result["added"] + result["changed"]:
+            live = jobs_module.jobs.active_job_for(key)
+            job_ids.append(live if live is not None else jobs_module.jobs.enqueue(key))
         provider = get_provider(
             settings.backend, settings.backend_url, settings.backend_token,
             settings.backend_timeout_s,
@@ -307,6 +312,7 @@ def create_app() -> FastAPI:
             changed=result["changed"],
             removed=result["removed"],
             unchanged=result["unchanged"],
+            pending=result["pending"],
             jobs=job_ids,
             uploads=uploads,
         )
@@ -370,6 +376,12 @@ def create_app() -> FastAPI:
         )
 
     def _enqueue_retry(key: str) -> JobRetryResponse:
+        # Idempotent: an explicit retry while a live job exists for the key
+        # returns that job instead of stacking a duplicate run.
+        live = jobs_module.jobs.active_job_for(key)
+        if live is not None:
+            log.info("retry: footage %s already active as %s; reusing", key, live)
+            return JobRetryResponse(job_id=live, footage_key=key)
         registry = registry_module.load_registry()
         entry = registry.get(key)
         if entry is not None:
@@ -381,7 +393,8 @@ def create_app() -> FastAPI:
 
     @app.post("/jobs/{job_id}/retry", response_model=JobRetryResponse)
     def job_retry(job_id: str):  # type: ignore[no-untyped-def]
-        # Explicit re-enqueue of a failed job's footage (one click = one job).
+        # Explicit re-enqueue of a failed job's footage (one click = one job;
+        # reuses the live job when one already exists for the footage).
         # Auto-sync never re-enqueues (would hot-loop every 2s); only explicit
         # retry turns an `error`/orphaned entry back into `indexing` + a job.
         job = jobs_module.jobs.get(job_id)
@@ -395,6 +408,34 @@ def create_app() -> FastAPI:
         resp = _enqueue_retry(job.footage_key)
         log.info("retry: job %s (footage %s) -> new job %s", job_id, job.footage_key, resp.job_id)
         return resp
+
+    @app.post("/jobs/{job_id}/cancel", response_model=JobStatus)
+    def job_cancel(job_id: str):  # type: ignore[no-untyped-def]
+        # Drop a job that hasn't started yet. Running jobs (local or
+        # backend-backed) can't be stopped mid-thread: 409 names the state,
+        # and completion stays valid. Cancelled jobs leave polling on their
+        # own (the panel drops unknown terminal states from its poll set).
+        outcome = jobs_module.jobs.cancel(job_id)
+        if outcome == "missing":
+            return JSONResponse(
+                status_code=404,
+                content=ErrorEnvelope(
+                    error=ErrorBody(code="NOT_FOUND", message="unknown job")
+                ).model_dump(),
+            )
+        if outcome != "cancelled":
+            return JSONResponse(  # type: ignore[return-value]
+                status_code=409,
+                content=ErrorEnvelope(
+                    error=ErrorBody(
+                        code="NOT_CANCELLABLE",
+                        message=f"job is {outcome}; only queued jobs can be cancelled",
+                    )
+                ).model_dump(),
+            )
+        job = jobs_module.jobs.get(job_id)
+        log.info("cancel: job %s (footage %s)", job_id, job.footage_key)
+        return JobStatus(**job.to_status())
 
     @app.post("/footage/{footage_key}/retry", response_model=JobRetryResponse)
     def footage_retry(footage_key: str):  # type: ignore[no-untyped-def]
