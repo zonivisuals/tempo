@@ -1,0 +1,36 @@
+# Tempo engine on the Brev L4 instance (ADR-0008).
+# GPU access per the Brev custom-containers guide (device reservation, driver nvidia).
+# The API is published on the instance's loopback only: editors reach it through
+# `brev port-forward <instance> --port <local>:${TEMPO_ENGINE_PORT}`, never a public port.
+# Variables come from deploy/.env (see .env.example); compose reads it for interpolation too.
+services:
+  engine:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: tempo-engine:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TEMPO_ENGINE_HOST: 0.0.0.0  # inside the container; the published port stays on 127.0.0.1
+      TEMPO_ENGINE_PORT: ${TEMPO_ENGINE_PORT:-8900}
+      TEMPO_ENGINE_DATA_ROOT: /data
+      HF_HOME: /data/hf
+    ports:
+      - "127.0.0.1:${TEMPO_ENGINE_PORT:-8900}:${TEMPO_ENGINE_PORT:-8900}"
+    volumes:
+      # /home/ubuntu/workspace survives `brev stop` (Brev GPU instances: data persistence).
+      - ${TEMPO_DATA_DIR:-/home/ubuntu/workspace/tempo}:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ['TEMPO_ENGINE_PORT'] + '/v1/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s

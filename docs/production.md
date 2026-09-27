@@ -1,14 +1,15 @@
 # Production setup + test guide (D11–D14)
 
-Windows-only scope. No cards required until billing: Modal Starter ($30/mo
-credits), Supabase free, Backblaze B2 free tier, local dev fully offline.
+Windows-only editor scope. The GPU engine runs on an NVIDIA Brev L4 instance
+(billed per running hour, ADR-0008); Supabase free; local dev fully offline
+(engine on CPU).
 
 ## 0. Prerequisites
 
 - Windows 10/11, Python 3.11+, Node 20+, After Effects (note exact version
   for the smoke sign-off), Git.
-- Accounts (all free, no card): Modal (`modal.com`, token via `modal setup`),
-  Supabase (one project, app tables only), Backblaze B2 (only when leaving manual-copy mode).
+- Accounts: NVIDIA Brev (org with GPU access), Supabase (one project, app tables only).
+- WSL Ubuntu on Windows for the brev CLI (Brev quickstart).
 
 ## 1. Repo verify (no services running)
 
@@ -40,31 +41,69 @@ python -m uvicorn tempo_service.app:app --host 127.0.0.1 --port 8765
 Checklist: `GET /health` → ok; `POST /sync` → diff counts; no sign-in
 step — every route is public on localhost (identity removed).
 
-## 5. Modal backend deploy
+## 5. Engine on Brev (L4)
 
-```powershell
-pip install modal
-modal setup                       # token, never in git
-modal secret create tempo-secrets BACKEND_TOKEN="<random-32+>"
-modal deploy modal_backend/modal_app.py
+**One-time setup:**
+1. In the Brev console (https://brev.nvidia.com), create a VM-mode instance.
+   - GPU: **L4**
+   - Name: **`tempo-l4-instance`**
+   - Disk: 200 GiB or more (model cache plus library)
+
+   `brev create` flag syntax is not in the docs we verified, so the
+   console is the documented path.
+2. Install the brev CLI where the deploy runs. On Windows it goes in WSL
+   Ubuntu, per the Brev quickstart:
+   `bash -c "$(curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh)"`.
+   Then run `brev login` (or `brev login --token` headless) and `brev ls`.
+3. Make sure the instance can clone the repo, for example with a deploy key
+   under `~/.ssh` on the instance (`brev shell tempo-l4-instance`).
+
+**Deploy / update (idempotent):**
+
+```bash
+TEMPO_REPO_URL=git@github.com:<org>/tempo.git ./engine/deploy/brev-deploy.sh
 ```
 
-This creates Volumes `tempo-artifacts` / `tempo-checkpoints`, the T4
-`run_stage` function, and the ASGI `api` endpoint. Verify decorator names
-against https://modal.com/docs/guide on first deploy. Note the printed
-HTTPS URL, then point the sidecar at it:
+The script runs through `brev exec` and does the following:
+1. Pulls `TEMPO_REPO_REF` (default `main`) into `~/workspace/tempo-src`.
+2. Creates `engine/deploy/.env` from `.env.example` on the first run, with a
+   random `TEMPO_ENGINE_TOKEN`. Copy that token to the sidecar as
+   `TEMPO_BACKEND_TOKEN`.
+3. Runs `docker compose up -d --build` with the GPU reservation and
+   `restart: unless-stopped`. The API is published on the instance's
+   `127.0.0.1:8900` only.
+4. Runs `prefetch --verify`, which downloads every model into
+   `/home/ubuntu/workspace/tempo/hf`, loads the query models on the GPU, and
+   runs a tiny inference. This is the first-deploy check of the pinned
+   CUDA 12.6 / cuDNN 9 stack.
+5. Prints `/v1/health`, which must show `"gpu": true` and
+   `"query_models": "ready"`.
+
+**Data on the instance (`/home/ubuntu/workspace/tempo`):**
+- `hf/`: model cache
+- `library/<content_id>/`: stage cache, frames, thumbs, index
+- `raw/`: purged after index
+- `jobs/`
+
+The workspace survives `brev stop` and `brev start`. `brev delete` erases
+it; the library is then rebuilt from uploads.
+
+**Offline dev (no GPU):** run the same engine on CPU with the notebook's CPU
+model defaults:
 
 ```powershell
-$env:TEMPO_BACKEND = "http"
-$env:TEMPO_BACKEND_URL = "https://<app>--api.modal.run"
-$env:TEMPO_BACKEND_TOKEN = "<same BACKEND_TOKEN>"
+pip install "./engine[ml]"        # torch CPU wheels are fine locally
+$env:TEMPO_ENGINE_TOKEN = "dev-token"; $env:TEMPO_ENGINE_DATA_ROOT = ".\engine-data"
+python -m tempo_engine.prefetch   # once
+python -m tempo_engine.app        # http://127.0.0.1:8900
 ```
 
-`GET /health` on the sidecar must now show
-`backend:{reachable:true,gpu:true}`. GPU stage bodies execute here for the
-first time — run the **GPU trial**: index a 2-min clip, record GPU-minutes
-per footage-minute (this number prices your plans at 3–5× blended cost),
-and confirm checkpoint resume by cancelling mid-index and re-submitting.
+**GPU trial:**
+1. Index a 2-minute clip.
+2. Record wall time per footage minute and peak VRAM
+   (`brev exec tempo-l4-instance "nvidia-smi"`).
+3. `docker compose restart` mid-index. The job must resume from the stage
+   cache: finished stages are logged as `cache hit`.
 
 ## 6. Storage step-up (only when leaving manual copy)
 
