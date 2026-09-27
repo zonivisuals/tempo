@@ -5,9 +5,12 @@ Path resolution/normalization happens on the AE side via `File.fsName`;
 the service hashes the path string as received.
 
 `footage_key` = first 10 hex chars of sha1(path). The registry is one JSON
-file (`<artifact_root>/registry.json`); per-footage artifacts live under
-`footage/<key>/` (AGENTS.md §3.6). Disk is the only durable state: the
-service must be restartable at any moment and resume purely from disk.
+file (`<artifact_root>/registry.json`). Each entry also records the footage's
+`content_id` once its job derives it (ADR-0008, D16): the engine library and
+the local thumb cache are keyed by content, so the same bytes under another
+path never index twice (AGENTS.md §3.3, §3.6). Disk is the only durable
+state: the service must be restartable at any moment and resume purely from
+disk.
 """
 
 import hashlib
@@ -22,6 +25,7 @@ from .schemas import FootageItem
 log = logging.getLogger("tempo.registry")
 
 REGISTRY_NAME = "registry.json"
+THUMBS_DIR = "thumbs"
 
 
 def footage_key_for(path: str) -> str:
@@ -31,6 +35,11 @@ def footage_key_for(path: str) -> str:
 
 def registry_path(artifact_root: Path | None = None) -> Path:
     return (artifact_root or settings.artifact_root) / REGISTRY_NAME
+
+
+def thumbs_dir(content_id: str, artifact_root: Path | None = None) -> Path:
+    """Local display-thumb cache, keyed by content (shared by every footage with those bytes)."""
+    return (artifact_root or settings.artifact_root) / THUMBS_DIR / content_id
 
 
 def load_registry(artifact_root: Path | None = None) -> dict:
@@ -156,8 +165,9 @@ def apply_sync(
     """Update the registry in place for a sync result.
 
     added/changed entries are (re)created with fresh fingerprints and
-    `indexing` state (P3 flips them to `ready`); removed entries are marked
-    `stale`, never deleted (AGENTS.md D7 — pruning is explicit).
+    `indexing` state (the handoff job derives `content_id` and flips them to
+    `ready`); removed entries are marked `stale`, never deleted (AGENTS.md
+    D7 — pruning is explicit).
     """
     fmt = settings.format_version if format_version is None else format_version
 
@@ -166,12 +176,10 @@ def apply_sync(
         if not matches:
             continue
         item = matches[0]
-        from .drive import drive_path_for
-
         registry[key] = {
             "footage_key": key,
             "path": item.path,
-            "drive_path": drive_path_for(key, item.path),
+            "content_id": "",
             "size": item.size,
             "mtime_ns": item.mtime_ns,
             "item_id": item.item_id,
@@ -181,6 +189,7 @@ def apply_sync(
             "shot_count": 0,
             "duration_s": 0.0,
             "indexed_at": None,
+            "reused": False,
         }
     for key in result.get("pending", []):
         # Persist debounce counters for known entries only. Unknown keys with

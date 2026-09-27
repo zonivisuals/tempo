@@ -1,55 +1,77 @@
-"""Backend provider seam (ADR-0004).
+"""Backend provider seam (ADR-0004, ADR-0008).
 
-One interface for every indexing/search backend. The local service never
-touches backend-specific transports (ngrok tunnels, SDKs) outside this
-package. Method return shapes mirror docs/api.md; error codes are the only
-failure vocabulary the service and panel share:
+One interface for the indexing/search engine. The sidecar never touches a
+transport (tunnel, SDK) outside this package. Calls never raise on transport
+failure: they return a `Reply` whose `code` is the failure vocabulary the
+sidecar and panel share —
 
-  BACKEND_UNREACHABLE — no route to the backend (not configured, DNS/refused,
-                         auth rejected)
-  BACKEND_ASLEEP      — route alive, workers down (scale-to-zero, preemption)
+  BACKEND_UNREACHABLE — no route to the engine (not configured, tunnel down,
+                         refused, auth rejected)
+  BACKEND_ASLEEP      — route alive, engine not serving (restarting, models
+                         warming: 502/503)
   BACKEND_TIMEOUT     — request exceeded its budget (never hangs)
+
+— or the engine's own error code for application errors (e.g. 409
+OFFSET_MISMATCH, 409 SOURCE_MISSING), with the engine message kept.
 """
 
 from __future__ import annotations
 
 import abc
+from dataclasses import dataclass
+from typing import Any
+
+UNREACHABLE = "BACKEND_UNREACHABLE"
+ASLEEP = "BACKEND_ASLEEP"
+TIMEOUT = "BACKEND_TIMEOUT"
+TRANSPORT_CODES = (UNREACHABLE, ASLEEP, TIMEOUT)
 
 
-class BackendError(Exception):
-    """Raised by providers that prefer exceptions over (ok, code) tuples."""
+@dataclass
+class Reply:
+    ok: bool
+    status: int
+    body: Any = None  # parsed JSON, or bytes for binary routes
+    code: str | None = None
+    message: str = ""
 
-    def __init__(self, code: str, message: str = "") -> None:
-        super().__init__(message or code)
-        self.code = code
+    @property
+    def transport_code(self) -> str:
+        """The code to show the panel: transport codes as-is, anything else unreachable."""
+        return self.code if self.code in TRANSPORT_CODES else UNREACHABLE
 
 
 class BackendProvider(abc.ABC):
-    """Indexing/search backend. All methods are blocking with explicit
-    timeouts; none raise on transport failure — they return ok=False plus a
-    BACKEND_* code (or raise BackendError with .code set)."""
+    """Engine client. Blocking calls with explicit timeouts (docs/engine-api.md)."""
 
     @abc.abstractmethod
     def health(self) -> dict:
-        """→ {"reachable": bool, "gpu": bool}. Never raises."""
+        """→ {"reachable", "gpu", "signature", "stages", "query_models"}. Never raises."""
 
     @abc.abstractmethod
-    def submit_index(self, storage_ref: str) -> tuple[bool, int, dict | None, str | None]:
-        """Enqueue indexing of storage_ref (e.g. tempo/<key>/<basename>).
-        → (ok, http_status, {"job_id", "footage_key", ...} | None, code | None)."""
+    def library(self, content_id: str) -> Reply:
+        """GET /v1/library/{cid} → state, needs_upload, received/size, job_id, stats."""
 
     @abc.abstractmethod
-    def job_status(self, backend_job_id: str) -> tuple[bool, int, dict | None, str | None]:
-        """Poll one backend job. → (ok, http_status, job_envelope | None, code | None).
-        The envelope carries {job_id, footage_key, state, stages, error,
-        shot_count, duration_s} with stages in STAGES order (§3.2)."""
+    def upload_chunk(self, content_id: str, offset: int, size: int, name: str, data: bytes) -> Reply:
+        """PUT /v1/uploads/{cid} — one chunk at `offset` (409 OFFSET_MISMATCH carries the engine offset)."""
 
     @abc.abstractmethod
-    def search(
-        self, q: str, top_k: int, footage_keys: str | None
-    ) -> tuple[bool, int, dict | None, str | None]:
-        """Run §3.5 fusion remotely. → (ok, http_status, SearchResponse-dict | None, code | None)."""
+    def submit_index(self, content_id: str) -> Reply:
+        """POST /v1/index → {job_id | None, state}. Idempotent per content."""
 
     @abc.abstractmethod
-    def thumb_bytes(self, footage_key: str, shot_id: int) -> tuple[bool, bytes | None, str | None]:
-        """Fetch one keyframe JPEG. → (ok, bytes | None, code | None)."""
+    def job_status(self, job_id: str) -> Reply:
+        """GET /v1/jobs/{id} → engine job envelope (stages in pipeline order)."""
+
+    @abc.abstractmethod
+    def search(self, q: str, top_k: int, content_ids: list[str] | None) -> Reply:
+        """GET /v1/search → engine SearchResponse dict."""
+
+    @abc.abstractmethod
+    def thumb_bytes(self, content_id: str, shot_id: int) -> Reply:
+        """GET one display thumb → JPEG bytes."""
+
+    @abc.abstractmethod
+    def thumbs_tar(self, content_id: str) -> Reply:
+        """GET every display thumb as one tar → bytes."""

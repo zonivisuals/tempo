@@ -58,7 +58,6 @@ def test_sync_endpoint_enforces_free_quota(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app_module.settings, "artifact_root", tmp_path)
     monkeypatch.setattr(registry.settings, "artifact_root", tmp_path)
-    monkeypatch.setattr(app_module.settings, "backend", "local")
     monkeypatch.setattr(app_module.settings, "plan", "free")
     client = TestClient(app_module.create_app())
 

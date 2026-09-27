@@ -41,7 +41,8 @@ def test_sync_round_trip(tmp_path, monkeypatch):
     r3 = client.get(f"/jobs/{job_id}")
     assert r3.status_code == 200
     assert r3.json()["job_id"] == job_id
-    assert len(r3.json()["stages"]) == 10  # §3.2 stage list (upload + 9)
+    # §3.2: `upload` + the engine's stages (none known until the engine is probed)
+    assert r3.json()["stages"][0]["name"] == "upload"
 
     assert client.get("/jobs/nope").status_code == 404
 

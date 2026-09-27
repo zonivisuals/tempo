@@ -15,9 +15,9 @@ Windows-only editor scope. The GPU engine runs on an NVIDIA Brev L4 instance
 
 ```powershell
 cd <repo>
-$env:PYTHONPATH = "service;."
-python -m pytest service/tests -q        # 69 tests: golden, parity, contracts
-python -m ruff check service modal_backend
+$env:PYTHONPATH = "service;engine"
+python -m pytest service/tests engine/tests -q   # contracts, handoff, golden, parity
+python -m ruff check service engine
 npx eslint panel/host/host.jsx panel/host/ae_smoke.jsx
 node --check panel/www/panel.js; node --check panel/www/api.js
 ```
@@ -30,18 +30,31 @@ node --check panel/www/panel.js; node --check panel/www/api.js
 
 ## 3. Sidecar service
 
+The sidecar is light (fastapi + pydantic only). It reaches the engine one of two ways:
+- **Through Brev**: set `TEMPO_BREV_INSTANCE`. The sidecar runs and supervises
+  `brev port-forward` itself.
+- **Directly**: set `TEMPO_BACKEND_URL`, for example to a local CPU engine.
+
 ```powershell
 cd <repo>
 pip install ./service
 $env:PYTHONPATH = "service"
-$env:TEMPO_BACKEND = "local"   # offline dev; "http" + TEMPO_BACKEND_URL/TOKEN for Modal
+# Brev (production): the sidecar supervises `wsl brev port-forward tempo-l4-instance --port 8900:8900`
+$env:TEMPO_BREV_INSTANCE = "tempo-l4-instance"
+$env:TEMPO_BREV_CLI = "wsl brev"           # brev lives in WSL on Windows (Brev quickstart)
+$env:TEMPO_BACKEND_TOKEN = "<TEMPO_ENGINE_TOKEN from the instance's engine/deploy/.env>"
+# Offline dev instead: $env:TEMPO_BACKEND_URL = "http://127.0.0.1:8900" (local CPU engine, §4)
 python -m uvicorn tempo_service.app:app --host 127.0.0.1 --port 8765
 ```
 
-Checklist: `GET /health` → ok; `POST /sync` → diff counts; no sign-in
-step — every route is public on localhost (identity removed).
+Checklist:
+- `GET /health` shows `backend: {reachable: true, gpu: true, tunnel: "up", signature: "…"}`.
+- `POST /sync` returns diff counts.
+- There is no sign-in step: every route is public on localhost (identity removed).
+- WSL2 forwards its localhost ports to Windows by default. If `tunnel` stays
+  `starting`, check `wsl brev ls` and the sidecar log (`brev:` lines).
 
-## 5. Engine on Brev (L4)
+## 4. Engine on Brev (L4)
 
 **One-time setup:**
 1. In the Brev console (https://brev.nvidia.com), create a VM-mode instance.
@@ -105,19 +118,7 @@ python -m tempo_engine.app        # http://127.0.0.1:8900
 3. `docker compose restart` mid-index. The job must resume from the stage
    cache: finished stages are logged as `cache hit`.
 
-## 6. Storage step-up (only when leaving manual copy)
-
-Day-zero needs nothing (Modal Volumes are in-stack). For presigned uploads:
-
-1. B2 bucket `tempo`, application key (read/write that bucket only).
-2. Sidecar env: `TEMPO_STORAGE_PROVIDER=s3`,
-   `TEMPO_STORAGE_ENDPOINT=https://s3.<region>.backblazeb2.com`,
-   `TEMPO_STORAGE_BUCKET=tempo`, `TEMPO_STORAGE_KEY/Secret` (env only).
-3. Sync a new footage → `upload` stage shows real bytes; after `done`,
-   the raw key is purged (`storage_retention=delete`, locked).
-4. R2 later = endpoint + credentials swap, no code changes.
-
-## 7. Panel install (per machine)
+## 5. Panel install (per machine)
 
 ```powershell
 Copy-Item -Recurse -Force .\panel "$env:APPDATA\Adobe\CEP\extensions\Tempo"
@@ -129,17 +130,21 @@ AE → `Window > Extensions > Tempo`. DevTools at `http://localhost:8088`
 → inspect under Tempo. The debug box (`debug (copy-paste)`) carries
 pinned boot lines (`panel=dbgN`, bridge/host/JSON probes, loader state).
 
-## 8. End-to-end test (fresh project)
+## 6. End-to-end test (fresh project)
 
-1. Import 1 mp4 → panel `Sync now` → `+1 ~0 -0 =0`, job runs 10 stages
-   with real `done/total` → footage row `ready · N shots`.
-2. Search → skeleton (≥200ms) → cards with thumbs, timecode, transcript/caption.
-3. Click a card (or Insert shot) → layer trimmed `[start_s,end_s]` at playhead, viewer on
+1. Import one mp4, then press `Sync now` in the panel.
+   - The sync report reads `+1 ~0 -0 =0`.
+   - The job shows `upload` (bytes) and then the engine stages, each with real `done/total`.
+   - The footage row ends at `ready · N shots`.
+2. Reuse check: re-import the same file from another folder (or open it in another
+   project). The row goes straight to `ready · reused index`, with no upload and no stages.
+3. Search → skeleton (≥200ms) → cards with thumbs, timecode, transcript/caption.
+4. Click a card (or Insert shot) → layer trimmed `[start_s,end_s]` at playhead, viewer on
    first frame, selected, one Ctrl+Z removes all.
-4. Quota: import a 2nd file on free → `403 QUOTA_EXCEEDED` inline;
+5. Quota: import a 2nd file on free → `403 QUOTA_EXCEEDED` inline;
    unchanged re-sync still passes; Retry/Resume recover failures.
 
-## 9. Release (see docs/release.md for the full gate list)
+## 7. Release (see docs/release.md for the full gate list)
 
 Version map in one commit (`pyproject` ↔ manifest ↔ panel `?v=` +
 `PANEL_VERSION`) → all gates green → smoke on
@@ -149,14 +154,15 @@ cert expiry (expired cert = silently dead panel).
 
 ## Troubleshooting (all observed in testing)
 
-| `modal stage needs X ... (import failed: ...)` | Image missing a dep or system lib | Suffix names the root cause (often a `.so` — add the apt lib to `modal_app.py`); redeploy |
-| `did not match any variant ... at line N` | Version gap: pinned tokenizers 0.19.1 rejects current `tokenizer.json` (proven: 0.23.2 parses + encodes it; file byte-valid) | Fixed in code (`use_fast=False`, `99a07ec`); purge-on-serde remains for genuine corruption — just Retry |
 | Symptom | Cause | Fix |
 |---|---|---|
+| `tunnel: down`, `BACKEND_UNREACHABLE` | Instance stopped, brev CLI logged out, or WSL not running | `wsl brev ls` → `brev start tempo-l4-instance`; the sidecar reconnects on its own (backoff) |
+| `BACKEND_ASLEEP` on search | Engine restarting, or query models still warming (`/v1/health` `query_models: loading`) | Wait; search resumes once `ready` |
+| `upload rejected: CONTENT_MISMATCH` | File changed while uploading | Let the sync confirm the new size/mtime, then Retry |
+| `SOURCE_MISSING` | Raw purged and a source stage must rerun (engine signature change) | Retry — the sidecar uploads again automatically |
+| `prefetch --verify` fails on the instance | CUDA/driver or pinned-stack mismatch | Read the traceback via `brev exec tempo-l4-instance "cd ~/workspace/tempo-src/engine/deploy && docker compose logs --tail 200"` |
 | `sync +0`, `evalScript raw len=0` | CEP skipped ScriptPath eval | Loader self-heals (watch `loader:` lines); else reinstall + full AE quit |
 | `Expected: )` running host scripts | Regex literal in ES3 | No regex in `host.jsx` (ESLint gate enforces) |
-| `footage not on Drive/storage` | Bytes never uploaded | Copy to the exact key, or configure storage + Retry |
 | `403 QUOTA_EXCEEDED` | Free tier: 1 footage / 7 min | Prune project or upgrade plan |
-| `BACKEND_ASLEEP/TIMEOUT` | Workers cold/slow | Wait + poll; warm pool before launch pricing |
 | Old UI after update | CEF cache | `?v=` bump (in map) + full AE quit |
-| `MODEL_NOT_LOADED` 503 | No cached text model | Local path needs weights; backend path needs warm pool |
+| `MODEL_NOT_LOADED` | Query model load failed on the engine | Engine logs; rerun `prefetch --verify` |

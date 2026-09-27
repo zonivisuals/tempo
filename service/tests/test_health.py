@@ -11,5 +11,6 @@ def test_health_ok():
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert isinstance(body["models_loaded"], dict)
+    assert body["backend"]["tunnel"] == "off"  # no Brev instance configured
+    assert "models_loaded" not in body  # the sidecar holds no models (ADR-0008)
     assert isinstance(body["artifact_root"], str)

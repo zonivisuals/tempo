@@ -48,8 +48,8 @@ def test_job_and_footage_contracts():
     assert job.stages[0].done == 37
     footage = FootageInfo(footage_key="a1", path="C:\\v\\a.mp4", state="ready")
     assert footage.shot_count == 0
-    health = HealthResponse(status="ok", models_loaded={}, artifact_root="./artifacts")
-    assert health.status == "ok"
+    health = HealthResponse(status="ok", artifact_root="./artifacts")
+    assert health.backend.tunnel == "off" and health.backend.signature == ""
     err = ErrorEnvelope(error={"code": "MODEL_NOT_LOADED", "message": "text model not loaded"})
     assert err.error.code == "MODEL_NOT_LOADED"
 
@@ -61,21 +61,25 @@ def test_search_result_contract():
         results=[
             {
                 "footage_key": "a1",
+                "content_id": "0123456789abcdef",
                 "shot_id": 0,
+                "scene_id": 0,
                 "source_path": "C:\\v\\a.mp4",
                 "start_s": 1.0,
                 "end_s": 2.0,
                 "score": 0.5,
-                "winning_key": "caption",
-                "raw_cos": {"visual": 0.1, "dialogue": 0.2, "caption": 0.3},
-                "contributions": {"dense": 0.2, "bm25": 0.2, "anchor": 0.0, "entity_boost": 0.0},
+                "contributions": {"visual": 0.2, "dialogue": 0.1, "caption": 0.1, "bm25": 0.1,
+                                  "entity": 0.0, "anchor": 0.0},
+                "raw_cos": {"visual": 0.1, "dialogue": None, "caption": 0.3},
                 "transcript": "t",
                 "caption": "c",
                 "entities": [],
             }
         ],
     )
-    assert res.results[0].winning_key == "caption"
+    r = res.results[0]
+    assert r.raw_cos.dialogue is None  # shot without a dialogue vector
+    assert abs(sum(r.contributions.model_dump().values()) - r.score) < 1e-9
 
 
 def test_panel_insert_payload_matches_contract():

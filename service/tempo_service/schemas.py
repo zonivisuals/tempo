@@ -49,9 +49,10 @@ class StageStatus(BaseModel):
 class JobStatus(BaseModel):
     job_id: str
     footage_key: str
-    state: Literal["uploading", "queued-for-backend", "queued", "running", "done", "error", "cancelled"] = (
+    state: Literal["queued", "uploading", "queued-for-backend", "running", "done", "error", "cancelled"] = (
         "queued"
     )
+    reused: bool = False
     stages: list[StageStatus] = Field(default_factory=list)
     error: str | None = None
 
@@ -59,61 +60,68 @@ class JobStatus(BaseModel):
 class FootageInfo(BaseModel):
     footage_key: str
     path: str
-    drive_path: str = ""
+    content_id: str = ""
     shot_count: int = 0
     duration_s: float = 0.0
     indexed_at: str | None = None
     state: Literal["uploading", "indexing", "ready", "stale", "error"] = "indexing"
+    reused: bool = False
 
 
 class RawCos(BaseModel):
     visual: float = 0.0
-    dialogue: float = 0.0
+    dialogue: float | None = None  # None: the shot has no dialogue vector
     caption: float = 0.0
 
 
 class Contributions(BaseModel):
-    dense: float = 0.0
+    """Weighted v4 fusion components (ADR-0009); they sum to `score`."""
+
+    visual: float = 0.0
+    dialogue: float = 0.0
+    caption: float = 0.0
     bm25: float = 0.0
+    entity: float = 0.0
     anchor: float = 0.0
-    entity_boost: float = 0.0
 
 
 class SearchResult(BaseModel):
     footage_key: str
+    content_id: str
     shot_id: int
+    scene_id: int = 0
     source_path: str
     start_s: float
     end_s: float
     score: float
-    winning_key: str
-    raw_cos: RawCos = Field(default_factory=RawCos)
     contributions: Contributions = Field(default_factory=Contributions)
+    raw_cos: RawCos = Field(default_factory=RawCos)
     transcript: str = ""
+    dialogue: str = ""
     caption: str = ""
+    ocr: str = ""
     entities: list[str] = Field(default_factory=list)
+    emotions: list[str] = Field(default_factory=list)
 
 
 class SearchResponse(BaseModel):
     query: str
     took_ms: int
+    entities: list[str] = Field(default_factory=list)
     results: list[SearchResult] = Field(default_factory=list)
 
 
 class BackendStatus(BaseModel):
     reachable: bool = False
     gpu: bool = False
+    tunnel: Literal["off", "starting", "up", "down"] = "off"
+    signature: str = ""
 
 
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
-    models_loaded: dict[str, bool] = Field(default_factory=dict)
     artifact_root: str
     backend: BackendStatus = Field(default_factory=BackendStatus)
-
-
-class DriveAuthRequest(BaseModel):
-    code: str = ""
 
 
 class JobRetryResponse(BaseModel):

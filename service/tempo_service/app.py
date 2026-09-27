@@ -1,210 +1,148 @@
 """FastAPI wiring (AGENTS.md §2.2, §3.1).
 
-Lifespan wires the registry/worker only — model weights are loaded lazily
-per pipeline stage (AGENTS.md D8: single 8–12GB GPU cannot hold all
-weights resident) and reported via /health `models_loaded`.
+The sidecar holds no model weights and no scoring (ADR-0008): indexing and
+search run on the engine. Lifespan wires the handoff worker, the Brev
+port-forward supervisor (when an instance is configured) and a background
+engine prober whose cache serves /health instantly and feeds the engine's
+stage names to new jobs.
 """
 
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, cast
 
 from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
-from . import drive as drive_module
 from . import jobs as jobs_module
 from . import registry as registry_module
-from . import search as search_module
-from .backends import get_provider
+from .backends import ASLEEP, TIMEOUT, get_provider
 from .config import settings
-from .indexer.models import MODELS_LOADED as models_loaded
 from .schemas import (
     BackendStatus,
-    Contributions,
-    DriveAuthRequest,
     ErrorBody,
     ErrorEnvelope,
     FootageInfo,
     HealthResponse,
     JobRetryResponse,
     JobStatus,
-    RawCos,
     SearchResponse,
     SearchResult,
     SyncRequest,
     SyncResponse,
 )
+from .tunnel import Tunnel
 
 log = logging.getLogger("tempo")
 logging.basicConfig(level=settings.log_level)
 
-
-def _ms(t0: float) -> int:
-    import time
-
-    return int((time.perf_counter() - t0) * 1000)
+KEY_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+THUMB_CACHE = "public, max-age=86400"
 
 
-def _require_cached(repo_id: str) -> None:
-    """Raise OSError unless the model weights are already on disk.
-
-    `local_files_only` performs a pure cache probe — no network, never a
-    download. /search must never trigger model downloads (§3.4).
-    """
-    from huggingface_hub import snapshot_download
-
-    snapshot_download(repo_id=repo_id, local_files_only=True)
+def _error(status: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(status_code=status,
+                        content=ErrorEnvelope(error=ErrorBody(code=code, message=message)).model_dump())
 
 
-def _query_text_model():  # type: ignore[no-untyped-def]
-    """CLIP text encoder from local cache only; raises OSError when absent."""
-    import torch
-    from transformers import CLIPProcessor, CLIPTextModelWithProjection
-
-    from .indexer.models import load
-
-    _require_cached(settings.clip_model_name)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    def factory():  # type: ignore[no-untyped-def]
-        text_model = CLIPTextModelWithProjection.from_pretrained(settings.clip_model_name)
-        text_model.to(device)  # type: ignore[arg-type]  # stubs mistype Module.to
-        text_model.eval()
-        return (
-            text_model,
-            CLIPProcessor.from_pretrained(settings.clip_model_name),
-            device,
-        )
-
-    return cast("tuple[Any, Any, str]", load("clip_text", factory))
+def _backend_error(code: str | None, what: str) -> JSONResponse:
+    return _error(504 if code == TIMEOUT else 502, code or "BACKEND_UNREACHABLE", what)
 
 
-def _query_entities_cached(query: str) -> list[str]:
-    """Query entities via the shared extractor; [] when NER isn't cached.
-
-    Unlike the text model (503), a missing NER is honest degradation: the
-    anchor/entity contributions show 0.0 instead of blocking search.
-    """
-    from .indexer import ner as ner_module
-
-    try:
-        _require_cached(settings.ner_model_name)
-    except Exception as exc:
-        log.info("search without cached NER (%s); entities=[]", exc)
-        return []
-    try:
-        return ner_module.extract_entities(query)
-    except Exception as exc:
-        log.info("NER extract failed (%s); entities=[]", exc)
-        return []
-
-
-def _embed_query(model, processor, device: str, query: str):  # type: ignore[no-untyped-def]
-    import torch
-
-    inputs = processor(text=[query], return_tensors="pt", padding=True, truncation=True).to(
-        device
-    )
-    with torch.no_grad():
-        emb = model(**inputs).text_embeds
-    emb = emb / emb.norm(p=2, dim=-1, keepdim=True)
-    return emb.cpu().numpy().astype("float32")[0]
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Official FastAPI lifespan pattern: setup before yield, cleanup after.
-    # https://fastapi.tiangolo.com/advanced/events/
-    # Registry/worker wiring only — model weights stay lazy per stage (D8).
-    log.info(
-        "tempo startup: artifact_root=%s format_version=%d",
-        settings.artifact_root,
-        settings.format_version,
-    )
-    Path(settings.artifact_root).mkdir(parents=True, exist_ok=True)
-    from .proxy import register as register_proxy
-
-    register_proxy()  # backend handoff when configured, else local pipeline
-    _log_backend_line()
-    _start_backend_prober()
-    yield
-    log.info("tempo shutdown")
-
-
-_backend_status = {"reachable": False, "gpu": False, "checked_at": 0.0}
+_backend_status: dict = {"reachable": False, "gpu": False, "signature": "", "stages": [], "checked_at": 0.0}
 _backend_lock = threading.Lock()
 _prober_started = False
+_tunnel: Tunnel | None = None
 
 
-def _probe_backend_once():
-    """One synchronous backend probe. Returns (reachable, gpu). Never raises,
-    never logs tokens — the URL host is the most sensitive thing printed."""
+def _probe_backend_once() -> dict:
+    """One synchronous engine probe. Never raises, never logs tokens."""
     try:
-        provider = get_provider(
-            settings.backend, settings.backend_url, settings.backend_token,
-            settings.backend_health_timeout_s,
-        )
+        provider = get_provider(settings, settings.backend_health_timeout_s)
         if provider is None:
-            return False, False
-        probe = provider.health()
-        return bool(probe.get("reachable")), bool(probe.get("gpu", False))
+            return {"reachable": False, "gpu": False, "signature": "", "stages": []}
+        return provider.health()
     except Exception as exc:  # defensive: misconfig must not crash lifespan
-        log.warning("backend probe crashed (%s)", exc)
-        return False, False
+        log.warning("engine probe crashed (%s)", exc)
+        return {"reachable": False, "gpu": False, "signature": "", "stages": []}
 
 
-def _log_backend_line():
-    host = ""
-    try:
-        from urllib.parse import urlsplit
-
-        host = urlsplit(settings.backend_url).netloc or "(unset)"
-    except ValueError:
-        host = "(invalid)"
-    reachable, gpu = _probe_backend_once()
+def _refresh_backend_status() -> dict:
+    probe = _probe_backend_once()
     with _backend_lock:
-        _backend_status.update(
-            {"reachable": reachable, "gpu": gpu, "checked_at": time.monotonic()}
-        )
-    log.info(
-        "tempo backend: mode=%s url=%s reachable=%s gpu=%s",
-        settings.backend, host, reachable, gpu,
-    )
+        # Keep the last known stage list while the engine is unreachable.
+        stages = probe.get("stages") or _backend_status["stages"]
+        _backend_status.update({**probe, "stages": stages, "checked_at": time.monotonic()})
+        return dict(_backend_status)
 
 
-def _start_backend_prober():
-    """Background prober (daemon): refreshes the cached backend status every
-    interval and logs only on flips. GET /health then serves the cache
-    instantly instead of timing out against cold backends on every panel
-    poll — stale-while-revalidating."""
+def _job_stage_names() -> list[str]:
+    with _backend_lock:
+        return [jobs_module.UPLOAD_STAGE, *_backend_status["stages"]]
+
+
+def _tunnel_state() -> str:
+    return _tunnel.state if _tunnel is not None else "off"
+
+
+def _start_tunnel() -> None:
+    global _tunnel
+    if settings.brev_instance and _tunnel is None:
+        _tunnel = Tunnel(settings.brev_cli, settings.brev_instance, settings.tunnel_local_port,
+                         settings.tunnel_remote_port, settings.tunnel_backoff_min_s,
+                         settings.tunnel_backoff_max_s)
+        _tunnel.start()
+
+
+def _start_backend_prober() -> None:
+    """Background prober (daemon): refreshes the cached engine status every interval
+    and logs only on flips. GET /health serves the cache instantly — never a probe
+    per panel poll against a cold or stopped instance."""
     global _prober_started
     if _prober_started:
         return
     _prober_started = True
 
-    def loop():
-        last = (None, None)
+    def loop() -> None:
+        last = None
         while True:
             try:
-                time.sleep(settings.backend_health_interval_s)
-                reachable, gpu = _probe_backend_once()
-                with _backend_lock:
-                    _backend_status.update(
-                        {"reachable": reachable, "gpu": gpu,
-                         "checked_at": time.monotonic()}
-                    )
-                if (reachable, gpu) != last:
-                    log.info("tempo backend: reachable=%s gpu=%s", reachable, gpu)
-                    last = (reachable, gpu)
+                st = _refresh_backend_status()
+                flip = (st["reachable"], st["gpu"], st["signature"])
+                if flip != last:
+                    log.info("engine: reachable=%s gpu=%s signature=%s tunnel=%s",
+                             st["reachable"], st["gpu"], st["signature"] or "-", _tunnel_state())
+                    last = flip
             except Exception as exc:  # thread must never die
-                log.warning("backend prober error (%s)", exc)
+                log.warning("engine prober error (%s)", exc)
+            time.sleep(settings.backend_health_interval_s)
 
-    worker = threading.Thread(target=loop, daemon=True, name="tempo-backend-prober")
-    worker.start()
+    threading.Thread(target=loop, daemon=True, name="tempo-backend-prober").start()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
+    # Official FastAPI lifespan pattern: setup before yield, cleanup after.
+    # https://fastapi.tiangolo.com/advanced/events/
+    from urllib.parse import urlsplit
+
+    log.info("tempo startup: artifact_root=%s format_version=%d engine=%s brev=%s",
+             settings.artifact_root, settings.format_version,
+             urlsplit(settings.engine_url).netloc or "(unset)", settings.brev_instance or "-")
+    Path(settings.artifact_root).mkdir(parents=True, exist_ok=True)
+    from .proxy import register as register_proxy
+
+    register_proxy()
+    jobs_module.jobs.set_stage_source(_job_stage_names)
+    _start_tunnel()
+    _start_backend_prober()
+    yield
+    if _tunnel is not None:
+        _tunnel.stop()
+    log.info("tempo shutdown")
 
 
 def create_app() -> FastAPI:
@@ -215,38 +153,17 @@ def create_app() -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
-        # Cached backend status (background prober); a synchronous probe only
-        # runs when the cache never populated (first boot before lifespan).
+        # Cached engine status (background prober); a synchronous probe only
+        # runs when the cache never populated (first request before lifespan).
         with _backend_lock:
             cached = dict(_backend_status)
         if cached["checked_at"] <= 0:
-            reachable, gpu = _probe_backend_once()
-            with _backend_lock:
-                _backend_status.update(
-                    {"reachable": reachable, "gpu": gpu,
-                     "checked_at": time.monotonic()}
-                )
-            cached = dict(_backend_status)
+            cached = _refresh_backend_status()
         return HealthResponse(
             status="ok",
-            models_loaded=dict(models_loaded),
             artifact_root=str(settings.artifact_root),
-            backend=BackendStatus(reachable=cached["reachable"], gpu=cached["gpu"]),
-        )
-
-    @app.post("/drive-auth")
-    def drive_auth(body: DriveAuthRequest):  # type: ignore[no-untyped-def]
-        # OAuth bootstrap lands with the storage provider upload flow (P2).
-        # Honest stub — never a silent stall (re-auth hint).
-        log.info("drive-auth requested (code len=%d)", len(body.code))
-        return JSONResponse(
-            status_code=501,
-            content=ErrorEnvelope(
-                error=ErrorBody(
-                    code="DRIVE_NOT_CONFIGURED",
-                    message="Direct upload not configured yet; copy to storage manually",
-                )
-            ).model_dump(),
+            backend=BackendStatus(reachable=cached["reachable"], gpu=cached["gpu"],
+                                  tunnel=_tunnel_state(), signature=cached["signature"]),
         )
 
     @app.post("/sync", response_model=SyncResponse)
@@ -292,21 +209,17 @@ def create_app() -> FastAPI:
         for key in result["added"] + result["changed"]:
             live = jobs_module.jobs.active_job_for(key)
             job_ids.append(live if live is not None else jobs_module.jobs.enqueue(key))
-        provider = get_provider(
-            settings.backend, settings.backend_url, settings.backend_token,
-            settings.backend_timeout_s,
-        )
         log.info(
-            "sync: +%d ~%d -%d =%d jobs=%d job_ids=%s uploads_pending=%s",
+            "sync: +%d ~%d -%d =%d jobs=%d job_ids=%s",
             len(result["added"]),
             len(result["changed"]),
             len(result["removed"]),
             len(result["unchanged"]),
             len(job_ids),
             job_ids,
-            bool(provider),
         )
-        uploads = list(job_ids) if provider else []
+        # Every job hands off to the engine (upload unless its content is already there).
+        uploads = list(job_ids)
         return SyncResponse(
             added=result["added"],
             changed=result["changed"],
@@ -471,19 +384,17 @@ def create_app() -> FastAPI:
             len(registry),
             [(k, v.get("state"), v.get("path", "")[:80]) for k, v in list(registry.items())[:10]],
         )
-        # Stable order: registry insertion order (search matrices rely on it).
+        # Stable order: registry insertion order.
         return [
             FootageInfo(
                 footage_key=key,
                 path=entry.get("path", ""),
-                drive_path=entry.get(
-                    "drive_path",
-                    drive_module.drive_path_for(key, entry.get("path", "")),
-                ),
+                content_id=entry.get("content_id", ""),
                 shot_count=entry.get("shot_count", 0),
                 duration_s=entry.get("duration_s", 0.0),
                 indexed_at=entry.get("indexed_at"),
                 state=entry.get("state", "indexing"),
+                reused=bool(entry.get("reused", False)),
             )
             for key, entry in registry.items()
         ]
@@ -494,181 +405,68 @@ def create_app() -> FastAPI:
         top_k: int = Query(default=8, ge=1, le=50),
         footage_keys: str | None = Query(default=None),
     ) -> SearchResponse:
-        import time
-
         t0 = time.perf_counter()
-        provider = get_provider(
-            settings.backend, settings.backend_url, settings.backend_token,
-            settings.backend_timeout_s,
-        )
-        log.info("search: q=%r top_k=%d footage_keys=%r backend=%s", q, top_k, footage_keys,
-                 bool(provider))
-        if provider:
-            ok, status, body, code = provider.search(q, top_k, footage_keys)
-            if ok and body is not None:
-                try:
-                    resp = SearchResponse(**body)
-                except Exception as exc:
-                    log.warning("search: backend body invalid (%s) body=%r", exc, str(body)[:500])
-                    raise
-                # The backend never knows the editor's local disk path (it indexes
-                # storage copies) — the registry is the path authority. Backfill
-                # empty source_path so result-click can locate/import (F5);
-                # scoring/ordering untouched (backend remains authoritative).
-                _reg = registry_module.load_registry()
-                _filled = 0
-                for _r in resp.results:
-                    if not _r.source_path:
-                        _p = _reg.get(_r.footage_key, {}).get("path", "")
-                        if _p:
-                            _r.source_path = _p
-                            _filled += 1
-                if _filled:
-                    log.info("search: backfilled source_path for %d results", _filled)
-                log.info("search: backend ok results=%d took_ms=%s", len(resp.results), body.get("took_ms"))
-                return resp
-            err_status = 504 if code == "BACKEND_TIMEOUT" else 502
-            log.info("search: backend fail code=%s status=%s", code, status)
-            return JSONResponse(  # type: ignore[return-value]
-                status_code=err_status,
-                content=ErrorEnvelope(
-                    error=ErrorBody(code=code or "BACKEND_UNREACHABLE", message="backend search failed")
-                ).model_dump(),
-            )
         registry = registry_module.load_registry()
-        keys = footage_keys.split(",") if footage_keys else None
-        corpus = search_module.load_corpus(
-            settings.artifact_root, registry, keys, q.lower().split()
-        )
-        shots = corpus["shots"]
-        if not shots:
-            return SearchResponse(query=q, took_ms=_ms(t0), results=[])
-
-        try:
-            model, processor, device = _query_text_model()
-        except Exception as exc:
-            log.warning("search without cached text model (%s)", exc)
-            return JSONResponse(  # type: ignore[return-value]
-                status_code=503,
-                content=ErrorEnvelope(
-                    error=ErrorBody(code="MODEL_NOT_LOADED", message="text model not loaded")
-                ).model_dump(),
-            )
-        query_entities = _query_entities_cached(q)
-        q_emb = _embed_query(model, processor, device, q)
-
-        out = search_module.score_query(
-            q_emb,
-            corpus["visual"],
-            corpus["dialogue"],
-            corpus["caption"],
-            corpus["bm25_raw"],
-            query_entities,
-            [s["entities"] for s in shots],
-            [s["text_context"] for s in shots],
-            settings.dense_w,
-            settings.bm25_w,
-            settings.anchor_w,
-            settings.entity_boost,
-        )
-        top = __import__("numpy").argsort(-out["final"], kind="stable")[:top_k]
+        wanted = set(footage_keys.split(",")) if footage_keys else None
+        # content id -> first ready footage (registry order) holding those bytes: the
+        # engine only knows content, the registry is the path authority (F5 insert).
+        owners: dict[str, tuple[str, str]] = {}
+        for key, entry in registry.items():
+            cid = entry.get("content_id")
+            if entry.get("state") == "ready" and cid and (wanted is None or key in wanted):
+                owners.setdefault(cid, (key, entry.get("path", "")))
+        log.info("search: q=%r top_k=%d footage_keys=%r contents=%d", q, top_k, footage_keys, len(owners))
+        if not owners:
+            return SearchResponse(query=q, took_ms=int((time.perf_counter() - t0) * 1000))
+        provider = get_provider(settings)
+        if provider is None:
+            return _backend_error(None, "engine not configured")  # type: ignore[return-value]
+        reply = provider.search(q, top_k, list(owners))
+        if not reply.ok:
+            log.info("search: engine fail code=%s status=%s %s", reply.code, reply.status, reply.message)
+            return _backend_error(reply.transport_code, "engine search failed")  # type: ignore[return-value]
         results = []
-        for idx in top:
-            s = shots[int(idx)]
-            wk = search_module.KEY_NAMES[int(out["winner"][idx])]
-            results.append(
-                SearchResult(
-                    footage_key=s["footage_key"],
-                    shot_id=s["shot_id"],
-                    source_path=s["source_path"],
-                    start_s=s["start_s"],
-                    end_s=s["end_s"],
-                    score=float(out["final"][idx]),
-                    winning_key=wk,
-                    raw_cos=RawCos(
-                        visual=float(out["key_stack"][0, idx]),
-                        dialogue=float(out["key_stack"][1, idx]),
-                        caption=float(out["key_stack"][2, idx]),
-                    ),
-                    contributions=Contributions(
-                        dense=float(out["dense_c"][idx]),
-                        bm25=float(out["bm25_c"][idx]),
-                        anchor=float(out["anchor_c"][idx]),
-                        entity_boost=float(out["boost"][idx]),
-                    ),
-                    transcript=s["transcript"],
-                    caption=s["caption"],
-                    entities=s["entities"],
-                )
-            )
-        return SearchResponse(query=q, took_ms=_ms(t0), results=results)
+        for r in reply.body.get("results", []):
+            owner = owners.get(r.get("content_id", ""))
+            if owner is None:
+                continue
+            results.append(SearchResult(**{**r, "footage_key": owner[0], "source_path": owner[1]}))
+        log.info("search: results=%d engine_ms=%s", len(results), reply.body.get("took_ms"))
+        return SearchResponse(query=q, took_ms=int((time.perf_counter() - t0) * 1000),
+                              entities=reply.body.get("entities", []), results=results)
 
     @app.get("/thumb/{footage_key}/{shot_id}.jpg")
     def thumb(footage_key: str, shot_id: int):  # type: ignore[no-untyped-def]
-        import re
-
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", footage_key) or shot_id < 0:
-            return JSONResponse(
-                status_code=404,
-                content=ErrorEnvelope(
-                    error=ErrorBody(code="NOT_FOUND", message="unknown thumbnail")
-                ).model_dump(),
-            )
-        path = (
-            settings.artifact_root / "footage" / footage_key / "thumbs" / f"shot_{shot_id}.jpg"
-        )
+        not_found = _error(404, "NOT_FOUND", "unknown thumbnail")
+        if not KEY_RE.fullmatch(footage_key) or shot_id < 0:
+            return not_found
+        cid = registry_module.load_registry().get(footage_key, {}).get("content_id")
+        if not cid:
+            return not_found
+        path = registry_module.thumbs_dir(cid) / f"{shot_id}.jpg"
         if path.is_file():
-            # Thumbnails over HTTP (never file://) — avoids CEF file-access flags.
-            return FileResponse(
-                path,
-                media_type="image/jpeg",
-                headers={"Cache-Control": "public, max-age=86400"},
-            )
-        # Backend-indexed footage: thumbs live remotely until synced down.
-        # Proxy + cache locally so the panel stays instant after first hit.
-        provider = get_provider(
-            settings.backend, settings.backend_url, settings.backend_token,
-            settings.backend_timeout_s,
-        )
-        if provider:
-            from fastapi.responses import Response
-
-            ok, data, code = provider.thumb_bytes(footage_key, shot_id)
-            if ok and data:
-                try:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_bytes(data)
-                except OSError:
-                    pass
-                return Response(
-                    content=data,
-                    media_type="image/jpeg",
-                    headers={"Cache-Control": "public, max-age=86400"},
-                )
-            if code in ("BACKEND_ASLEEP", "BACKEND_TIMEOUT"):
-                err_status = 504 if code == "BACKEND_TIMEOUT" else 502
-                return JSONResponse(
-                    status_code=err_status,
-                    content=ErrorEnvelope(
-                        error=ErrorBody(code=code, message="backend thumb failed")
-                    ).model_dump(),
-                )
-        return JSONResponse(
-            status_code=404,
-            content=ErrorEnvelope(
-                error=ErrorBody(code="NOT_FOUND", message="unknown thumbnail")
-            ).model_dump(),
-        )
+            # Thumbnails over HTTP (never file://) — avoids CEF file-access flags (D6).
+            return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": THUMB_CACHE})
+        # Not synced down yet (sync failed or still running): fetch once, cache by content.
+        provider = get_provider(settings)
+        if provider is None:
+            return not_found
+        reply = provider.thumb_bytes(cid, shot_id)
+        if reply.ok and reply.body:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(reply.body)
+            except OSError:
+                pass
+            return Response(content=reply.body, media_type="image/jpeg", headers={"Cache-Control": THUMB_CACHE})
+        if reply.code in (ASLEEP, TIMEOUT):
+            return _backend_error(reply.code, "engine thumb failed")
+        return not_found
 
     @app.exception_handler(Exception)
     async def unhandled(request, exc: Exception):  # type: ignore[no-untyped-def]
         log.exception("unhandled error: %s", exc)
-        return JSONResponse(
-            status_code=500,
-            content=ErrorEnvelope(
-                error=ErrorBody(code="INTERNAL", message="internal error")
-            ).model_dump(),
-        )
+        return _error(500, "INTERNAL", "internal error")
 
     return app
 

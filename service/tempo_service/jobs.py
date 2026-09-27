@@ -1,13 +1,15 @@
 """Single-worker background job queue (AGENTS.md §3.2).
 
-Jobs run strictly sequentially in one daemon thread: GPU memory is finite
-(single 8–12GB baseline) and the pipeline stages each need the device.
-`POST /sync` may enqueue many; they process one by one.
+Jobs run strictly sequentially in one daemon thread: uploads share one link
+to the engine and the engine indexes one footage at a time. `POST /sync`
+may enqueue many; they process one by one.
 
-Each job carries the 9 pipeline stages with `{stage, done, total}` progress
-that mirrors real work only (AGENTS.md F4 — no fake timers). The actual
-stage runner is registered by the indexer (P3); without a handler, jobs
-wait in `queued` state instead of reporting fake progress.
+Each job carries `upload` + the engine's stages with `{stage, done, total}`
+progress that mirrors real work only (AGENTS.md F4 — no fake timers). Stage
+names are never duplicated here: they come from the engine's /v1/health
+(`set_stage_source`), and any stage the engine reports is mirrored as-is.
+The handoff (proxy.handle) registers as the handler; without one, jobs wait
+in `queued` state instead of reporting fake progress.
 """
 
 import logging
@@ -19,18 +21,7 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("tempo.jobs")
 
-STAGES = [
-    "upload",  # Drive leg (stage 0, §3.2): bytes visible on Drive before handoff
-    "shots",
-    "visual_embed",
-    "cluster",
-    "transcribe",
-    "ocr",
-    "captions",
-    "text_embed",
-    "ner",
-    "build_index",
-]
+UPLOAD_STAGE = "upload"  # stage 0 (§3.2): bytes sent to the engine, before its own stages
 
 # Handler signature: fn(job, progress) where
 # progress(stage_name, done, total) records real stage progress.
@@ -41,20 +32,27 @@ Handler = Callable[["Job", Callable[[str, int, int], None]], None]
 class Job:
     job_id: str
     footage_key: str
-    state: str = "queued"  # queued|running|done|error|cancelled (+queued-for-backend via proxy)
-    stages: dict[str, dict] = field(default_factory=dict)
+    # queued|uploading|queued-for-backend|running|done|error|cancelled
+    state: str = "queued"
+    stage_names: list[str] = field(default_factory=lambda: [UPLOAD_STAGE])
+    stages: dict[str, dict] = field(default_factory=dict)  # insertion order = display order
     error: str | None = None
+    reused: bool = False  # engine already held a ready index for this content
 
     def __post_init__(self) -> None:
-        for name in STAGES:
-            self.stages.setdefault(name, {"name": name, "state": "pending", "done": 0, "total": 0})
+        for name in self.stage_names:
+            self.ensure_stage(name)
+
+    def ensure_stage(self, name: str) -> dict:
+        return self.stages.setdefault(name, {"name": name, "state": "pending", "done": 0, "total": 0})
 
     def to_status(self) -> dict:
         return {
             "job_id": self.job_id,
             "footage_key": self.footage_key,
             "state": self.state,
-            "stages": [dict(self.stages[name]) for name in STAGES],
+            "reused": self.reused,
+            "stages": [dict(st) for st in self.stages.values()],
             "error": self.error,
         }
 
@@ -65,16 +63,21 @@ class JobManager:
         self._queue: queue.Queue[str] = queue.Queue()
         self._lock = threading.Lock()
         self._handler: Handler | None = None
+        self._stage_source: Callable[[], list[str]] = lambda: [UPLOAD_STAGE]
         self._worker = threading.Thread(target=self._run, daemon=True, name="tempo-jobs")
         self._worker.start()
 
     def register_handler(self, handler: Handler) -> None:
-        """Register the pipeline runner (P3 indexer). One handler only."""
+        """Register the handoff runner (proxy.handle). One handler only."""
         self._handler = handler
+
+    def set_stage_source(self, source: Callable[[], list[str]]) -> None:
+        """Stage names for new jobs (`upload` + the engine's stages, from its health)."""
+        self._stage_source = source
 
     def enqueue(self, footage_key: str) -> str:
         job_id = "job_" + uuid.uuid4().hex[:8]
-        job = Job(job_id=job_id, footage_key=footage_key)
+        job = Job(job_id=job_id, footage_key=footage_key, stage_names=self._stage_source())
         with self._lock:
             self._jobs[job_id] = job
         self._queue.put(job_id)
@@ -83,7 +86,7 @@ class JobManager:
 
     # States holding a claim on a footage key: a second enqueue for the same
     # key must reuse the live job, never mint a duplicate full pipeline run.
-    ACTIVE_STATES = ("queued", "running", "queued-for-backend")
+    ACTIVE_STATES = ("queued", "uploading", "running", "queued-for-backend")
 
     def active_job_for(self, footage_key: str) -> str | None:
         """Newest non-terminal job id for the key, or None. Guards the sync
@@ -122,9 +125,9 @@ class JobManager:
     def progress(self, job_id: str, stage: str, done: int, total: int) -> None:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or stage not in job.stages:
+            if job is None:
                 return
-            job.stages[stage] = {"name": stage, "state": "running", "done": done, "total": total}
+            job.ensure_stage(stage).update(state="running", done=int(done), total=int(total))
 
     def _set(self, job_id: str, **fields) -> None:  # type: ignore[no-untyped-def]
         with self._lock:
@@ -137,9 +140,9 @@ class JobManager:
     def _mark_stage(self, job_id: str, stage: str, state: str) -> None:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or stage not in job.stages:
+            if job is None:
                 return
-            entry = job.stages[stage]
+            entry = job.ensure_stage(stage)
             entry["state"] = state
             if state == "done" and entry["total"] and not entry["done"]:
                 entry["done"] = entry["total"]
@@ -164,7 +167,7 @@ class JobManager:
                     self.progress(job_id, stage, done, total)
 
                 self._handler(job, progress)
-                for name in STAGES:
+                for name in list(job.stages):
                     self._mark_stage(job_id, name, "done")
                 self._set(job_id, state="done")
                 log.info("job %s done", job_id)
@@ -173,9 +176,9 @@ class JobManager:
                 with self._lock:
                     job = self._jobs.get(job_id)
                     if job is not None:
-                        for name in STAGES:
-                            if job.stages[name]["state"] == "running":
-                                job.stages[name]["state"] = "error"
+                        for st in job.stages.values():
+                            if st["state"] == "running":
+                                st["state"] = "error"
                         job.state = "error"
                         job.error = str(exc)
             finally:
