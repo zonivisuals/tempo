@@ -1,6 +1,6 @@
 # 0006 — Storage providers, presigned uploads, raw retention
 
-**Status:** accepted. **Date:** 2026-09-22.
+**Status:** transport superseded by ADR-0008 (direct engine upload); retention kept. **Date:** 2026-09-22.
 
 ## Context
 

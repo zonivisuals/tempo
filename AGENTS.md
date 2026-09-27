@@ -4,7 +4,7 @@
 **Status:** v1 — ground truth for all implementation decisions.
 **Rule zero:** If something in this file conflicts with the official documentation listed in §10, the documentation wins, and this file must be updated — not silently worked around.
 
-**Build baselines (locked from scoping):** wide AE compat (only smoke-tested versions claimed), Modal-hosted pipeline behind the backend seam (Colab tunnel deleted — see D11; local indexer kept for offline dev), manual storage copy until presigned uploads land (D10 reshaped), MVP core F1–F5 (F6 minimal), Python 3.11+ pinned.
+**Build baselines (locked from scoping):** wide AE compat (only smoke-tested versions claimed), v4 pipeline + search on the Brev L4 engine behind the backend seam (D15; Modal + v3 deleted), sidecar reaches it over a supervised `brev port-forward`, direct resumable uploads into a content-addressed library (D16), MVP core F1–F5 (F6 minimal), Python 3.11+ pinned.
 
 ---
 
@@ -43,34 +43,53 @@ The user has long video files (interviews, vlogs, rushes, documentaries). Tempo 
 ```
 ┌──────────────────── After Effects (host: AEFT) ───────────────────┐
 │  CEP Panel (HTML/CSS/JS, modern JS is OK here)                    │
-│   - search input, result cards, score bars, skeletons             │
-│   - footage sync status, indexing progress, backend status row     │
+│   - search input, result cards, skeletons                         │
+│   - footage sync status, collapsible indexing progress, status row│
 │   - CSInterface.evalScript() ────► host.jsx (ExtendScript, ES3)   │
 └──────────────────────────────┬────────────────────────────────────┘
          │ fetch (http://127.0.0.1:<port>)
          ▼
-┌────────────────── Python Service (FastAPI, local only) ──────────┐
-│  - footage registry + diff, storage-key builder (presigned later) │
-│  - single-worker proxy queue: backend handoff → poll → thumb sync │
-│  - search proxy, local thumb cache, backend reachability          │
+┌────────────────── Sidecar (FastAPI, local only, no weights) ─────┐
+│  - footage registry + diff (path fingerprint → content_id)        │
+│  - single-worker handoff queue: library hit | upload → index →   │
+│    poll → thumbs.tar sync-down                                    │
+│  - search proxy, local thumb cache, brev port-forward supervisor  │
 └──────────────────────────────┬────────────────────────────────────┘
-         │ HTTPS (server-config URL + bearer token; never user input)
+         │ http://127.0.0.1:<tunnel> + bearer token (server config only)
+         │ brev port-forward tempo-l4-instance --port L:R
          ▼
-┌────────────────── Modal backend (GPU, scale-to-zero) ────────────┐
-│  modal_backend/ port of the notebook stages (provenance logged)   │
-│  - footage source: storage `tempo/<key>/<basename>`               │
-│  - per-stage checkpoints → Volume `checkpoints/<key>/`            │
-│  - search: same §3.5 fusion; serves thumbs until synced down      │
+┌────────────────── Engine (Brev L4, Docker Compose) ──────────────┐
+│  engine/tempo_engine — v4 pipeline port (provenance per module)   │
+│  - content-addressed library `library/<content_id>/`              │
+│  - per-stage cache (resume + partial rebuild), durable jobs       │
+│  - search: §3.5 v4 fusion, FAISS candidates, warm query models    │
+│  /data = /home/ubuntu/workspace/tempo (survives brev stop/start)  │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
 Why this split (decided, do not revisit without a written ADR):
-- **Pipeline on Modal, not local GPU (D11, supersedes D9):** the 9 stages need GPU RAM target machines don't have. `modal_backend/` is the deployable port (mechanical extraction, parity-tested); the notebook is the frozen behavioral reference; `search.py` + `modal_backend/scoring.py` share the golden-tested §3.5 contract. Local `indexer/` stays as the offline-dev fallback behind `backend="local"`.
-- **CEP panel, not UXP:** UXP is not the supported extensibility path in After Effects; CEP is. Premiere Pro 25.6 migrated to UXP (CEP+UXP dual-support for ~1 year, then CEP removal) — AE has no such announcement as of 2026-09, and CEP 12 Cookbook still lists AEFT 25.0. Track via ADR; revisit only if Adobe announces AE UXP.
-- **CEP panel, not a bare script / ScriptUI:** the product needs a real results UI (thumbnails, bars, skeletons) and a persistent docked surface.
-- **Not an AE SDK (C++) plugin:** nothing here needs the render pipeline. The project API (ExtendScript) covers everything; C++ is unjustified complexity.
-- **Panel cannot touch the project.** All project mutations go through `evalScript` into `host.jsx`. This is a CEP constraint, not a choice.
-- **Python stays a sidecar service** because the pipeline is PyTorch/FAISS/BM25. Bound to `127.0.0.1` only. The panel degrades gracefully when it's down.
+- **Pipeline + search on the Brev engine (D15, supersedes D11):** v4 holds
+  ~8 GB of GPU weights that target machines don't have. `engine/` is the
+  deployable port of `tempo_pipeline_v4.ipynb`, the frozen behavioral
+  reference; `engine/tempo_engine/search.py` owns the golden-tested §3.5
+  contract. Offline dev runs the same engine locally on CPU (notebook CPU
+  model defaults). There is one pipeline and no second scoring copy.
+- **CEP panel, not UXP:** UXP is not the supported extensibility path in
+  After Effects; CEP is. Premiere Pro 25.6 migrated to UXP (CEP+UXP
+  dual-support for ~1 year, then CEP removal). AE has no such announcement
+  as of 2026-09, and the CEP 12 Cookbook still lists AEFT 25.0. Track via
+  ADR; revisit only if Adobe announces AE UXP.
+- **CEP panel, not a bare script / ScriptUI:** the product needs a real
+  results UI (thumbnails, bars, skeletons) and a persistent docked surface.
+- **Not an AE SDK (C++) plugin:** nothing here needs the render pipeline.
+  The project API (ExtendScript) covers everything; C++ is unjustified
+  complexity.
+- **Panel cannot touch the project.** All project mutations go through
+  `evalScript` into `host.jsx`. This is a CEP constraint, not a choice.
+- **Python sidecar stays local and light:**
+  - It owns local paths, the registry, the thumb cache, and the tunnel. The
+    engine only ever sees content ids.
+  - It binds `127.0.0.1` only. The panel degrades gracefully when it's down.
 
 ### 2.2 Repository layout
 
@@ -79,33 +98,41 @@ tempo/
 ├── AGENTS.md                  # this file
 ├── PRODUCT.md                 # product vision + scope
 ├── docs/
-│   ├── api.md                 # full request/response schemas (source of truth)
+│   ├── api.md                 # sidecar request/response schemas (source of truth)
+│   ├── engine-api.md          # engine /v1 contract (sidecar ↔ engine)
 │   └── decisions/             # numbered ADRs for anything overriding §2.1
-├── service/
+├── service/                   # sidecar (fastapi + pydantic only)
 │   ├── pyproject.toml         # pinned deps, requires-python >=3.11
 │   ├── tempo_service/
-│   │   ├── app.py             # FastAPI wiring, lifespan (proxy registration)
+│   │   ├── app.py             # FastAPI wiring, lifespan (proxy, prober, tunnel)
 │   │   ├── config.py          # Settings (env / config file — no hardcoding)
-│   │   ├── registry.py        # footage registry, fingerprinting, diff (+drive_path)
-│   │   ├── jobs.py            # single-worker proxy queue (upload → handoff → poll)
-│   │   ├── drive.py           # storage-key builder (uploads land in P2)
-│   │   ├── backends/          # provider seam: base (ABC+errors), http, factory
-│   │   ├── search.py          # scoring exactly per §3.5 (pure) + corpus load
+│   │   ├── registry.py        # footage registry, fingerprinting, diff (+content_id)
+│   │   ├── fingerprint.py     # content_id (cross-checked against the engine copy)
+│   │   ├── jobs.py            # single-worker handoff queue
+│   │   ├── proxy.py           # handoff: library hit | upload → index → poll → thumbs
+│   │   ├── tunnel.py          # brev port-forward supervisor
+│   │   ├── backends/          # provider seam: base (ABC+errors), http client
 │   │   └── schemas.py         # pydantic request/response models
-│   └── tests/                 # contract, registry, golden, pipeline, perf tests
-│       └── test_search.py     # golden ordering + contributions (§3.5, §9)
-├── modal_backend/             # deployable pipeline port (provenance per file)
-│   ├── modal_app.py           # Modal deploy wiring (App, image, Volumes, Secret)
-│   ├── modal_api.py           # backend contract app (health/index/jobs/search/thumb)
-│   ├── pipeline.py            # stage orchestration + artifact persistence
-│   ├── scoring.py             # pure §3.5 fusion (parity-tested vs search.py)
-│   ├── _deps.py               # device probe, model names, _need() tripwire
-│   ├── singletons.py          # CLIP-text + NER singletons (cell b25be17b)
-│   ├── shots_visual.py        # Tier 0 shots/embeds/cluster (cell af283162)
-│   ├── audio_ocr.py           # Tier 1 whisper/OCR/align (cell 6fd10aa2)
-│   ├── ner.py                 # shared entity extractor (cell cfba7b76)
-│   ├── enrich.py              # Tier 2 captions/NER/embeds (cell 4b9c917c)
-│   └── indices.py             # FAISS + BM25 build (cell 8241b95a, no UMAP)
+│   └── tests/                 # contract, registry, sync, handoff, tunnel tests
+├── engine/                    # GPU engine (Brev L4; CPU for offline dev)
+│   ├── pyproject.toml         # pinned core deps + [ml] extra (torch & models)
+│   ├── deploy/                # Dockerfile, compose.yaml, .env.example, brev-deploy.sh
+│   ├── tempo_engine/
+│   │   ├── app.py             # /v1 routes, bearer auth, lifespan (worker, warm-up)
+│   │   ├── config.py          # EngineSettings + config_signature()
+│   │   ├── models.py          # lazy locked singletons, device probe
+│   │   ├── cache.py           # per-stage cache (notebook Cache)
+│   │   ├── fingerprint.py     # content_id
+│   │   ├── textproc.py        # tokenizer, NER cleanup, windows, query entities
+│   │   ├── stages/            # shots, visual, speech, ocr, captions, text
+│   │   ├── pipeline.py        # STAGES + build() orchestration
+│   │   ├── index.py           # TempoIndex save/load + display thumbs
+│   │   ├── search.py          # pure v4 fusion + FAISS candidate path (§3.5)
+│   │   ├── corpus.py          # merged corpus LRU (FAISS, BM25, Gram stats)
+│   │   ├── library.py         # content-addressed store + resumable uploads
+│   │   ├── jobs.py            # single GPU worker, durable envelopes
+│   │   └── prefetch.py        # weights → HF_HOME on the data volume
+│   └── tests/                 # golden, parity, textproc, library, contract tests
 ├── panel/                     # CEP extension root (this folder is installed)
 │   ├── CSXS/
 │   │   ├── CSInterface.js     # vendored v12.0.0 (Adobe-CEP/CEP-Resources)
@@ -120,10 +147,8 @@ tempo/
 │       ├── api.js             # single service-communication module
 │       ├── panel.css
 │       └── panel.js           # store + render(), polling, skeletons
-└── notebook/
-    └── tempo_pipeline_v3.ipynb  # reference implementation (research artifact,
-                                 # NOT imported by the service — the service
-                                 # re-implements it cleanly)
+└── tempo_pipeline_v4.ipynb    # behavioral reference (gitignored research
+                               # artifact, NEVER imported — engine ports it)
 ```
 
 ### 2.3 Cross-runtime contract rule
@@ -136,154 +161,239 @@ Panel JS (modern, Chromium) and host.jsx (ES3) are different worlds. The only ch
 
 ---
 
-## 3. Python search service
+## 3. Sidecar service and engine
 
 ### 3.1 Responsibilities
 
-Owns: footage registry, storage-key builder, backend proxy queue, search proxy,
-local thumb cache, backend reachability.
-Does NOT own: the pipeline itself (Modal backend, D11), anything about
-the AE project, the panel UI, undo semantics.
+**Sidecar** owns:
+- the footage registry and the path → content_id mapping
+- the handoff queue
+- the search proxy and the local thumb cache
+- the tunnel and backend reachability
+
+It does NOT own the pipeline, scoring, model weights, anything about the AE
+project, the panel UI, or undo semantics.
+
+**Engine** owns:
+- the v4 pipeline
+- the content-addressed library and stage cache
+- uploads and indexing jobs
+- search with fusion scoring
+
+It never sees local paths.
 
 ### 3.2 Indexing pipeline (stages)
 
 One footage = one job = these stages, in order, each reporting progress.
-Stages 1–9 run **on the backend** (`modal_backend/` port, D11); stage 0
-(upload) runs locally. Progress for every stage is polled at 500 ms and
-rendered by the panel (§5, F4).
+- Stage 0 (`upload`) streams from the sidecar.
+- Stages 1–7 run on the engine. The sidecar never duplicates their names;
+  it takes them from engine `/v1/health`.
+- Progress is polled at 500 ms and rendered by the panel (§5, F4).
 
-| 0 | `upload` | bytes sent | — (storage provider stream, real progress; manual copy when unconfigured) |
-| # | Stage | Progress unit | Model |
+| # | Stage | Progress unit | Model / tool (GPU default · CPU default) |
 |---|-------|---------------|-------|
-| 1 | `shots` | frames sampled | — (OpenCV + scenedetect AdaptiveDetector) |
-| 2 | `visual_embed` | batches of 32 | CLIP ViT-L/14 (image) |
-| 3 | `cluster` | — | KMeans, k by silhouette, 2 reps/cluster |
-| 4 | `transcribe` | — | faster-whisper large-v3, word timestamps |
-| 5 | `ocr` | frames | EasyOCR (edge-density prefilter) |
-| 6 | `captions` | cluster reps | BLIP-2 (see caption rules below) |
-| 7 | `text_embed` | — | CLIP text (dialogue + caption keys) |
-| 8 | `ner` | shots | dslim/bert-base-NER via `_extract_entities` |
-| 9 | `build_index` | — | BM25 corpus; matrices saved |
+| 0 | `upload` | bytes sent | resumable chunked PUT, offset-checked |
+| 1 | `shots` | frames scanned | scenedetect AdaptiveDetector; takes split at `max_shot_sec` (8 s); 3 frames/shot, sharpest = keyframe |
+| 2 | `visual` | frames embedded | SigLIP 2 so400m-384 · base-256, mean of 3 frames |
+| 3 | `transcribe` | audio seconds | faster-whisper large-v3 · small, VAD, English translation pass |
+| 4 | `ocr` | keyframes | EasyOCR, full frame, edge + confidence filters |
+| 5 | `captions` | cluster reps | Florence-2 large · base, `<DETAILED_CAPTION>` on KMeans medoids |
+| 6 | `text` | steps | dslim/bert-base-NER, emotion classifier, bge-base-en-v1.5 embeds |
+| 7 | `index` | thumbs written | index.json/npz + display thumbs |
 
 Rules:
-- **Job queue is single-worker (proxy).** Uploads and backend handoffs run strictly sequentially. `POST /sync` may enqueue many; they process one by one. Backend asleep at handoff → job waits in `queued-for-backend` (retried each poll), never failed.
-- **Backend checkpoints per stage to its Volume** (`checkpoints/<key>/`) so preemption resumes instead of restarting. Progress must reflect real work — no fake timers, ever.
-- **Caption rules (locked decisions from the research pass):** canonical prompt `Question: Describe this image. Answer:`; no transcript/OCR hint (it made OPT continue the transcript instead of describing the image); `max_new_tokens=40`, `repetition_penalty=1.25`, `no_repeat_ngram_size=3`; post-clean: strip the `Question…Answer:` scaffold, collapse consecutive duplicate sentences, cap at 3 sentences (CLIP's 77-token encoder truncates anyway). Only cluster reps are captioned; all other shots inherit the nearest rep's caption (L2 on visual embeddings). Consequence (accepted): shots sharing an inherited caption share an identical caption embedding and cannot be separated by that key.
-- **NER rules:** use the shared `_extract_entities` extractor on BOTH query and shot text: merge `##` subword fragments (`A`+`##kita`→`Akita`), drop 1-char and digit-only junk (a stored entity `"A"` once matched every shot containing the letter "a" through the anchor path — this class of bug is why junk filtering exists), dedupe case-insensitively. Do not re-introduce raw inline NER comprehensions.
+- **Queues are single-worker on both sides.**
+  - The sidecar runs uploads and handoffs strictly sequentially; the
+    engine runs one GPU job at a time (K3).
+  - `POST /sync` may enqueue many jobs; they process one by one.
+  - If the engine is unreachable at handoff, the job waits in
+    `queued-for-backend` and is retried each poll. It never fails.
+- **Stage cache.** Each stage is pickled under a hash of its inputs
+  (`library/<cid>/stages/`).
+  - A restart or `brev stop` mid-index resumes at the last finished stage.
+  - A config change reruns only the dependent stages.
+  - Progress must reflect real work — no fake timers, ever.
+- **Caption rules (v4, D4 superseded):**
+  - Florence-2 task `<DETAILED_CAPTION>`, `max_new_tokens=128`,
+    `num_beams=3`, no sampling. No transcript/OCR hint.
+  - Post-clean: strip tags, dedupe sentences, cap at 3 sentences.
+  - k = caption budget (120 GPU · 40 CPU). The rep is the medoid of each
+    KMeans cluster.
+  - Every shot takes its nearest rep's caption. That similarity is stored
+    as `caption_conf` and scales the caption key at search time (K2).
+- **NER rules (D5):**
+  - Use `aggregation_strategy="first"` plus span-based rebuild
+    (`A`+`##kita`→`Akita`). Drop entities under 2 chars, without letters,
+    or below `ner_min_score`.
+  - Keep video-level canonical casing.
+  - Query entities resolve against that vocabulary with typo tolerance.
+  - One extractor (`textproc.clean_entities`) serves query and shots. Do
+    not re-introduce raw inline NER comprehensions.
+- **Dialogue key:** English words in a ±`dialogue_pad_sec` window. Shots
+  under `min_dialogue_words` get no vector (`D_mask`), never a shared fake
+  one.
 
 ### 3.3 Footage registry & indexing consistency
 
-Purpose: "index every imported footage once, notice changes, forget removed ones" — without hashing gigabyte files.
+Purpose: "index every imported footage once, notice changes, forget removed ones" — without hashing gigabyte files, and without ever reindexing content the engine already holds.
 
 - **Fingerprint** = `(resolved_path, size_bytes, mtime_ns)`. Cheap, stable enough for this purpose. Resolved via `File.fsName` on the AE side (this also normalizes OS path casing/slashes).
-- **Registry** = one JSON file per artifact directory, mapping `footage_key → {fingerprint, artifact paths, format_version, stats}`. `footage_key` = deterministic short hash of the fingerprint's path component.
-- **Storage link:** each entry also stores `drive_path` = `tempo/<footage_key>/<basename>` — the deterministic key the backend imports from (uploads land in P2; manual copy until then). Same key + size already stored → bytes are skipped, straight to indexing.
-- **Sync flow:** panel asks host.jsx for the current project footage list (path + size + mtime + item id via `FootageItem.mainSource.file`), POSTs it to `POST /sync`; service diffs against the registry and returns: `added` (auto-enqueued for indexing), `changed` (re-enqueued), `removed` (marked stale), `unchanged` (skipped), `pending` (held — never enqueued, see below).
-- **Reopen-safe guards (a transient bad stat once queued duplicate full re-indexes, so all three are load-bearing):** (1) unreadable stats (`size <= 0` or `mtime_ns <= 0` — OneDrive placeholder, media resolving at AE reopen, missing file) are never a change: unknown keys sit in `pending` until readable, known keys keep their stored fingerprint; (2) size/mtime drift counts as `changed` only after repeating on `TEMPO_SYNC_CHANGE_CONFIRMATIONS` consecutive syncs (default 2) — format-version mismatches apply immediately (config-driven, never transient); (3) one active job per footage — sync/retry reuse the live job id, and `POST /jobs/{id}/cancel` drops not-yet-started jobs (running jobs can't be stopped mid-thread; completion stays valid).
-- **Removed footage:** artifacts are marked `stale`, not deleted. Pruning is explicit (panel button or config flag) because re-indexing is expensive and users often toggle imports. Default: manual prune.
-- **Format versioning:** every artifact set carries `format_version`. On mismatch (e.g. after a scoring/captioning change), the footage is treated as `changed` and re-indexed. Bump the constant whenever artifact layout or semantics change; note it in the decisions log.
+- **Registry** = one JSON file per artifact directory, mapping `footage_key → {fingerprint, content_id, format_version, stats}`. `footage_key` = deterministic short hash of the fingerprint's path component.
+- **Content id (D16):** `sha1(str(size) + first 4 MiB + last 4 MiB)[:16]`.
+  - Computed in the job handler, never in `/sync`.
+  - The engine library is keyed by it. A ready index under the current
+    signature is reused instantly: no upload, no GPU work. This covers a
+    move, rename, copy, another project, or an mtime-only touch.
+  - The sidecar and engine copies of the algorithm are pinned by a
+    cross-check test (§8).
+- **Sync flow:** the panel asks host.jsx for the current project footage
+  list (path + size + mtime + item id via `FootageItem.mainSource.file`)
+  and POSTs it to `POST /sync`. The service diffs against the registry and
+  returns:
+  - `added`: auto-enqueued
+  - `changed`: re-enqueued
+  - `removed`: marked stale
+  - `unchanged`: skipped
+  - `pending`: held, never enqueued (see below)
+- **Reopen-safe guards.** A transient bad stat once queued duplicate full
+  reindexes, so all three are load-bearing:
+  1. Unreadable stats (`size <= 0` or `mtime_ns <= 0` — OneDrive
+     placeholder, media resolving at AE reopen, missing file) are never a
+     change. Unknown keys sit in `pending` until readable; known keys keep
+     their stored fingerprint.
+  2. Size/mtime drift counts as `changed` only after repeating on
+     `TEMPO_SYNC_CHANGE_CONFIRMATIONS` consecutive syncs (default 2).
+     Format-version mismatches apply immediately (config-driven, never
+     transient).
+  3. One active job per footage. Sync and retry reuse the live job id, and
+     `POST /jobs/{id}/cancel` drops not-yet-started jobs. Running jobs
+     can't be stopped mid-thread; completion stays valid.
+- **Removed footage:** entries are marked `stale`, not deleted. The engine library is never pruned implicitly. Pruning is explicit because reindexing is expensive and users often toggle imports.
+- **Versioning — two levels:**
+  - The sidecar `format_version` (now 2) covers registry and artifact
+    semantics. A mismatch counts as `changed`, and the job still reuses the
+    engine index when the content matches.
+  - The engine `signature` (pipeline version, models, indexing parameters;
+    weights excluded) decides whether a library index is `ready` or
+    `stale`.
+  - Bump the right one whenever layout or semantics change, and note it in
+    the decisions log.
 
-### 3.4 HTTP API contract (v1)
+### 3.4 HTTP API contract (v2)
 
-All under `http://127.0.0.1:<port>` (default 8765, configurable). JSON only. Errors: non-2xx with `{"error": {"code": "...", "message": "..."}}`.
+Full schemas live in `docs/api.md` (sidecar, the source of truth) and `docs/engine-api.md` (engine /v1). Summary of the sidecar surface:
 
 ```
-GET  /health
-     → {"status":"ok","models_loaded":{...},"artifact_root":"...",
-        "backend":{"reachable":true,"gpu":true}}
-
-POST /drive-auth
-     body: {"code":"<oauth code>"}
-     → {"ok":true}  (one-time consent; token cached outside the repo)
-
-POST /sync
-     body: {"footages":[{"path":"C:\\...\\a.mp4","size":123,"mtime_ns":456,
-                          "item_id":42,"frame_rate":25.0}]}
-     → {"added":[keys],"changed":[keys],"removed":[keys],
-        "unchanged":[keys],"jobs":[job_ids],"uploads":[job_ids]}
-     (added/changed enter `uploading`, then auto-handoff to the backend;
-      response is immediate)
-
-GET  /jobs/{job_id}
-     → {"job_id":..., "footage_key":..., "state":"uploading|queued-for-backend|running|done|error",
-        "stages":[{"name":"upload","state":"running","done":1048576,"total":3670016},
-                  {"name":"shots","state":"pending"},
-                  {"name":"ocr","state":"running","done":37,"total":157}],
-        "error":null}
-
-GET  /footage
-     → [{"footage_key","path","drive_path","shot_count","duration_s","indexed_at",
-         "state":"uploading|indexing|ready|stale|error"}]
-
-GET  /search?q=<query>&top_k=<int, default 8>&footage_keys=<csv, optional>
-     → {"query":"...", "took_ms": 12,
-        "results":[{
-          "footage_key":"a1b2","shot_id":119,
-          "source_path":"C:\\...\\a.mp4",
-          "start_s":268.2,"end_s":274.4,
-          "score":0.656,
-          "winning_key":"caption",
-          "raw_cos":{"visual":0.21,"dialogue":0.44,"caption":0.56},
-          "contributions":{"dense":0.351,"bm25":0.305,"anchor":0.0,
-                           "entity_boost":0.0},
-          "transcript":"...","caption":"...","entities":["Japan"]}]}
-
-GET  /thumb/{footage_key}/{shot_id}.jpg   → keyframe image
+GET  /health                → {status, artifact_root, backend:{reachable,gpu,tunnel,signature}}
+POST /sync                  → {added,changed,removed,unchanged,pending,jobs,uploads}
+GET  /jobs/{id}             → {job_id,footage_key,state,reused,stages:[upload + engine stages],error}
+POST /jobs/{id}/retry|cancel, POST /footage/{key}/retry
+GET  /footage               → [{footage_key,path,content_id,shot_count,duration_s,indexed_at,state,reused}]
+GET  /search?q&top_k&footage_keys → {query,took_ms,entities,results:[{footage_key,content_id,shot_id,
+                               scene_id,source_path,start_s,end_s,score,contributions{6},raw_cos{3},
+                               transcript,dialogue,caption,ocr,entities,emotions}]}
+GET  /thumb/{footage_key}/{shot_id}.jpg → display keyframe (local cache by content_id)
 ```
 
 Implementation notes:
-- `GET /search` proxies to the backend (same §3.5 fusion, computed there).
-  Budgeted, not < 300 ms over a network hop: thumbs render from the local
-  cache instantly, results arrive on backend time; every fetch has a timeout
-  and failures surface inline with clear codes (`BACKEND_UNREACHABLE`,
-  `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`) — never spinners, never hangs.
-- No auth wall: the sidecar binds 127.0.0.1 for the single local editor;
-  every route is public on localhost by design (identity removed, D12).
-  Panel code never holds tokens. The deploy bearer token remains
-  backend-to-backend only.
-- Thumbnails are served over HTTP (not `file://`) — avoids CEF file-access flags entirely. Add cache headers. Thumbs + `shots.json` sync down at job completion; embeddings stay on the backend.
-- `/search` may filter by `footage_keys`; global shot row order is defined as (footage registry order, then shot_id) and MUST stay stable so the stacked key matrices remain valid across requests.
+- **Search.** `GET /search` proxies to the engine, and the fusion is
+  computed there.
+  - It is budgeted: thumbs render from the local cache instantly, and
+    results arrive on engine time.
+  - Every fetch has a timeout. Failures surface inline with clear codes
+    (`BACKEND_UNREACHABLE`, `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`) — never
+    spinners, never hangs.
+- **No auth wall on the sidecar.** It binds 127.0.0.1 for the single local
+  editor, and every route is public on localhost by design (identity
+  removed, D12). Panel code never holds tokens. The engine bearer token is
+  sidecar-to-engine only.
+- **Thumbnails** are served over HTTP, never `file://`, which avoids CEF
+  file-access flags entirely. Add cache headers. Display thumbs sync down
+  as one tar at job completion. Embeddings stay on the engine.
 
-### 3.5 Scoring specification (pinned — golden-tested)
+### 3.5 Scoring specification (pinned — golden-tested, ADR-0009)
 
 ```
-q            = L2-normalized CLIP text embedding of the query
-dense        = max(cos(q, visual_i), cos(q, dialogue_i), cos(q, caption_i))  # per shot
-dense_norm   = (dense + 1) / 2
-bm25_norm    = bm25_scores / max(bm25_scores)          # 0 if max <= 0
-anchor_norm  = (cos(visual_i, centroid) + 1) / 2       # only if query has entities;
-                                                       # centroid = mean visual emb of
-                                                       # shots whose text_context
-                                                       # contains a query entity
-entity_boost = +0.15 iff shot.entities ∩ query.entities ≠ ∅
+qv  = SigLIP 2 text embedding of "this is a photo of {query.lower()}."  (L2)
+qt  = bge embedding of BGE_QUERY_PROMPT + query                         (L2)
+zpos(x, mask) = clip((x - mean_m) / std_m, 0, 3) / 3 on masked rows, 0 elsewhere;
+                all-zero when |mask| < 2 or std_m < 1e-6               (population std)
 
-final = 0.45*dense_norm + 0.40*bm25_norm + 0.15*anchor_norm + entity_boost
+visual   = zpos(V·qv)
+dialogue = zpos(D·qt, D_mask)
+caption  = zpos(C·qt) * caption_conf
+bm25     = bm25(tokenize(query) + tokens(resolved query entities)) / max   # 0 if max <= 0
+entity   = |{e ∈ query_entities : e ∈ shot.entities or \be\b in dialogue_en + ocr}| / |query_entities|
+anchor   = zpos(V·l2norm(mean V[entity > 0]))   iff 0 < |entity > 0| < n, else 0
+
+final = .35*visual + .25*dialogue + .15*caption + .15*bm25 + .10*entity + .05*anchor
+rank by final desc (stable), drop final <= 0, keep one result per (content_id, scene_id), top_k
 ```
 
-- Weights live in `config.py` defaults (`DENSE_W=0.45, BM25_W=0.40, ANCHOR_W=0.15, ENTITY_BOOST=0.15`). They are configuration, not scattered literals.
-- Dense scores are computed by direct matmul of the query against the three key matrices in shots_db row order. **Every per-shot value is shot-aligned by construction.** (Historical note: the original pipeline queried FAISS and discarded the returned index array — FAISS returns similarities *sorted by rank*, so assigning `scores[i] → shot i` scrambled the ranking. Never use a FAISS `.search()` result without mapping `I[]` back to shots.)
-- FAISS indexes are still built and stored. They are the documented scale-up path: if the corpus grows past the point where matmul-per-query is trivial (rule of thumb: ~100k+ shots), switch the dense path to FAISS *with index mapping preserved*, behind a config flag, validated against the golden tests.
-- Known calibration debt (do NOT "fix" silently): CLIP text↔text cosines (dialogue/caption keys) sit on a higher baseline (~0.5–0.7) than text↔image (~0.2–0.4), so text keys win `max()` disproportionately. Planned fix is per-key rank/z-score normalization before the max. When implemented: new `format_version`, golden-test update, entry in decisions log.
-- UMAP is visualization-only and exists only in the notebook. It is not part of the service and never affects ranking.
+- Weights live in `engine/tempo_engine/config.py` defaults (`w_visual=0.35, w_dialogue=0.25, w_caption=0.15, w_bm25=0.15, w_entity=0.10, w_anchor=0.05`) along with `zscore_cap=3.0`. They are configuration, not scattered literals, and are excluded from the index signature.
+- **FAISS candidates, exact statistics:**
+  - Each dense key has an `IndexFlatIP` over the searched corpus
+    (`IndexIDMap` over `D_mask` rows for dialogue). Top-`faiss_candidates`
+    per key, plus the anchor query, BM25 hits, and entity hits, form the
+    candidate set.
+  - **Never use a FAISS `.search()` result without mapping `I[]` back to
+    shot rows.** The original pipeline once assigned rank-sorted scores to
+    shot i and scrambled the ranking.
+  - Raw values for candidates are recomputed from the matrices. `mean_m`
+    and `std_m` come from the corpus mean and Gram matrix (μ = q·m,
+    σ² = qᵀGq/n − μ²), so z-scores are exact without a full scan.
+  - With n ≤ `faiss_candidates` the result equals the notebook's
+    exhaustive `search()`, pinned by a parity test. Beyond that, the
+    candidate union is the approximation.
+  - Scale path: HNSW behind config, then revalidate the goldens.
+- Across several footages, z-scores and BM25 IDF are computed over the searched union. A single footage matches the notebook exactly.
+- UMAP is visualization-only and exists only in the notebook. It is not part of the engine and never affects ranking.
 
 ### 3.6 Artifacts layout
 
 ```
-<artifact_root>/
+sidecar <artifact_root>/
 ├── registry.json
-└── footage/<footage_key>/
-    ├── meta.json          # fingerprint, format_version, fps, shot count
-    ├── shots.json         # per-shot: times, transcript, caption, entities…
-    ├── embeddings.npz     # visual / dialogue / caption matrices (float32, L2-normed)
-    ├── bm25.pkl
-    └── thumbs/shot_<id>.jpg
+└── thumbs/<content_id>/<shot_id>.jpg      # display thumbs, synced at job completion
+
+engine <data_root>/  (= /home/ubuntu/workspace/tempo on Brev)
+├── hf/                                    # HF_HOME model cache (+ easyocr/)
+├── uploads/<content_id>.part|.json        # in-flight resumable uploads
+├── raw/<content_id>/source.<ext>          # complete upload; purged after index
+├── jobs/<job_id>.json                     # durable job envelopes
+└── library/<content_id>/
+    ├── stages/<stage>_<deps>.pkl          # per-stage cache
+    ├── frames/shotNNNNN_k.jpg             # 3 sampled frames per shot
+    ├── thumbs/<shot_id>.jpg               # display thumbs (thumb_width)
+    ├── index.json                         # meta (signature, fps, …), shots, vocab
+    └── index.npz                          # V, D, D_mask, C (float32, L2-normed)
 ```
 
-Artifacts are the only durable state. The service must be restartable at any moment and resume purely from disk.
+Disk is the only durable state on both sides. Either process must be restartable at any moment and resume purely from disk.
 
 ### 3.7 Configuration
 
-`Settings` via environment variables + optional config file; documented defaults; zero absolute paths in code. Required knobs: port, artifact root, model cache dir, weights (§3.5), job poll/pacing values, `prune_stale` flag, log level, `backend` (`local|http`), `backend_url`, `backend_token` (env only), `drive_folder` (`tempo/` root), Drive chunk size, OAuth token path, `storage_provider` (`none|s3`), storage endpoint/bucket/credentials/region/TTL (env only), `storage_retention` (`delete|keep`), `plan` (`free|pro|studio`, Supabase licenses override later). Frame rates, sizes, and durations always come from data (pipeline or project), never constants. `requires-python >=3.11`.
+Both sides use `Settings` via environment variables plus an optional
+config file, with documented defaults and zero absolute paths in code.
+
+**Sidecar** (`TEMPO_`):
+- port, artifact root, log level, job poll/pacing values, `prune_stale`
+- `format_version`, `sync_change_confirmations`
+- `backend_url`, `backend_token` (env only), backend timeouts
+- `brev_instance`, `brev_cli`, tunnel local/remote ports and backoff
+- `upload_chunk_mb`
+- `plan` (`free|pro|studio`; Supabase licenses override later)
+
+**Engine** (`TEMPO_ENGINE_`):
+- host, port, `data_root`, `token` (env only), `device` (`auto|cuda|cpu`)
+- model overrides (empty = GPU/CPU defaults)
+- indexing parameters
+- weights and `zscore_cap`, `faiss_candidates`
+- upload `max_chunk_mb`, `raw_retention` (`delete|keep`)
+- thumb size, `preload_query_models`
+
+Frame rates, sizes, and durations always come from data (pipeline or
+project), never constants. `requires-python >=3.11`.
 
 ---
 
@@ -335,10 +445,10 @@ This is deliberately *non-destructive and manual-trim-friendly*: Tempo places an
 AE exposes (historically) almost no CEP events to panels — do not design around nonexistent push events. Instead:
 
 - On panel load: `tempoListFootage()` → `POST /sync`. Show diff counts.
-- Backend address is server config (never panel input). `/health` reports backend reachability; unreachable/asleep renders as an honest status row, never a spinner.
-- While the panel is open: poll every 2 s (config) — cheap evalScript + registry diff. New imports enter `uploading` automatically (D10), then indexing (F1).
+- Engine address, token, and Brev instance are server config (never panel input). `/health` reports engine reachability and tunnel state; unreachable/asleep/tunnel-down renders as an honest status row, never a spinner.
+- While the panel is open: poll every 2 s (config) — cheap evalScript + registry diff. New imports reuse a ready engine index or enter `uploading` automatically (D16), then indexing (F1).
 - Explicit **Sync now** button as the manual fallback.
-- While any job is running: poll `GET /jobs/{id}` at 500 ms and render the stage list (F4).
+- While any job is running: poll `GET /jobs/{id}` at 500 ms and render the stage list (F4). The indexing section has a one-line summary (always visible) and a detail list behind an eye toggle: it opens when a job starts and closes when all jobs finish or a search is submitted. A manual toggle wins until the next job starts.
 
 ---
 
@@ -349,12 +459,13 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 **F1 — Automatic footage indexing (indexing consistency)**
 - Import footage in AE → within one poll interval it appears in the panel as `uploading` (byte progress), then `indexing` (stage progress); on completion it becomes searchable. Zero clicks.
 - Footage already indexed and unchanged → skipped (registry fingerprint match).
-- Changed file (size/mtime, confirmed over consecutive syncs) → re-uploaded + re-indexed; artifact format bumped → re-indexed.
+- Same content under a new path, project, copy, or mtime touch → `ready` instantly from the engine library (content id), no upload, no GPU (`reused`).
+- Changed file (size/mtime, confirmed over consecutive syncs) whose content changed → re-uploaded + re-indexed; interrupted indexing resumes from the stage cache; engine signature change → rebuilt through the stage cache.
 - Footage removed from project → marked stale (upload cancelled); data pruned only on explicit prune. Acceptance: sync report shows added/changed/removed/unchanged counts that a human can verify against the project panel.
 
 **F2 — Fast search + result preview**
 - Enter submits. Results render as cards: keyframe thumbnail, footage name, timecode range (comp-fps timecode, from project fps), duration, transcript snippet, caption, and one Insert action. (The API still returns the decomposable score breakdown per result; the panel no longer renders it.)
-- Search across all ready footage by default; footage filter dropdown when more than one footage exists. Acceptance: thumbs render from the local cache instantly; results arrive on backend time with a timeout; failures surface inline with codes (`BACKEND_UNREACHABLE`, `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`). No < 300 ms bar over a network hop — the local `score_query` matmul path stays < 300 ms warm (asserted in a service test) as the contract guarantee.
+- Search across all ready footage by default; footage filter dropdown when more than one footage exists. Acceptance: thumbs render from the local cache instantly; results arrive on backend time with a timeout; failures surface inline with codes (`BACKEND_UNREACHABLE`, `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`). No < 300 ms bar over a network hop. The contract guarantee is the engine's warm ranking path (`search.rank` over a prebuilt corpus): < 300 ms at 20k shots, asserted in an engine test.
 
 **F3 — Skeleton loading while searching**
 - On submit, immediately render `top_k` skeleton cards (flat gray blocks: thumb rectangle + two text lines) that pulse via opacity — no shimmer gradients, no spinners where skeletons fit.
@@ -362,7 +473,7 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 
 **F4 — Step-based indexing progress**
 - Each indexing job renders its stage list (§3.2) with per-stage states: pending → running (with `done/total` progress bar where applicable) → done; error state shows the stage and message.
-- The bar reflects real units (bytes sent; frames, batches, reps). Acceptance: progress updates derive from job status payloads only — no estimated/fake progress.
+- The bar reflects real units (bytes sent; frames, audio seconds, keyframes, reps). Acceptance: progress updates derive from job status payloads only — no estimated/fake progress.
 
 **F5 — Open result at exact timestamp**
 - Single click on a result card performs §4.3 verbatim. Acceptance: with a comp open, after one click the layer exists, is trimmed to `[start_s, end_s]`, the playhead sits at the shot start, the layer is selected, and a single undo removes the whole action.
@@ -409,9 +520,10 @@ The bar: if removing an element removes information, it's good. If removing it c
 - State is plain: a single store object + explicit `render()` calls. No reactive framework, no event bus.
 - All service communication goes through one `api.js` module with typed-ish payload shapes mirroring `docs/api.md`; timeouts on every fetch; the panel must render a usable "service offline" state.
 
-### 7.3 Python service
-- Pinned dependencies (`pyproject.toml`, `requires-python >=3.11`); the heavy pipeline lives on the backend (D11) — the local service holds no model weights. (Local-GPU path kept for offline dev: models load lazily per stage via singletons, one worker, never all resident.)
-- Pure functions for scoring (`search.py`) — no I/O inside the scoring path; matrices passed in, results passed out. This is what makes golden tests easy.
+### 7.3 Python (sidecar + engine)
+- Pinned dependencies (`pyproject.toml`, `requires-python >=3.11`). The sidecar holds no model weights and no ML dependencies. The engine keeps ML dependencies in its `[ml]` extra and imports them inside functions, so its core stays importable and testable on CPU CI.
+- Engine models load lazily through locked singletons. Query models (SigLIP 2, bge, NER) stay resident for search; stage-only models (Whisper, EasyOCR, Florence-2, emotion) load per stage and are freed afterwards. Log load/unload.
+- Pure functions for scoring (`engine/tempo_engine/search.py`) — no I/O inside the scoring path; matrices passed in, results passed out. This is what makes golden tests easy.
 - Pydantic schemas for every endpoint; typed, no bare dicts crossing layers.
 - No `print` debugging in committed code; `logging` with levels; log job stage transitions + model load/unload.
 - No hardcoded paths, ports, URLs, weights (weights: config defaults, §3.5), model names, or magic numbers. If a literal appears twice, it's a constant.
@@ -431,14 +543,15 @@ The bar: if removing an element removes information, it's good. If removing it c
 - Duplicated constants that must stay in sync (panel/host/python) — either derive from data, from config, or pin them with a cross-check test.
 - New heavyweight dependencies without a written rationale in the PR.
 - Dead code, commented-out blocks, TODOs without an owner/issue.
-- Regressions against `notebook/tempo_pipeline_v3.ipynb` behavior without a golden-test update (the notebook is the behavioral reference).
+- Regressions against `tempo_pipeline_v4.ipynb` behavior without a golden-test update (the notebook is the behavioral reference; engine modules name their source cell).
 - Editing vendored files (`CSInterface.js`, `json2.js`) — replace the vendored copy wholesale from upstream if an upgrade is needed, and record the version in a header comment.
 
 ---
 
 ## 9. Testing & regression policy
 
-- **Golden search tests (service):** small synthetic corpus + recorded embeddings; pin for ~5 queries the exact result ordering and contribution values. These guard §3.5. Run in CI. When the notebook and the service disagree, write the failing case down before deciding which is right.
+- **Golden search tests (engine):** small synthetic corpus + recorded embeddings; pin the exact result ordering and contribution values. A parity test pins FAISS candidates == the notebook's exhaustive search when n ≤ `faiss_candidates`, and Gram-matrix z-stats == `np.std`. These guard §3.5. Run in CI. When the notebook and the engine disagree, write the failing case down before deciding which is right.
+- **Engine contract tests:** a fake pipeline drives index → poll → done, plus resumable upload offsets, content-id verification, search shape, thumbs, and auth. The sidecar handoff is tested against a fake provider for library reuse, resumed upload, and thumb sync-down.
 - **Contract tests:** every endpoint round-trips its pydantic schema; the `tempoInsertOrFocus` payload built in panel tests must satisfy the same schema fixture.
 - **host.jsx smoke script:** a manual `ae_smoke.jsx` + checklist (open test project → list footage → insert at t → verify trim/playhead/undo). Runs before every release on oldest + newest claimed AE; AE cannot be UI-automated in CI cheaply — manual is the honest option.
 - **Regression rule:** any user-visible behavior change ships with (a) a test change, (b) a line in the decisions log, (c) this file updated if it touches a spec above.
@@ -455,9 +568,12 @@ The bar: if removing an element removes information, it's good. If removing it c
 - https://github.com/Adobe-CEP — org root: `CEP-Resources` (CSInterface.js per CEP version, ZXPSignCmd), samples.
 - https://github.com/Adobe-CEP/Samples/tree/master/AfterEffectsPanel — the reference panel this repo's `panel/` scaffolding is based on.
 
-**Pipeline (service side):**
-- CLIP (`openai/clip-vit-large-patch14`), BLIP-2 (`Salesforce/blip2-opt-2.7b`), faster-whisper, scenedetect, EasyOCR, dslim/bert-base-NER — respective official model/docs pages on Hugging Face / GitHub.
-- faiss (wiki + getting-started), `rank_bm25` (PyPI page), `umap-learn` (readthedocs — note: visualization-only here).
+**Engine host — NVIDIA Brev:**
+- https://docs.nvidia.com/brev/latest/ — GPU instances (lifecycle, `/home/ubuntu/workspace` persistence), GPU types (L4 22 GB), custom containers (compose GPU reservation), CLI connectivity (`brev port-forward <inst> --port L:R`, `brev exec`), console reference (tunnels need browser auth → API clients use port-forward). Index: https://docs.nvidia.com/brev/llms.txt.
+
+**Pipeline (engine side):**
+- SigLIP 2 (`google/siglip2-so400m-patch14-384`, transformers `model_doc/siglip2`), Florence-2 (`florence-community/Florence-2-large`, transformers `model_doc/florence2`), bge (`BAAI/bge-base-en-v1.5`, query instruction), faster-whisper (VAD; turbo cannot translate — issue 1237), scenedetect (`detect_scenes(duration=)` continues from the current position — verified in-repo against a single pass), EasyOCR (language compatibility), dslim/bert-base-NER, `j-hartmann/emotion-english-distilroberta-base`, transformers `TokenClassificationPipeline` (`aggregation_strategy`) — respective official model/docs pages on Hugging Face / GitHub.
+- faiss (wiki + getting-started), `rank_bm25` (PyPI page), `rapidfuzz` (`distance.OSA`).
 
 **Community (useful, non-authoritative — flag as such):**
 - `types-for-adobe` (pravdomil) — TS types for ExtendScript authoring comfort.
@@ -471,7 +587,7 @@ The bar: if removing an element removes information, it's good. If removing it c
 
 - [ ] Reads §0–§8; change complies with every applicable spec.
 - [ ] New ExtendScript/CEP APIs verified in official docs (comments cite them).
-- [ ] Scoring untouched, or golden tests + §3.5 + decisions log updated together.
+- [ ] Scoring untouched, or golden tests + §3.5 + decisions log updated together (engine signature bumped if index semantics changed).
 - [ ] No new hardcoded paths/ports/weights/names; config covers it.
 - [ ] host.jsx mutations are undo-grouped; no duplicate imports possible.
 - [ ] Panel renders offline-service and error states; no modals.
@@ -487,25 +603,29 @@ The bar: if removing an element removes information, it's good. If removing it c
 Decisions (with rationale; changes require an ADR in `docs/decisions/`):
 - **D1 CEP panel + host.jsx + Python sidecar** — §2.1 (UXP unsupported in AE; re-check if Adobe announces AE UXP — see `docs/decisions/0001-ae-uxp-watch.md`).
 - **D2 Polling for project sync** — AE exposes ~no CEP events; polling is the reliable primitive. Revisit only if the Cookbook documents AEFT events.
-- **D3 Dense scoring via matmul, FAISS parked** — correctness first; scale path documented in §3.5.
-- **D4 No context hint in BLIP-2 prompts** — hint caused transcript echo captions; dialogue key already covers transcript retrieval.
-- **D5 Shared entity extractor on both query and shots** — junk entities once poisoned the anchor path ("A" matched everything); single extractor prevents query-side/index-side drift.
+- **D3 Dense scoring via matmul, FAISS parked** — SUPERSEDED by D17 (FAISS candidates with exact Gram-matrix z-stats, parity-tested against the exhaustive path).
+- **D4 No context hint in caption prompts** — the hint caused transcript-echo captions. It still holds for Florence-2 (`<DETAILED_CAPTION>`, image only). BLIP-2 was retired by D17.
+- **D5 Shared entity extractor on both query and shots** — junk entities once poisoned the anchor path ("A" matched everything); single extractor prevents query-side/index-side drift. v4: `first` aggregation + span rebuild + typo-tolerant vocabulary resolution (ADR-0009).
 - **D6 Thumbnails over HTTP** — avoids CEF file-access flags; service already has the files.
 - **D7 Stale-by-default pruning** — re-indexing is expensive; deletion is explicit.
-- **D8 Single-GPU lazy model loading** — SUPERSEDED by D9 for MVP (kept as the documented local-GPU revival path: 8–12GB VRAM cannot hold all weights resident; load per stage, unload after, log transitions).
+- **D8 Single-GPU lazy model loading** — revived on the engine: query models stay resident, stage-only models load per stage and are freed afterwards, transitions logged.
 - **D9 Colab-hosted pipeline, local service as proxy** — SUPERSEDED by D11 (tunnel deleted; notebook kept as frozen reference — see `docs/decisions/0002-colab-remote-pipeline.md`).
 - **D10 Drive auto-upload on AE import** — deterministic `tempo/<key>/<basename>`, `uploading` + `queued-for-backend` states (see `docs/decisions/0003-drive-auto-upload.md`).
-- **D11 Modal-hosted pipeline behind the backend seam** — §2.1 (`modal_backend/` port, mechanical extraction with provenance; `backends/` provider interface; server-config URL + token, never user input — see `docs/decisions/0004-modal-backend.md`).
+- **D11 Modal-hosted pipeline behind the backend seam** — SUPERSEDED by D15 (`modal_backend/` deleted; the `backends/` seam and server-config URL + token kept — see `docs/decisions/0004-modal-backend.md`).
 - **D12 Identity removed** — the Better Auth service, sidecar session gate, and panel sign-in were deleted (no auth wall; the localhost sidecar serves one editor). Kept as history in `docs/decisions/0005-identity.md`; reintroduce only via a new ADR.
-- **D13 Storage providers, presigned uploads, raw retention** — `storage/` seam (SigV4 stdlib, botocore-parity-tested); Modal Volumes day-zero, B2 step-up, R2 later; real byte progress; raw purged post-index (see `docs/decisions/0006-storage.md`).
+- **D13 Storage providers, presigned uploads, raw retention** — transport SUPERSEDED by D16 (`storage/` deleted, direct resumable upload to the engine); raw-purge-after-index retention kept (see `docs/decisions/0006-storage.md`).
 - **D14 Plans, entitlements, and release gates** — free tier locked (1 footage, 7 min) enforced at `/sync` (new work only, `403 QUOTA_EXCEEDED`); ruff + ESLint-ES3 gates in CI; Velopack/ZXP packaging as scripts; `docs/release.md` checklist (see `docs/decisions/0007-launch-gates.md`).
+- **D15 Brev L4 engine behind the backend seam** — `engine/` runs the v4 pipeline and search in Docker Compose on `tempo-l4-instance`, bound to the instance's localhost, reached through the sidecar-supervised `brev port-forward`, bearer token on every route but health (see `docs/decisions/0008-brev-engine.md`).
+- **D16 Content-addressed cache** — three layers: path fingerprint (registry), content id (engine library, instant reuse), and per-stage cache (resume and partial rebuild); resumable offset-checked uploads; display thumbs synced down per content id (ADR-0008).
+- **D17 v4 pipeline + z-score fusion** — SigLIP 2 / bge / Florence-2 / VAD Whisper; six-component weighted fusion with per-key z-scores; FAISS candidates with exact statistics; one result per scene (see `docs/decisions/0009-v4-pipeline.md`).
 
 Known debt (tracked, not silently fixed):
-- **K1 Key-scale calibration:** text↔text keys out-signal text↔image keys in `max()` fusion (§3.5). Fix planned: per-key normalization + `format_version` bump + golden update.
-- **K2 Inherited captions:** shots sharing a rep caption share an identical caption embedding → ties within a caption group; intra-group ranking relies on the other keys. Accepted trade-off of rep-based captioning.
+- **K1 Key-scale calibration:** RESOLVED by D17 (per-key z-scores before a weighted sum).
+- **K2 Inherited captions:** shots sharing a rep caption share an identical caption embedding. `caption_conf` (similarity to the rep) now scales the key, so ties only remain between equally close shots. Accepted trade-off of rep-based captioning.
 - **K3 Single GPU worker:** indexing is serialized; acceptable for the use case (offline, unattended).
-- **K4 Backend preemption + warm search:** scale-to-zero workers resume from Volume checkpoints; search needs a warm pool (P95 latency trial before launch pricing).
-- **K5 Upload bandwidth:** storage upload is the first-leg bottleneck; measured in the P10 trial.
+- **K4 Instance uptime:** search needs `tempo-l4-instance` running (billed per hour). A stopped instance surfaces as tunnel down / `BACKEND_UNREACHABLE`. Indexing resumes from the stage cache after `brev start`.
+- **K5 Upload bandwidth:** uploads ride the SSH port-forward; this is the first-leg bottleneck, measured in the Brev trial.
+- **K6 Engine library pruning:** the engine keeps every content index until it is deleted explicitly (stale is local-only). There is no prune route yet; disk is watched on the instance.
 
 ---
 

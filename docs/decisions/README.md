@@ -4,18 +4,26 @@ Index of decisions (details in AGENTS.md §12). New decisions get a numbered fil
 
 - D1 CEP panel + host.jsx + Python sidecar → `0001-ae-uxp-watch.md`
 - D2 Polling for project sync (no CEP push events in AE)
-- D3 Dense scoring via matmul, FAISS parked (scale path >~100k shots, behind flag, with index mapping)
-- D4 No context hint in BLIP-2 prompts (hint caused transcript echo)
-- D5 Shared `_extract_entities` on query + shots (junk-entity poisoning guard)
+- D3 Dense scoring via matmul, FAISS parked — superseded by D17
+- D4 No context hint in caption prompts (hint caused transcript echo)
+- D5 Shared entity extractor on query + shots (junk-entity poisoning guard)
 - D6 Thumbnails over HTTP (avoids CEF file-access flags)
 - D7 Stale-by-default pruning (re-indexing is expensive)
-- D8 Single-GPU lazy per-stage model loading (8–12GB VRAM)
-- D9 Colab-hosted pipeline, local service as proxy → `0002-colab-remote-pipeline.md`
-  (D8's local-GPU assumption superseded; `indexer/` deleted in P9 per §8)
-- D10 Drive auto-upload on AE import → `0003-drive-auto-upload.md`
-  (deterministic `tempo/<key>/<basename>`, `uploading` + `queued-for-colab` states)
+- D8 Single-GPU lazy per-stage model loading (revived on the engine)
+- D9 Colab-hosted pipeline → `0002-colab-remote-pipeline.md` (superseded by D11)
+- D10 Drive auto-upload on AE import → `0003-drive-auto-upload.md` (transport superseded by D16)
+- D11 Modal backend behind the backend seam → `0004-modal-backend.md` (superseded by D15)
+- D12 Identity removed → `0005-identity.md`
+- D13 Storage providers, raw retention → `0006-storage.md` (transport superseded by D16; retention kept)
+- D14 Plans, entitlements, release gates → `0007-launch-gates.md`
+- D15 Brev L4 engine behind the backend seam → `0008-brev-engine.md`
+- D16 Content-addressed cache (path → content id → stage cache) → `0008-brev-engine.md`
+- D17 v4 pipeline + z-score fusion + FAISS candidates → `0009-v4-pipeline.md`
 
-Known debt: K1 key-scale calibration, K2 inherited-caption ties, K3 serialized single-GPU worker.
-- **K4 Tunnel churn + free-tier preemption:** ngrok URL per session (panel setting);
-  Colab death mid-index resumes from Drive checkpoints; search needs Colab alive.
-- **K5 Upload bandwidth:** Drive upload is the first-leg bottleneck; measured in P10 trial.
+Known debt:
+- K1 key-scale calibration — resolved by D17
+- K2 inherited-caption ties — reduced by `caption_conf`
+- K3 serialized single-GPU worker
+- K4 instance uptime
+- K5 upload bandwidth over the port-forward
+- K6 engine library pruning

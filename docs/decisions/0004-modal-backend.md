@@ -1,6 +1,6 @@
 # 0004 — Modal-hosted pipeline behind a backend seam, Colab tunnel deleted
 
-**Status:** accepted. **Date:** 2026-09-22. **Supersedes:** ADR-0002 (Colab remote
+**Status:** superseded by ADR-0008 (Brev engine). **Date:** 2026-09-22. **Supersedes:** ADR-0002 (Colab remote
 pipeline) for the serving path. ADR-0003's `tempo/<key>/<basename>` key contract
 is kept; its Drive transport is replaced in P2 (storage providers).
 
