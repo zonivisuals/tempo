@@ -360,10 +360,11 @@ async function insertResult(r, idx) {
       source_path: r.source_path, start_s: r.start_s, end_s: r.end_s,
     });
     // One evalScript call does the whole job (locate/import, comp, trim, playhead).
-    // The JSON is embedded as an ExtendScript string literal: every backslash
-    // must be doubled or Windows paths mangle ("C:\Users" parses to "C:Users",
-    // so lookup misses and import reports "source missing from disk").
-    const expr = "tempoInsertOrFocus(" + payload.replace(/\\/g, "\\\\") + ")";
+    // The JSON travels as an ExtendScript *string literal* (host.jsx parses
+    // it with JSON.parse): it must be wrapped in quotes with every backslash
+    // doubled, or Windows paths mangle ("C:\Users" parses to "C:Users").
+    // Single quotes are escaped too so paths with apostrophes survive.
+    const expr = "tempoInsertOrFocus('" + payload.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "')";
     const raw = await evalScript(expr);
     dbg(`insert: payload=${payload.slice(0, 200)} raw=${String(raw).slice(0, 200)}`);
     try {
@@ -382,7 +383,7 @@ async function insertResult(r, idx) {
 
 /* ---------- boot ---------- */
 
-const PANEL_VERSION = "0.2.0";
+const PANEL_VERSION = "0.2.1";
 
 function probe(expr) {
   return new Promise((resolve) => {
