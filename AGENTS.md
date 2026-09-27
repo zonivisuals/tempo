@@ -465,7 +465,7 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 
 **F2 — Fast search + result preview**
 - Enter submits. Results render as cards: keyframe thumbnail, footage name, timecode range (comp-fps timecode, from project fps), duration, transcript snippet, caption, and one Insert action. (The API still returns the decomposable score breakdown per result; the panel no longer renders it.)
-- Search across all ready footage by default; footage filter dropdown when more than one footage exists. Acceptance: thumbs render from the local cache instantly; results arrive on backend time with a timeout; failures surface inline with codes (`BACKEND_UNREACHABLE`, `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`). No < 300 ms bar over a network hop. The contract guarantee is the engine's warm ranking path (`search.rank` over a prebuilt corpus): < 300 ms at 20k shots, asserted in an engine test.
+- Search across all ready footage by default; footage filter dropdown when more than one footage exists. Acceptance: thumbs render from the local cache instantly; results arrive on backend time with a timeout; failures surface inline with codes (`BACKEND_UNREACHABLE`, `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`). No < 300 ms bar over a network hop. The contract guarantee is the engine's warm ranking path (`search.rank` over a prebuilt corpus): < 300 ms at 10k shots on CPU, asserted in an engine test.
 
 **F3 — Skeleton loading while searching**
 - On submit, immediately render `top_k` skeleton cards (flat gray blocks: thumb rectangle + two text lines) that pulse via opacity — no shimmer gradients, no spinners where skeletons fit.
