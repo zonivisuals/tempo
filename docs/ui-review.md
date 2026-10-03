@@ -25,9 +25,15 @@ flag and reject an element reading as "AI-generated slop".
       would be.
 - [ ] Indexing section: centred in the panel on both axes while a job runs, in a
       column that stays readable at a 640 px dock (drag the width slider). The
-      pill spans that column edge to edge — a banner, not a centred chip. Each
-      step row centres its icon, label and readout on one line; the error row
+      pill is sized by its own label and indicator — a status chip over the
+      centred step rows, not a full-width banner — and it **does not move**: sit
+      on `preview.html#indexing` and let the run fill the list; the pill and the
+      running row stay where they are and only completed rows arrive underneath.
+      Each step row centres its icon, label and readout on one line; the error row
       and the footage rows stay left-aligned.
+- [ ] Every indeterminate indicator is the accent arc over a white track — the
+      indexing pill, the submit button while searching, the running row's ray
+      burst (accent). No dimmed gray spinner anywhere.
 - [ ] Indexing section: a status pill reading "Processing your videos" with the
       two-arc indicator, and the step list. **No summary line and no file name**
       anywhere on this screen outside the footage rows. **There is no hide/show
@@ -46,8 +52,10 @@ flag and reject an element reading as "AI-generated slop".
 - [ ] Errors are compact inline rows under the search field with the service
       error code — no modals, no toasts.
 - [ ] Offline service renders a usable degraded state, never a blank panel.
-- [ ] The no-footage heading is a status pill (`role="status"`), not a button — a
-      disabled control that cannot be pressed is a dead affordance.
+- [ ] The no-footage block (frame 01 and its three variants) is centred in the
+      panel on both axes, like the indexing screen — check `preview.html#empty`.
+      It is a status pill sized by its own label (`role="status"`), not a button —
+      a disabled control that cannot be pressed is a dead affordance.
 
 ## Review it without After Effects
 

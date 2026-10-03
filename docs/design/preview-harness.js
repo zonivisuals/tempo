@@ -330,7 +330,12 @@
     }
 
     widthInput.addEventListener("input", function () { panel.style.width = widthInput.value + "px"; });
-    themeInput.addEventListener("change", function () { panel.classList.toggle("light", themeInput.checked); });
+    // panel.css keys the light theme off `html.light` (panel.js applyTheme puts it
+    // there), so the toggle has to land on the document element: on #app it did
+    // nothing and the light theme could not be reviewed here.
+    themeInput.addEventListener("change", function () {
+      document.documentElement.classList.toggle("light", themeInput.checked);
+    });
     captionInput.addEventListener("change", paint);
     rail.querySelector("#replay").addEventListener("click", function () { tick = 0; paint(); });
 

@@ -40,7 +40,9 @@
     The indexing run advances on the 500&nbsp;ms poll, so the step slide and the
     spinner are live. Drag the width to check the grid's caption clipping.
     A stage that has not started draws no row, so the run grows a row at a time
-    instead of showing the whole pipeline up front.
+    instead of showing the whole pipeline up front &mdash; and the pill above it
+    never moves: watch it hold still while the rows arrive underneath.
+    Every indeterminate indicator is the accent arc over a white track.
     <code>02c</code> is the reused-job case: every stage is <code>done</code> with
     <code>total&nbsp;=&nbsp;0</code>, so no row may show a number.
     <code>02b</code> is the synthetic <code>queued</code> row.

@@ -353,3 +353,239 @@ def test_panel_top_k_matches_service():
     )
     # The search call must go through the constant, not a literal.
     assert "TempoAPI.search(q, TOP_K," in panel, "panel search must use TOP_K"
+
+
+# --------------------------------------------------------------------------
+# Panel layout (docs/design/panel-ui.md 3)
+#
+# There is no browser in CI, so these pin the two halves of a layout that can be
+# pinned without one: the CSS that decides it, and the state that switches it on.
+# --------------------------------------------------------------------------
+
+# A stub DOM, because which branch a screen renders is decided by a render()
+# call rather than by a pure function: panel.js talks to document on the way
+# through. Enough of one for renderIndexing()/renderResults() — no layout, no
+# measurement, no assertion about pixels.
+_STUB_DOM_DRIVER = r"""
+const fs = require('node:fs'), vm = require('node:vm');
+window = global;
+const mk = () => {
+  const classes = new Set();
+  const el = {
+    hidden: false, className: '', textContent: '', innerHTML: '',
+    dataset: {}, style: {}, parentNode: null, children: [],
+    classList: {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+      toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
+    },
+  };
+  el.appendChild = (c) => { c.parentNode = el; el.children.push(c); return c; };
+  el.removeChild = (c) => { el.children = el.children.filter((x) => x !== c); c.parentNode = null; };
+  el.addEventListener = () => {};
+  el.setAttribute = () => {};
+  el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 0, height: 0 });
+  el.querySelector = () => mk();
+  el.querySelectorAll = () => [];
+  return el;
+};
+const nodes = {};
+document = {
+  addEventListener() {},
+  createElement: () => mk(),
+  getElementById: (id) => (nodes[id] || (nodes[id] = mk())),
+};
+CSInterface = function () {};
+CSInterface.prototype.evalScript = function (e, cb) { cb(null); };
+CSInterface.prototype.getHostEnvironment = function () { return '{}'; };
+TempoAPI = {};
+vm.runInThisContext(fs.readFileSync(process.argv[2], 'utf8'),
+                    { filename: process.argv[2] });
+const out = (() => { /*SETUP*/ /*CALL*/; return /*EXPR*/; })();
+console.log(JSON.stringify(out));
+"""
+
+
+def _panel_render(call: str, setup: str, expr: str) -> object:
+    """Run one render call in panel.js against a stub DOM; return `expr` after it."""
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not on PATH")
+
+    driver = (_STUB_DOM_DRIVER.replace("/*SETUP*/", setup)
+              .replace("/*CALL*/", call).replace("/*EXPR*/", expr))
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "driver.js").write_text(driver, encoding="utf-8")
+        proc = subprocess.run(
+            [node, str(d / "driver.js"), str(PANEL_JS)],
+            capture_output=True, text=True, timeout=60,
+        )
+    assert proc.returncode == 0, (
+        f"panel.js failed to render:\n{proc.stdout}\n{proc.stderr}"
+    )
+    return json.loads(proc.stdout.strip().splitlines()[-1])
+
+
+_RUNNING_JOB = json.dumps({
+    "job_id": "job_1", "state": "running", "footage_key": "abcd1234ef",
+    "stages": [
+        {"name": "upload", "state": "done", "done": 1, "total": 1},
+        {"name": "shots", "state": "running", "done": 3, "total": 10},
+    ],
+})
+
+
+def test_indexing_section_is_live_exactly_while_a_job_runs():
+    """`live` gates both the pill and the reserved step-list height, so it must
+    follow the same flag.
+
+    The section is centred, which means its height decides where the pill sits:
+    with rows arriving one at a time, an unreserved list walks the pill down the
+    panel for the whole run and back up again at the end. Holding the height while
+    a job runs pins the pill where it finishes. The pin is worth nothing if the
+    two are driven by different conditions, so assert they are driven by one.
+    """
+    live = "store.activeJobs = ['job_1']; store.jobs = { job_1: %s };" % _RUNNING_JOB
+
+    shown = _panel_render("renderIndexing()", live, "document.getElementById('indexing').classList.contains('live')")
+    assert shown, "a running job must mark the section live so the pill holds still"
+
+    # The same store with the job finished (polledJobs drops a done job): the
+    # reserve goes with the pill, so the footage rows below are not stranded
+    # under an empty 216px gap.
+    done = live.replace('"state": "running"', '"state": "done"').replace(
+        "store.activeJobs = ['job_1'];", "store.activeJobs = [];"
+    )
+    assert not _panel_render("renderIndexing()", done, "document.getElementById('indexing').classList.contains('live')")
+
+    # A job the engine never picked up is still a run: the queued row is on screen.
+    queued = (
+        "store.activeJobs = ['job_1']; store.jobs = { job_1: "
+        '{ job_id: "job_1", state: "queued", stages: [] } };'
+    )
+    assert _panel_render("renderIndexing()", queued, "document.getElementById('indexing').classList.contains('live')")
+
+    # The pill is drawn from the same flag in the same render.
+    src = PANEL_JS.read_text(encoding="utf-8")
+    assert re.search(r'\$?\("indexing-pill"\)\.hidden = !live;', src)
+    assert re.search(r'\$?\("indexing"\)\.classList\.toggle\("live", live\);', src)
+
+
+def test_indexing_reserves_the_finished_step_list_height():
+    """The reserve is nine rows tall, and nine is STEPS' count.
+
+    The height is a second copy of the step count (panel.js owns the list, CSS
+    owns the layout), so the two are cross-checked here rather than trusted.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+    js = PANEL_JS.read_text(encoding="utf-8")
+
+    assert re.search(
+        r"#indexing\.live #indexing-detail \{ min-height: "
+        r"calc\(var\(--step-h\) \* var\(--step-count\)\);", css
+    ), "the live detail block must be held at the finished list's height"
+    assert re.search(r"\.step \{[^}]*min-height: var\(--step-h\);", css), (
+        "a step row must be --step-h tall or the reserve is not the list's height"
+    )
+
+    steps = re.search(r"(?s)const STEPS = \[(.*?)\n\];", js)
+    assert steps, "panel.js must declare STEPS"
+    rows = len(re.findall(r'\{ key: "', steps.group(1)))
+    reserved = re.search(r"--step-count: (\d+);", css)
+    assert reserved, "panel.css must declare --step-count"
+    assert rows == int(reserved.group(1)) == 9, (
+        f"the reserve assumes {reserved.group(1)} rows, STEPS has {rows}"
+    )
+
+
+def test_indexing_pill_is_sized_by_its_content():
+    """The pill fits its label and its indicator, centred in the column.
+
+    It used to stretch the full column: a 320px banner carrying one short label,
+    which read as a rule rather than as the heading the design drew (777:698).
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+    pill = re.search(r"(?ms)^\.pill \{(.*?)\}", css)
+    assert pill, "panel.css must style .pill"
+    assert "align-self: center;" in pill.group(1)
+    assert "width" not in pill.group(1), "the pill must take its width from its content"
+
+    label = re.search(r"(?ms)^\.pill-label \{(.*?)\}", css)
+    assert label, "panel.css must style .pill-label"
+    # flex: 1 (basis 0) is a full-width layout's trick and collapses a
+    # content-sized label to nothing but the indicator.
+    assert "flex: 0 1 auto;" in label.group(1)
+
+
+def test_spinners_are_the_accent_over_a_white_track():
+    """Every indeterminate indicator is the accent arc over a white track.
+
+    The track used to be currentColor at 0.35 alpha, which composited to a flat
+    gray on the pill and inside the submit button: the one thing on the screen
+    saying "working" was its dullest pixel. The track is a token instead, white on
+    the dark theme and a visible gray on the light one (white vanishes on
+    #f2f2f2), and the running row's ray burst takes the accent through
+    currentColor, so all three indicators read as the same accent.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    assert re.search(r"\.spin \.arc \{ fill: var\(--accent\); \}", css)
+    assert re.search(r"\.spin \.track \{ fill: var\(--spin-track\); \}", css)
+    assert "opacity: 0.35" not in css, "the track is no longer a dimmed currentColor"
+    assert re.search(r"\.step\.running \.ic \.spin \{ color: var\(--accent\);", css)
+
+    tracks = re.findall(r"--spin-track: (#[0-9a-fA-F]{3,8});", css)
+    assert len(tracks) == 2, "both themes must declare the track colour"
+    assert tracks[0].lower() in ("#fff", "#ffffff"), tracks
+    assert tracks[1].lower() != tracks[0].lower(), (
+        "the light theme needs its own track colour: white is invisible on #f2f2f2"
+    )
+
+
+def test_no_footage_screen_is_centred_like_the_indexing_one():
+    """Frame 01 takes the same centring as frame 02: the status bar is all that
+    is above it, so it belongs in the middle of the panel, not under the bar.
+
+    `margin: auto` on the block inside #app's column is the mechanism both use,
+    and it only bites if the block is the one thing there. So assert the class is
+    set for the no-footage block and for nothing else -- a centred result grid or
+    a centred skeleton list would float in the middle of a panel whose search
+    field is above them.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+    assert re.search(r"#results\.centered \{ margin: auto; \}", css), (
+        "the centring is margin: auto, the same mechanism #indexing uses"
+    )
+
+    cls = "document.getElementById('results').className"
+    none_ready = "store.footages = [];"
+
+    # All four variants of frame 01 (no footage / none ready / failed / stalled)
+    # take the same branch, so one of them proves the rest.
+    assert _panel_render("renderResults()", none_ready, cls) == "centered"
+    assert _panel_render(
+        "renderResults()",
+        none_ready + " store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'stale' }];",
+        cls,
+    ) == "centered"
+
+    # Cards, skeletons and the no-matches row stay top-aligned.
+    ready = "store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'ready', shot_count: 9 }];"
+    assert "centered" not in _panel_render("renderResults()", ready, cls)
+    searching = ready + " store.searching = true;"
+    assert "centered" not in _panel_render("renderResults()", searching, cls)
+    assert "centered" not in _panel_render(
+        "renderResults()", ready + " store.lastQuery = 'zzz';", cls
+    )
+
+    # A live job owns the panel: #results is emptied outright, so it must not
+    # keep a centring class from an earlier empty state.
+    live = "store.activeJobs = ['job_1']; store.jobs = { job_1: %s };" % _RUNNING_JOB
+    assert _panel_render("renderResults()", live, cls) == ""

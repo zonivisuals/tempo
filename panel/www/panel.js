@@ -435,6 +435,12 @@ function renderIndexing() {
   // message and Retry visible.
   $("indexing-pill").hidden = !live;
   $("indexing-detail").hidden = !show;
+  // The section is centred, so its height decides where the pill sits. While a
+  // job runs the detail block is held at the finished step list's height (the
+  // `live` rule in panel.css), which leaves the pill on the spot it will still
+  // occupy at the end of the run and lets rows arrive underneath it. The same
+  // flag that shows the pill drives it, so the two cannot disagree.
+  $("indexing").classList.toggle("live", live);
   renderSteps();
   if (show) { renderJobError(); renderFootageActions(); }
 }
@@ -476,7 +482,7 @@ function renderResults() {
   const ready = readyFootage().length > 0;
   // While a job is live the indexing screen owns the panel: an empty-state pill
   // under a running step list reads as two contradictory states at once.
-  if (!ready && activeJob()) { box.innerHTML = ""; return; }
+  if (!ready && activeJob()) { box.className = ""; box.innerHTML = ""; return; }
   // The grid class is only applied when there are cells to grid. Applying it to
   // a single empty-state or "no results" row would split it across two columns.
   const gridding = ready && (store.searching || store.results.length > 0);
@@ -488,7 +494,10 @@ function renderResults() {
     box.innerHTML = skeletonHTML().repeat(n);
     return;
   }
-  if (!ready) { box.innerHTML = emptyStateHTML(); return; }
+  // Frame 01, and its three variants: the status bar is all that is above it, so
+  // it is centred on both axes like the indexing screen (the `centered` rule in
+  // panel.css is `margin: auto`, the same thing #indexing does).
+  if (!ready) { box.className = "centered"; box.innerHTML = emptyStateHTML(); return; }
   if (!store.results.length) {
     const q = store.lastQuery;
     box.innerHTML = `<div class="empty">${q ? `No shots matched “${esc(q)}”.` : "Search your footage."}</div>`;

@@ -34,6 +34,7 @@ Tempo ships two themes; `appSkinInfo` only *selects* one — see ADR-0011).
 | `--thumb` | `#EB6060` | `#b3555a` | `777:368` thumbnail layer, `Rectangle 5421` |
 | `--error` | `#EB6060` | `#a32b2b` | |
 | `--ok` | `#7fae74` | `#3f7a35` | status dot ok |
+| `--spin-track` | `#fff` | `#b4b4b4` | `777:704` indicator track; white is invisible on the light surface |
 
 ### Radii are ratios, not raw px
 
@@ -57,7 +58,8 @@ of the height; 0.163 of a 48 px panel field is 8 px.
 | submit button | 60 px, radius 10.67, `fill #FFF @ 0.10`, no border, no shadow, "Arrow up" rotated 90°, 23 px glyph, stroke 4 round | 24 px, `--r-sm`, `rgba(255,255,255,0.1)`, glyph 16 px, stroke 1.5 |
 | card stroke | 3 px, same colour as the fill | `border: 3px solid var(--surface)`, accent on hover |
 | skeleton fills | `#FFF 0→0.56` (thumb), `#FFF 0→1` (caption), radius 12 | `--sweep-thumb`, `--sweep-cap` on `--r-md` |
-| indeterminate indicator | two arcs: an accent active arc over a white track, thickness 4 of 44 | one `r=6` circle at `opacity .25` plus a `dasharray 26 11` arc, stroke 1.8 |
+| indeterminate indicator | two arcs: an accent active arc over a white track, thickness 4 of 44 | the `777:704` two-path export at 16 px, filled from CSS: `.arc` → `--accent`, `.track` → `--spin-track` |
+| running row's indicator | 12-ray burst, `777:709`, accent | the same export at 16 px, `stroke="currentColor"` with `color: var(--accent)` |
 
 **Type** (design px → panel px). The frames are 2004 px wide and a docked panel
 is ~300 px, so type cannot scale with the geometry — 32 px type at frame scale is
@@ -114,12 +116,18 @@ matches the design: neither frame has a search field.
 
 ### 3.1 Frame 01 — no footage
 
-No search field. No indexing block. Centred:
+No search field. No indexing block. Centred on both axes, by the same mechanism
+as frame 02: the block gets `margin: auto` inside `#app`'s column (`#results`
+carries `centered` while it holds nothing else), so with only the status bar
+above it, it sits in the middle of the panel instead of hanging under the bar.
+`panel.js` sets that class only for this block — a centred result grid or a
+centred skeleton list would float below a search field that is already above it.
 
 - **Heading** `No footage found` — a status pill: `--bg2` fill, 1px border,
   `--accent` text, 2px radius. It is `role="status"`, **not** a button. The
   design draws it as a disabled CTA; a disabled control advertises an action it
-  cannot perform, which §8 bans. Pixels kept, dead affordance dropped.
+  cannot perform, which §8 bans. Pixels kept, dead affordance dropped. Sized by
+  its own content, like the indexing pill.
 - **Hint** `Get started by importing your videos to the project`
 
 Two more variants of the same block, same components:
@@ -167,16 +175,17 @@ as-is (`§4.4`). The label map lives in `panel.js` beside the existing
 Display order is computed per tick: **running → done (reverse completion
 order)**. A stage that has not started is **not a row**: the list is the running
 stage plus what is already finished, so from enqueue until the first stage
-reports the list is empty and the heading pill is the whole screen. Row identity
-is keyed by stage key, so a completing row is *moved* in the DOM, not recreated —
-that is what makes the slide possible at all (§5 below).
+reports the list is empty and the heading pill is the only thing on screen (the
+space the list will fill is held below it — see the centring note below). Row
+identity is keyed by stage key, so a completing row is *moved* in the DOM, not
+recreated — that is what makes the slide possible at all (§5 below).
 
 Row states — the design has **no progress bar**; progress is the running row's own
 readout (`777:702`, "Finalizing... 80%"):
 
 | State | Icon | Label | Readout |
 |---|---|---|---|
-| running | two-arc indeterminate indicator, accent | `--text` | percentage, or the unit count |
+| running | 12-ray burst (`777:709`) in `--accent` | `--text` | percentage, or the unit count |
 | done | 16 px check | `--text` at 0.5 opacity | hidden |
 | pending | none — the row does not exist yet | — | — |
 | error | 16 px hollow ring, `--error` | `--error` | hidden |
@@ -184,9 +193,11 @@ readout (`777:702`, "Finalizing... 80%"):
 Above the list, while a job is live, the **indexing pill** (`777:698`): the fixed
 label `Processing your videos` in `--accent` plus the same two-arc indicator, on
 the gradient-edged, shadowed `--surface`. The label does not change with the
-stage — the step list right below names the stage. It is also the whole screen
-between enqueue and the first stage reporting, when the list has no rows yet.
-The text lives in `index.html`, not in JS.
+stage — the step list right below names the stage. It is the only thing on screen
+between enqueue and the first stage reporting, when the list has no rows yet. It
+is sized by its own content (`align-self: center`, not a full-width banner): a
+320 px rule carrying one 13 px label reads as a divider, and the design drew it as
+a chip. The text lives in `index.html`, not in JS.
 
 **Nothing above or beside the list names the file.** An earlier revision carried
 a summary line, `Indexing · <file> · <stage> <n>`; it was the only filename on
@@ -199,17 +210,30 @@ not only `store.jobs` — that is the difference between a hint that says "open 
 indexing detail to retry" and a detail that is actually there. `indexingVisible()`
 in `panel.js` is that rule, pure so a test can pin it.
 
-**The screen is centred.** While a job runs this section is the whole panel — the
-search field is hidden until one footage is ready — so it sits in the middle of
-the panel on both axes rather than stacked under the status bar. Two details
-decide how it reads:
+**The screen is centred, and the pill does not move.** While a job runs this
+section is the whole panel — the search field is hidden until one footage is
+ready — so it sits in the middle of the panel on both axes rather than stacked
+under the status bar. Three details decide how it reads:
 
 - `#app` carries `min-height: 100vh` so there is free space to centre inside;
   auto margins collapse to zero when the content is taller than the panel, so a
   long error row starts at the top and scrolls as before.
-- `max-width: 320px` on the section. Without it the pill spans a 640 px dock and
-  the steps are two short rows floating in the middle of it. The pill keeps the
-  full width of that column — a banner, not a chip.
+- `max-width: 320px` on the section. Without it the steps are two short rows
+  floating in the middle of a 640 px dock.
+- Centring a growing block moves everything above it: rows arriving one at a
+  time walked the pill down the panel for the length of the run and back up at
+  the end, which made the only fixed element on the screen the one that moved.
+  So while a job is live the detail block is held at the **finished list's
+  height** (`--step-h * --step-count`, the same flag that shows the pill sets
+  `.live` on the section). The pill therefore lands where it will still be at
+  the end of the run, and rows arrive underneath it. The reserve is on the
+  detail block rather than on the step list so the slack falls below the last
+  row: the error and footage rows stay against the steps instead of being
+  stranded under 216 px of nothing. It is released with the pill, so the failed
+  and stranded-footage screens get their rows back at their natural spacing.
+
+The nine rows and the `--step-count` the reserve assumes are one number in two
+files; `test_contracts.py` cross-checks them against `STEPS`.
 
 Each step row centres its icon, label and readout as one line (the row is a
 centred flex row, not a 16px/1fr grid). The error row and the footage rows stay
@@ -334,7 +358,7 @@ is also how the headless checks drive it:
 
 | Hash | Screen |
 |---|---|
-| `#empty` | no footage (frame 01) |
+| `#empty` | no footage (frame 01) — centred block |
 | `#indexing` | indexing, advancing on the 500 ms poll (frame 02) |
 | `#queued` | the synthetic `queued` row while the tunnel warms |
 | `#cached` | a `reused` job: every stage `done` with `total = 0` — nothing may show a number |

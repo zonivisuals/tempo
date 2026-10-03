@@ -26,6 +26,8 @@
   --thumb: #eb6060;           /* 777:368 thumbnail layer, Rectangle 5421 */
   --error: #eb6060;
   --ok: #7fae74;
+  /* The two-arc indicator's track (777:704): white under the accent arc. */
+  --spin-track: #fff;
   --r-lg: 8px;
   --r-sm: 4px;
   --r-md: 3px;
@@ -52,6 +54,9 @@ html.light {
   --thumb: #b3555a;
   --error: #a32b2b;
   --ok: #3f7a35;
+  /* White is the track colour in the design, and it disappears on a light
+     surface: the track reads as a light gray here instead. */
+  --spin-track: #b4b4b4;
   --edge: linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(242, 242, 242, 0.18));
   --sweep-thumb: linear-gradient(90deg,
       rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.10) 50%, rgba(0, 0, 0, 0) 100%);
@@ -169,10 +174,10 @@ html.light #submit { background: rgba(0, 0, 0, 0.08); }
 #searchbox.searching #submit .spin { display: block; animation: spin 1s linear infinite; }
 
 /* The two-arc indicator is filled geometry (the Figma 777:704 export), so its
- * fills come from CSS rather than from `fill="white"` on the paths — white is
- * invisible on the light theme. Geometry is untouched. */
+ * fills come from CSS rather than from `fill="white"` on the paths — the track is
+ * a themed token for the same reason. Geometry is untouched. */
 .spin .arc { fill: var(--accent); }
-.spin .track { fill: currentColor; opacity: 0.35; }
+.spin .track { fill: var(--spin-track); }
 
 /* ---------- inline error row, directly under the search field ---------- */
 #error {
@@ -202,12 +207,22 @@ button.icon[aria-pressed="true"] { color: var(--accent); }
  * While a job runs this section is the whole panel (the search field is hidden
  * until one footage is ready), so it is centred: `margin: auto` on both axes of
  * #app's column. max-width keeps the steps a readable column on a wide dock
- * instead of two short rows spread across it; the pill still spans that column
- * edge to edge, as drawn. */
+ * instead of two short rows spread across it. */
 #indexing {
   display: flex; flex-direction: column; gap: 6px; font-size: 11px;
   width: 100%; max-width: 320px; margin: auto;
+  /* One step row, and how many there are: STEPS in panel.js is the same nine
+     rows (cross-checked in test_contracts.py), so the detail block below can be
+     held at the finished list's height. */
+  --step-h: 24px;
+  --step-count: 9;
 }
+/* Held at the finished list's height while a job runs, so the centring above
+   resolves against a constant height: the pill lands where it will still be at
+   the end of the run, and rows arrive underneath it instead of pushing it. The
+   slack sits below the last row, which is why the error and footage rows stay
+   against the steps rather than at the bottom of a reserved gap. */
+#indexing.live #indexing-detail { min-height: calc(var(--step-h) * var(--step-count)); }
 #indexing-detail { display: flex; flex-direction: column; gap: 4px; }
 #steps { display: flex; flex-direction: column; }
 
@@ -217,7 +232,7 @@ button.icon[aria-pressed="true"] { color: var(--accent); }
  * readout ("Finalizing... 80%"). */
 .step {
   position: relative; display: flex; align-items: center; justify-content: center;
-  gap: 8px; padding: 3px 2px;
+  gap: 8px; padding: 3px 2px; min-height: var(--step-h);
   transition: opacity 240ms cubic-bezier(.2, 0, 0, 1),
               transform 240ms cubic-bezier(.2, 0, 0, 1);
 }
@@ -230,23 +245,28 @@ button.icon[aria-pressed="true"] { color: var(--accent); }
 .step .lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step .num { flex: none; font-variant-numeric: tabular-nums; }
 .step.running { color: var(--text); }
-.step.running .ic .spin { animation: spin 1s linear infinite; }
+/* The running row's own indicator (777:709) is drawn with currentColor, so the
+   accent is one property: the working colour is the same everywhere. */
+.step.running .ic .spin { color: var(--accent); animation: spin 1s linear infinite; }
 .step.done { opacity: 0.5; }
 .step.error { color: var(--error); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Indexing heading pill (777:698): radius 32, #171717, gradient edge, shadow,
  * accent 46px medium label + a two-arc indeterminate indicator (accent arc over
- * a white track, thickness 4 of 44). */
+ * a white track, thickness 4 of 44). Sized by its own content and centred in the
+ * column, so it reads as a status chip over the centred step rows rather than a
+ * full-width banner — at 320px a banner is a rule with a label on it. */
 .pill {
+  align-self: center;
   border-radius: var(--r-lg); box-shadow: var(--sh);
-  padding: 12px 18px; display: flex; align-items: center; gap: 12px;
+  padding: 10px 18px; display: flex; align-items: center; gap: 12px;
 }
-.pill-label { flex: 1; min-width: 0; color: var(--accent); font-size: 13px; font-weight: 500;
+.pill-label { flex: 0 1 auto; min-width: 0; color: var(--accent); font-size: 13px; font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Material's two-arc indicator (777:704): a light full-circle track under an
- * accent arc. Sizes itself from the width/height on the element. */
-.pill .spin { flex: none; width: 16px; height: 16px; color: var(--text); animation: spin 1s linear infinite; }
+/* Material's two-arc indicator (777:704): a full-circle track under an accent
+ * arc. Sizes itself from the width/height on the element. */
+.pill .spin { flex: none; width: 16px; height: 16px; animation: spin 1s linear infinite; }
 .job-err {
   border: 1px solid var(--error); border-radius: var(--r-sm); padding: 4px 8px;
   color: var(--error); word-break: break-word;
@@ -340,7 +360,13 @@ button.icon[aria-pressed="true"] { color: var(--accent); }
 /* ---------- no-footage state (777:639) ----------
  * The design draws the heading as a disabled CTA. It is rendered as a status
  * pill instead: a control that cannot be pressed advertises an action it does
- * not have (AGENTS.md 8). Pixels kept, dead affordance dropped. */
+ * not have (AGENTS.md 8). Pixels kept, dead affordance dropped.
+ * `centered` is the same centring the indexing screen gets from `margin: auto`
+ * on #indexing: the status bar is the only thing above this block, so it sits
+ * in the middle of the panel on both axes instead of stacked under the bar.
+ * panel.js sets it only when this block is what #results holds — cards, the
+ * skeleton list and the no-matches row are all top-aligned. */
+#results.centered { margin: auto; }
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px;
   padding: 28px 8px; text-align: center; }
 .empty-state .warn { font-weight: 600; }
