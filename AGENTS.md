@@ -19,6 +19,7 @@
 7. Every PR must pass the checklist in §11.
 8. Implement in phases (P0–P6, see PRODUCT.md plan). One phase per commit; never mix phases.
 9. One ticket per session. The ticket, its spec, and its blockers are the unit of work; see `docs/agents/session-workflow.md` for the loop.
+10. **Commit messages are one line: `type(scope): summary`. No description paragraphs, ever.** Scope is the top-level root the commit touches — `panel`, `service`, `engine`. `docs` commits take no scope, because the type already names the root. The summary says *what changed*; the reasoning belongs in the ADR, the spec, or the PR description, not in the log. `git log --format=%B` on any commit should be a single line — if it is not, that commit is malformed.
 
 ---
 
