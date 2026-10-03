@@ -195,6 +195,23 @@ said, and it truncated to nothing in a 300 px panel. With it gone the section
 shows only when there is work to show: a live job, a failed one, or footage
 stranded mid-index whose Resume button the empty-state hint points at.
 
+**The screen is centred.** While a job runs this section is the whole panel — the
+search field is hidden until one footage is ready — so it sits in the middle of
+the panel on both axes rather than stacked under the status bar. Two details
+decide how it reads:
+
+- `#app` carries `min-height: 100vh` so there is free space to centre inside;
+  auto margins collapse to zero when the content is taller than the panel, so a
+  long error row starts at the top and scrolls as before.
+- `max-width: 320px` on the section. Without it the pill spans a 640 px dock and
+  the steps are two short rows floating in the middle of it. The pill keeps the
+  full width of that column — a banner, not a chip.
+
+Each step row centres its icon, label and readout as one line (the row is a
+centred flex row, not a 16px/1fr grid). The error row and the footage rows stay
+left-aligned inside the column: a 300-character engine traceback reads wrong
+centred, and those rows are text blocks, not a status line.
+
 ### 3.3 Progress readouts
 
 `StageStatus` is `{name, state, done, total}` (`schemas.py:42-46`). There is no

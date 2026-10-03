@@ -23,6 +23,11 @@ flag and reject an element reading as "AI-generated slop".
 - [ ] Every animation answers "what state is this?". A sweep that decorates
       rather than informs is rejected here exactly as a spinner over a skeleton
       would be.
+- [ ] Indexing section: centred in the panel on both axes while a job runs, in a
+      column that stays readable at a 640 px dock (drag the width slider). The
+      pill spans that column edge to edge — a banner, not a centred chip. Each
+      step row centres its icon, label and readout on one line; the error row
+      and the footage rows stay left-aligned.
 - [ ] Indexing section: a status pill reading "Processing your videos" with the
       two-arc indicator, and the step list. **No summary line and no file name**
       anywhere on this screen outside the footage rows. **There is no hide/show

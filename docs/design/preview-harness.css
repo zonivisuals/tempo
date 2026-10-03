@@ -40,6 +40,9 @@ body {
   border-bottom: 1px solid #333; background: #151515;
 }
 /* The panel itself is #app (copied verbatim from panel/www/index.html); this
-   only gives it a resizable width and a scroll viewport, like a docked panel. */
-#app { display: flex; flex-direction: column; gap: 8px; height: 760px;
+   only gives it a resizable width and a scroll viewport, like a docked panel.
+   min-height: 0 opts the frame out of the shipped `min-height: 100vh`, which
+   would otherwise stretch it to the browser window and defeat the centring the
+   docked panel gets from its own viewport. */
+#app { display: flex; flex-direction: column; gap: 8px; height: 760px; min-height: 0;
   overflow-y: auto; overflow-x: hidden; }
