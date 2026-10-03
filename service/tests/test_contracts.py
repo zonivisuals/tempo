@@ -272,6 +272,25 @@ def test_panel_has_no_dead_step_bar():
     assert ".step .bar" not in css, "panel.css still styles a step progress bar"
 
 
+def test_panel_has_no_indexing_summary():
+    """The indexing screen names no file.
+
+    It used to open with `Indexing · <file name> · <stage> <n>` above the step
+    list: one more string to keep in sync, one more thing to truncate in a
+    300px panel, and the only place a filename appeared outside the results
+    cards and the footage filter. The step rows, the error row and the footage
+    rows carry what matters. Assert the whole apparatus stays gone.
+    """
+    src = PANEL_JS.read_text(encoding="utf-8")
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    for dead in ("indexSummary", "currentStep", "footageName", "indexing-summary", "Indexing ·"):
+        assert dead not in src, f"panel.js reintroduced {dead!r}"
+        assert dead not in html, f"index.html reintroduced {dead!r}"
+    # The heading itself is not optional: it is the whole screen between enqueue
+    # and the first stage reporting.
+    assert "Processing your videos" in html
+
+
 def test_panel_top_k_matches_service():
     """panel.js TOP_K and the sidecar /search default must agree.
 

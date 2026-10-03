@@ -93,7 +93,7 @@ another file is still indexing (§5 F2).
 #searchbox    label + value + submit                                (ready footage only)
 #error        inline error row                                       (on error)
 #footage-filter                                                       (>1 footage)
-#indexing     status pill + summary + step list, footage rows        (job live)
+#indexing     status pill + step list + footage rows                (job live)
 #results      skeletons | cards | empty state | no-results
 ```
 
@@ -184,9 +184,16 @@ readout (`777:702`, "Finalizing... 80%"):
 Above the list, while a job is live, the **indexing pill** (`777:698`): the fixed
 label `Processing your videos` in `--accent` plus the same two-arc indicator, on
 the gradient-edged, shadowed `--surface`. The label does not change with the
-stage — the step list right below names the stage, and the summary line repeats
-it when nothing else competes for the width. The text lives in `index.html`, not
-in JS.
+stage — the step list right below names the stage. It is also the whole screen
+between enqueue and the first stage reporting, when the list has no rows yet.
+The text lives in `index.html`, not in JS.
+
+**Nothing above or beside the list names the file.** An earlier revision carried
+a summary line, `Indexing · <file> · <stage> <n>`; it was the only filename on
+this screen outside the footage rows, it repeated what the running row already
+said, and it truncated to nothing in a 300 px panel. With it gone the section
+shows only when there is work to show: a live job, a failed one, or footage
+stranded mid-index whose Resume button the empty-state hint points at.
 
 ### 3.3 Progress readouts
 

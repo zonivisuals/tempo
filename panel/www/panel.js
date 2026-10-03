@@ -122,11 +122,6 @@ function stageLabel(name) {
   return step ? step.label : name;
 }
 
-function footageName(key) {
-  const f = store.footages.find((x) => x.footage_key === key);
-  return f ? baseName(f.path) : "";
-}
-
 /* ---------- icons (Figma 777:702) ----------
  * The running row's indicator is the design's 12-ray asset (777:709): a 32px box
  * with stroke-width 3.2. It is rendered into a 16px slot rather than 32 —
@@ -293,33 +288,7 @@ function renderSteps() {
   });
 }
 
-/* ---------- indexing summary + error ---------- */
-
-function currentStep(job) {
-  const stages = (job && job.stages) || [];
-  return stages.filter((s) => s.state === "running").pop() || stages.find((s) => s.state === "pending") || null;
-}
-
-function indexSummary() {
-  const live = store.activeJobs.map((id) => store.jobs[id]).filter(Boolean);
-  if (live.length) {
-    const j = live[0];
-    const st = currentStep(j);
-    const name = footageName(j.footage_key) || "footage";
-    const n = st ? stepNumber(st) : "";
-    const step = st ? ` · ${stageLabel(st.name)}${n ? " " + n : ""}` : "";
-    const waiting = j.state === "queued-for-backend" ? " · waiting for engine" : "";
-    const more = live.length > 1 ? ` · +${live.length - 1} queued` : "";
-    return `Indexing · ${name}${step}${waiting}${more}`;
-  }
-  const fs = store.footages;
-  if (!fs.length) return "No footage in project";
-  const count = (state) => fs.filter((f) => f.state === state).length;
-  const parts = [`${fs.length} footage`, `${count("ready")} ready`];
-  if (count("error")) parts.push(`${count("error")} error`);
-  if (count("stale")) parts.push(`${count("stale")} stale`);
-  return parts.join(" · ");
-}
+/* ---------- indexing error ---------- */
 
 function renderJobError() {
   const box = $("job-err");
@@ -448,19 +417,22 @@ function renderIndexing() {
   const job = activeJob();
   const live = !!job;
   const failed = Object.keys(store.jobs).some((id) => store.jobs[id].state === "error");
-  const hasFootage = store.footages.length > 0;
-  section.hidden = !live && !hasFootage;
+  // Footage left mid-index with no live job (service restart, engine never
+  // picked it up) is still work this panel can act on, and the empty-state hint
+  // points here for its Resume button. Nothing else keeps the section open.
+  const stuck = store.footages.some((f) => f.state === "indexing" || f.state === "uploading");
+  const show = live || failed || stuck;
+  section.hidden = !show;
 
   // Figma 777:698: the heading pill carries a fixed label and the two-arc
-  // indicator. The live stage is named in the step list right below it, and in
-  // the summary line once the detail is not competing for the width.
+  // indicator, and it is the whole screen until the first stage reports. The
+  // live stage is named in the step list right below it. No toggle: the list is
+  // simply there while a job runs and disappears with it. A failed job keeps its
+  // message and Retry visible.
   $("indexing-pill").hidden = !live;
-  $("indexing-summary").textContent = indexSummary();
-  // No toggle: the step list is simply there while a job runs, and disappears
-  // with it. A failed job keeps its message and Retry visible.
-  $("indexing-detail").hidden = !live && !failed;
+  $("indexing-detail").hidden = !show;
   renderSteps();
-  if (live || failed) { renderJobError(); renderFootageActions(); }
+  if (show) { renderJobError(); renderFootageActions(); }
 }
 
 function skeletonHTML() {

@@ -512,7 +512,7 @@ AE exposes (historically) almost no CEP events to panels — do not design aroun
 - Engine address, token, and Brev instance are server config (never panel input). `/health` reports engine reachability and tunnel state; unreachable/asleep/tunnel-down renders as an honest status row, never a spinner.
 - While the panel is open: poll every 2 s (config) — cheap evalScript + registry diff. New imports reuse a ready engine index or enter `uploading` automatically (D16), then indexing (F1).
 - Explicit **Sync now** button as the manual fallback.
-- While any job is running: poll `GET /jobs/{id}` at 500 ms and render the stage list (F4). The indexing section has a one-line summary (always visible), a status pill, and the stage list itself - there is no toggle: the list is shown whenever a job is live and disappears when none is. A failed job keeps its message and Retry visible.
+- While any job is running: poll `GET /jobs/{id}` at 500 ms and render the stage list (F4). The indexing section is a status pill and the step list, and nothing else - there is no summary line and no toggle: the list is shown whenever a job is live and disappears when none is. A failed job keeps its message and Retry visible, as does footage stranded mid-index by a service restart.
 
 ---
 
