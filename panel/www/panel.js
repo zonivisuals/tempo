@@ -8,8 +8,8 @@
  *    never on the 500ms poll, so nothing in flight is destroyed.
  *  - #steps is keyed and mutated in place. It DOES re-render on the poll, and
  *    replacing its nodes would restart every CSS animation from frame zero at
- *    2Hz. One persistent node per stage key; text and bar width are written only
- *    when they change; reordering uses FLIP so a completing step slides. */
+ *    2Hz. One persistent node per stage key; text is written only when it
+ *    changes; reordering uses FLIP so a completing step slides. */
 "use strict";
 
 // Poll cadence mirrors service config (config.py sync_poll_s/job_poll_s).
@@ -22,11 +22,12 @@ const JOB_POLL_MS = 500;
 // service/tests/test_contracts.py::test_panel_top_k_matches_service.
 const TOP_K = 9;
 
-// Nine rows: the eight engine stages with editorial labels, plus one synthetic
+// Nine steps: the eight engine stages with editorial labels, plus one synthetic
 // row bound to job state "queued" (docs/design/panel-ui.md 3.2). Presentation
 // only — the stage list itself comes from the service, which takes it from
 // engine /v1/health; unknown names render as-is with no label (panel.js's
-// stageLabel falls through to the raw name).
+// stageLabel falls through to the raw name). A step is a row only once its
+// stage has started: see stepOrder.
 const STEPS = [
   { key: "queued", label: "Initializing your project" },
   { key: "upload", label: "Uploading the footage" },
@@ -170,27 +171,29 @@ function stepNumber(s) {
 
 /* ---------- step list ---------- */
 
-/* Display order: running -> done (most recent first) -> pending (reverse
- * pipeline order). The design puts the live step at the top and completed steps
- * slide down beneath it. */
+/* Display order: running -> done (most recent first). A stage that has not
+ * started is not a row: the list is the running stage plus what is finished,
+ * so a docked panel shows real progress instead of nine claims about work that
+ * has not happened yet (AGENTS.md 5 F4). A row appears when its stage starts
+ * and keeps its place until it is done. */
 function stepOrder(job) {
   const stages = (job && job.stages) || [];
   const byKey = new Map();
   for (const s of stages) byKey.set(s.name, s);
   const queued = job && job.state === "queued" ? { name: "queued", state: "running", done: 0, total: 0 } : null;
   if (queued) byKey.set("queued", queued);
+  const state = (key) => (byKey.get(key) || {}).state || null;
 
-  const running = STEPS.filter((k) => byKey.get(k.key) && byKey.get(k.key).state === "running").map((k) => k.key);
-  const done = STEPS.filter((k) => byKey.get(k.key) && byKey.get(k.key).state === "done")
-    .map((k) => k.key).reverse();
-  const pending = STEPS.map((k) => k.key).reverse()
-    .filter((key) => !running.includes(key) && !done.includes(key) && byKey.has(key));
+  const running = STEPS.filter((s) => state(s.key) === "running").map((s) => s.key);
+  const done = STEPS.filter((s) => state(s.key) === "done").map((s) => s.key).reverse();
+  // Anything else that is not pending still gets a row: an errored stage (why
+  // indexing stopped) and a stage the engine added that STEPS has no label for.
+  // Keys come from the Map, not Object.keys, which is empty for a Map.
+  const rest = [...byKey.keys()]
+    .filter((k) => state(k) !== "pending" && !running.includes(k) && !done.includes(k))
+    .reverse();
 
-  // Any stage the engine reports that is not in STEPS still gets a row, so an
-  // added stage is visible rather than silently dropped.
-  const known = new Set([...running, ...done, ...pending]);
-  const extra = Object.keys(byKey).filter((k) => !known.has(k)).reverse();
-  return [...running, ...done, ...pending, ...extra];
+  return [...running, ...done, ...rest];
 }
 
 function activeJob() {
@@ -262,6 +265,8 @@ function renderSteps() {
 
   const stages = new Map(((job && job.stages) || []).map((s) => [s.name, s]));
   const wanted = order.map((key) => {
+    // `queued` is the one key stepOrder returns that the job does not report:
+    // it is synthetic, so its row has to be reconstructed here too.
     const s = stages.get(key)
       || (key === "queued" ? { name: "queued", state: "running", done: 0, total: 0 }
                           : { name: key, state: "pending", done: 0, total: 0 });

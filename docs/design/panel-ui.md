@@ -164,10 +164,12 @@ Labels are **presentation only**. The stage *list* comes from the service
 as-is (`§4.4`). The label map lives in `panel.js` beside the existing
 `STAGE_LABELS`.
 
-Display order is computed per tick: **running → done (reverse completion order)
-→ pending (reverse pipeline order)**. Row identity is keyed by stage key, so a
-completing row is *moved* in the DOM, not recreated — that is what makes the
-slide possible at all (§5 below).
+Display order is computed per tick: **running → done (reverse completion
+order)**. A stage that has not started is **not a row**: the list is the running
+stage plus what is already finished, so from enqueue until the first stage
+reports the list is empty and the heading pill is the whole screen. Row identity
+is keyed by stage key, so a completing row is *moved* in the DOM, not recreated —
+that is what makes the slide possible at all (§5 below).
 
 Row states — the design has **no progress bar**; progress is the running row's own
 readout (`777:702`, "Finalizing... 80%"):
@@ -176,7 +178,7 @@ readout (`777:702`, "Finalizing... 80%"):
 |---|---|---|---|
 | running | two-arc indeterminate indicator, accent | `--text` | percentage, or the unit count |
 | done | 16 px check | `--text` at 0.5 opacity | hidden |
-| pending | 16 px hollow ring | `--text-dim` | hidden |
+| pending | none — the row does not exist yet | — | — |
 | error | 16 px hollow ring, `--error` | `--error` | hidden |
 
 Above the list, while a job is live, the **indexing pill** (`777:698`): the fixed
@@ -263,12 +265,11 @@ as the cost of a grid default in a 300 px panel.
 CSS animation restarts from frame zero at 2 Hz and never completes.
 
 The step list keeps one persistent node per stage key and mutates it in place:
-text only when it changed, bar width via a CSS custom property, icon via a class.
-Reordering uses FLIP — measure `getBoundingClientRect().top` before the move,
-apply the inverse `translateY`, then release to 0 over 240ms. That is what makes
-"slides down and the next label takes its place" render as a slide rather than a
-jump. The high-water mark in §3.3 rule 3 lives here too, as a stored value per
-stage rather than a rendering trick.
+text and icon only when they changed. Reordering uses FLIP — measure
+`getBoundingClientRect().top` before the move, apply the inverse `translateY`,
+then release to 0 over 240ms. That is what makes "slides down and the next label
+takes its place" render as a slide rather than a jump. There is no bar and no
+high-water state to keep: progress is the running row's text (§3.3).
 
 ## 6. Errors
 

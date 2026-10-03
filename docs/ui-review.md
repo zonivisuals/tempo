@@ -28,9 +28,11 @@ flag and reject an element reading as "AI-generated slop".
       pill reading "Processing your videos" with the two-arc indicator. **There is
       no hide/show toggle** — the stage list is shown whenever a job is live and
       gone when none is, and a failed job keeps its message and Retry.
-- [ ] Step list: nine rows, newest at the top, done rows dimmed with a check and
-      the running row carrying a readout. No step renders a number when `total` is
-      0.
+- [ ] Step list: the running stage at the top with its readout, finished stages
+      dimmed below it with a check. **A stage that has not started draws no row** —
+      check `preview.html#indexing` early in the run: the list must not be a
+      column of dim placeholders, and `preview.html#queued` must show the single
+      synthetic queued row. No step renders a number when `total` is 0.
 - [ ] Short factual labels ("Indexing · OCR 37/157"); result cards show
       thumbnail, file name when more than one footage is loaded, timecode range +
       duration, and **one** description line (caption, or transcript when the

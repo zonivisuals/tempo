@@ -157,19 +157,14 @@ def test_preview_markup_matches_panel():
     assert "preview-harness.js" in prev
 
 
-def test_panel_js_evaluates_cleanly():
-    """panel.js must load without a runtime error, and define its globals.
+def _panel_eval(expr: str) -> str:
+    """Evaluate one expression against panel.js and return it as JSON.
 
-    `node --check` (the CI gate) is parse-only: a file that begins `re/* ... */`
-    parses fine and then throws ReferenceError on load, which is exactly how a
-    stray edit reached panel.js once. Evaluating it the way a browser does —
-    vm.runInThisContext, so top-level `const` lands in the global lexical scope —
-    catches that class of bug without needing a browser.
-
-    Only panel.js's top-level code runs: boot() hangs off DOMContentLoaded,
-    which is never dispatched here.
+    The panel is loaded the way a browser loads it — `vm.runInThisContext`, so
+    top-level `const` lands in the global lexical scope and a bare identifier in
+    the expression resolves — with CSInterface and TempoAPI stubbed out. Only
+    top-level code runs: boot() hangs off DOMContentLoaded, never dispatched here.
     """
-    import json
     import shutil
     import subprocess
     import tempfile
@@ -179,24 +174,17 @@ def test_panel_js_evaluates_cleanly():
     if not node:  # CI runs node --check, so node is present; be honest if not.
         pytest.skip("node not on PATH")
 
-    driver = """
+    driver = f"""
       const fs = require('node:fs'), vm = require('node:vm');
       window = global;
-      document = { addEventListener() {}, getElementById() { return null; } };
-      CSInterface = function () {};
-      CSInterface.prototype.evalScript = function (e, cb) { cb(null); };
-      CSInterface.prototype.getHostEnvironment = function () { return "{}"; };
-      TempoAPI = {};
+      document = {{ addEventListener() {{}}, getElementById() {{ return null; }} }};
+      CSInterface = function () {{}};
+      CSInterface.prototype.evalScript = function (e, cb) {{ cb(null); }};
+      CSInterface.prototype.getHostEnvironment = function () {{ return "{{}}"; }};
+      TempoAPI = {{}};
       vm.runInThisContext(fs.readFileSync(process.argv[2], 'utf8'),
-                          { filename: process.argv[2] });
-      vm.runInThisContext(
-        'if (typeof store !== "object") throw new Error("panel.js defined no store");' +
-        'if (typeof render !== "function") throw new Error("panel.js defined no render");' +
-        'if (typeof stepOrder !== "function") throw new Error("panel.js defined no stepOrder");' +
-        'if (typeof stepNumber !== "function") throw new Error("panel.js defined no stepNumber");' +
-        'if (typeof doSearch !== "function") throw new Error("panel.js defined no doSearch");'
-      );
-      console.log("ok");
+                          {{ filename: process.argv[2] }});
+      console.log(JSON.stringify({expr}));
     """
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
@@ -206,10 +194,71 @@ def test_panel_js_evaluates_cleanly():
             capture_output=True, text=True, timeout=60,
         )
     assert proc.returncode == 0, (
-        "panel.js does not evaluate cleanly:\n"
-        f"{proc.stdout}\n{proc.stderr}"
+        f"panel.js failed to evaluate:\n{proc.stdout}\n{proc.stderr}"
     )
-    assert "ok" in proc.stdout
+    return proc.stdout.strip().splitlines()[-1]
+
+
+def _step_order(job: dict) -> list[str]:
+    """The stage keys panel.js would render, in render order, for one job."""
+    return json.loads(_panel_eval(f"stepOrder({json.dumps(job)})"))
+
+
+def _job(state: str, stages: list[tuple[str, str]]) -> dict:
+    return {"state": state, "stages": [{"name": n, "state": s} for n, s in stages]}
+
+
+def test_panel_js_evaluates_cleanly():
+    """panel.js must load without a runtime error, and define its globals.
+
+    `node --check` (the CI gate) is parse-only: a file that begins `re/* ... */`
+    parses fine and then throws ReferenceError on load, which is exactly how a
+    stray edit reached panel.js once. Evaluating it the way a browser does
+    catches that class of bug without needing a browser.
+    """
+    names = ("store", "render", "stepOrder", "stepNumber", "doSearch")
+    expr = "({ " + ", ".join(f"{n}: typeof {n}" for n in names) + " })"
+    kinds = json.loads(_panel_eval(expr))
+    expected = {"store": "object", "render": "function", "stepOrder": "function",
+                "stepNumber": "function", "doSearch": "function"}
+    assert kinds == expected, "panel.js loaded but did not define its globals"
+
+
+def test_step_order_shows_only_started_stages():
+    """A stage that has not started draws no row (AGENTS.md §5 F4).
+
+    The list is the running stage plus what is already finished. Pending rows
+    cost the editor the real progress: nine of them at the start of every job,
+    pushing the running row off a docked panel.
+    """
+    assert _step_order(_job("running", [
+        ("upload", "done"), ("shots", "done"), ("visual", "running"),
+        ("transcribe", "pending"), ("ocr", "pending"), ("captions", "pending"),
+        ("text", "pending"), ("index", "pending"),
+    ])) == ["visual", "shots", "upload"]
+
+    # Nothing has started: no rows at all. The pill is the whole screen.
+    assert _step_order(_job("running", [
+        ("upload", "pending"), ("shots", "pending"), ("visual", "pending"),
+    ])) == []
+
+
+def test_step_order_keeps_the_rows_that_are_not_ordinary_progress():
+    """The rows that carry information survive the pending hiding.
+
+    An errored stage is why indexing stopped, an unknown stage name is the
+    engine doing something the panel has no label for, and the synthetic queued
+    row is the only thing on screen between enqueue and the first stage.
+    """
+    assert _step_order(_job("running", [
+        ("upload", "done"), ("visual", "error"), ("shots", "pending"),
+    ])) == ["upload", "visual"]
+
+    assert _step_order(_job("running", [
+        ("upload", "done"), ("regroup", "running"), ("shots", "pending"),
+    ])) == ["upload", "regroup"]
+
+    assert _step_order(_job("queued", [("upload", "pending")])) == ["queued"]
 
 
 def test_panel_has_no_dead_step_bar():
