@@ -19,6 +19,7 @@ Index of decisions (details in AGENTS.md §12). New decisions get a numbered fil
 - D15 Brev L4 engine behind the backend seam → `0008-brev-engine.md`
 - D16 Content-addressed cache (path → content id → stage cache) → `0008-brev-engine.md`
 - D17 v4 pipeline + z-score fusion + FAISS candidates → `0009-v4-pipeline.md`
+- D18 Figma-derived panel UI: motion allowed under a budget, dimensions re-derived for panel scale, Tempo ships its own two themes → `0011-figma-panel-ui.md`
 
 Known debt:
 - K1 key-scale calibration — resolved by D17

@@ -21,8 +21,10 @@
    must pass before any client update ships.
 6. `ae_smoke.jsx` on the **oldest and newest** claimed AE (`docs/ae-smoke.md`,
    sign name/date/version) — AE has no cheap CI automation; manual is honest.
-7. Panel screenshot vs §6 anti-slop list (reviewer rejects gradients, pills,
-   emoji, spinners-where-skeletons-belong on sight).
+7. Panel screenshot vs ADR-0011 / `docs/design/panel-ui.md`: reviewer
+   rejects glows, pills, emoji, dead controls, and more than two animated
+   surfaces at once. A gradient is only ever the mechanism of a loading
+   sweep, never a surface treatment.
 8. Fresh-machine install: Velopack Setup → import → index → search
    → click-insert → single-undo. Then auto-update to the previous build and
    back (channels).

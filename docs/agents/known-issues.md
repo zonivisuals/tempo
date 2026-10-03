@@ -27,6 +27,39 @@ changed and can check the reasoning.
 
 ## Open: spec disagrees with code
 
+### The declared CEP floor is not the real one
+
+`panel/CSXS/manifest.xml:20` declares `<RequiredRuntime Name="CSXS" Version="9.0" />`.
+Per the CEP 12 Cookbook's CEF table that is Chromium 61 (CEF 3 branch 3163).
+Two things in the shipped panel need newer than that:
+
+- **flexbox `gap`** — Chromium 84. Used in `panel.css` since the current layout
+  landed, and relied on throughout the ADR-0011 rewrite.
+- **`prefers-reduced-motion`** — Chromium 74. Used by the ADR-0011 motion
+  budget; it silently no-ops below that.
+
+**Consequence:** the manifest advertises CC 2019 / 2020 (AEFT 16–17, CEP 9) but
+the panel has never worked there. Either narrow `<Host Name="AEFT">` to the
+versions actually on `docs/ae-smoke.md`, or replace `gap` with margins and drop
+the media query. Until one of those happens, treat CC 2019+ as untested rather
+than supported — the wide-compat claim in `AGENTS.md` is a target, not a fact.
+
+### Panel errors are not the server's errors
+
+`panel.js` reads `res.body.error.{code,message}` for search only. `POST /sync`,
+`POST /jobs/{id}/retry` and `POST /footage/{key}/retry` replace both with a
+panel-synthesized code and `status N`, so a quota denial renders
+`SYNC_FAILED · status 403` while the real message ("plan 'free' allows 3
+footage; project holds 4") is discarded. `GET /footage` has no `else` branch at
+all. Thumbnail failures are invisible: the URL goes straight into `<img src>`,
+and `app.py:462-464` maps a fully unreachable engine to `404 unknown thumbnail`,
+so a dead engine renders as broken images rather than an error.
+
+**Consequence:** the inline error row is laid out for the honest version but the
+data is not honest yet. Tracked in `docs/design/panel-ui.md` §6; needs
+`docs/api.md` updated in the same change (`INTERNAL`, sidecar `NOT_FOUND`, the
+422 `detail` envelope and the `starting` tunnel state are all undocumented).
+
 ### Config weights are not pinned by any test
 
 `engine/tests/test_search.py:14-15` hardcodes its own `WEIGHTS` and `CAP = 3.0`
@@ -97,9 +130,10 @@ has no module scope. If you add a helper, do not assume it is private.
 The nine unpinned constants: port `8765` (`service/config.py:18`,
 `panel/api.js:7`); sync poll `2.0` and job poll `0.5` (`config.py:30-31`,
 `panel.js:10-11`, which admits in a comment that they are kept in step by hand);
-frame rate `25.0` (`schemas.py:22`, `panel.js:22`, `host.jsx:37,131`);
-`1920x1080` and `60.0` second comp fallback (`host.jsx:131,133`); `top_k` `8`
-(`panel.js:260,388`, `app.py:405`).
+frame rate `25.0` (`schemas.py:22`, `panel.js`, `host.jsx:37,131`);
+`1920x1080` and `60.0` second comp fallback (`host.jsx:131,133`).
+`top_k` is no longer on this list — ADR-0011 moved it to 9 and
+`test_contracts.py::test_panel_top_k_matches_service` pins it.
 
 ## Open: docs describing things that do not exist
 

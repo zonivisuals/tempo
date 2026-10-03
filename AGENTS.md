@@ -114,6 +114,7 @@ tempo/
 │   │   ├── domain.md            # vocabulary + which spec wins per topic
 │   │   └── issue-tracker.md     # where tickets live and how skills reach them
 │   ├── decisions/             # numbered ADRs for anything overriding §2.1
+│   ├── design/                # panel-ui.md (UI spec of record) + preview.html
 │   ├── ae-smoke.md            # manual AE checklist backing ae_smoke.jsx
 │   ├── ui-review.md           # §6 reviewer checklist
 │   ├── production.md          # deploy + runbook (see known-issues: parts are aspirational)
@@ -531,13 +532,14 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 - Enter submits. Results render as cards: keyframe thumbnail, footage name, timecode range (comp-fps timecode, from project fps), duration, transcript snippet, caption, and one Insert action. (The API still returns the decomposable score breakdown per result; the panel no longer renders it.)
 - Search across all ready footage by default; footage filter dropdown when more than one footage exists. Acceptance: thumbs render from the local cache instantly; results arrive on backend time with a timeout; failures surface inline with codes (`BACKEND_UNREACHABLE`, `BACKEND_ASLEEP`, `BACKEND_TIMEOUT`). No < 300 ms bar over a network hop. The contract guarantee is the engine's warm ranking path (`search.rank` over a prebuilt corpus): < 300 ms at 10k shots on CPU, asserted in an engine test.
 
-**F3 — Skeleton loading while searching**
-- On submit, immediately render `top_k` skeleton cards (flat gray blocks: thumb rectangle + two text lines) that pulse via opacity — no shimmer gradients, no spinners where skeletons fit.
+**F3 — Loading states while searching**
+- On submit, immediately render `top_k` skeleton cards (thumb block + caption block) that pulse or sweep under the ADR-0011 motion budget.
 - Skeletons never display shorter than ~200 ms (prevents flicker) and are replaced by real cards or an inline "no results" row. Errors surface as a compact inline message with the service error code — never a modal.
 
 **F4 — Step-based indexing progress**
 - Each indexing job renders its stage list (§3.2) with per-stage states: pending → running (with `done/total` progress bar where applicable) → done; error state shows the stage and message.
 - The bar reflects real units (bytes sent; frames, audio seconds, keyframes, reps). Acceptance: progress updates derive from job status payloads only — no estimated/fake progress.
+- Nine rows ship: the eight engine stages with editorial labels, plus one synthetic row bound to job `state === "queued"`. Newest step at the top; a completing step slides down into place. Progress renders **no readout at all** where `total == 0` (cache-served stages, and every stage of a `reused` job) and a time count rather than a percentage for `transcribe`. Detail: `docs/design/panel-ui.md` §3.
 
 **F5 — Open result at exact timestamp**
 - Single click on a result card performs §4.3 verbatim. Acceptance: with a comp open, after one click the layer exists, is trimmed to `[start_s, end_s]`, the playhead sits at the shot start, the layer is selected, and a single undo removes the whole action.
@@ -549,27 +551,52 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 
 ## 6. UI rules (anti-slop, binding)
 
-Tempo's UI mimics AE native panels: dense, gray, flat, quiet. Read the host theme at startup (`CSInterface#getHostEnvironment().appSkinInfo`) and derive background/border/text colors from it; ship neutral fallbacks.
+Tempo's UI mimics AE native panels: dense, gray, flat, quiet. Read the host theme at startup (`CSInterface#getHostEnvironment().appSkinInfo`) — but only to select dark or light; Tempo's own palette wins (ADR-0011). Ship neutral fallbacks. The visual system is the Figma design, re-measured for panel width; `docs/design/panel-ui.md` is the spec of record.
 
 **Do:**
-- Flat surfaces, 1px borders, corner radius ≤ 2px (one documented exception: the
-  7 px status dot, `panel.css:34`, must stay round to read as a dot), spacing in
-  a 4px rhythm, system font stack, 12px base size, 11px metadata.
+- Flat surfaces, 1px dividers, and the Figma design's own radii ported as
+  ratios: 32/196 → `--r-lg: 8px` on the search field, CTA and indexing pill,
+  12/560 → `--r-md: 3px` on cards and skeletons, 10.67/60 → `--r-sm: 4px` on
+  buttons. One documented exception stays round: the 7 px status dot, which must
+  read as a dot. Spacing in a 4px rhythm, system font stack, 12px base / 11px
+  metadata.
+- The design's 1.5px white→surface gradient stroke at 0.28 alpha and its
+  `0 8 12 rgba(0,0,0,0.2)` shadow on the search field and the pills. This is the
+  one place a gradient is a surface treatment; everywhere else a gradient is only
+  ever the mechanism of a loading sweep.
 - Monochrome + at most ONE accent color, used only for selection/active states.
 - Icons: a minimal consistent set (or none — text labels are fine at this density). Every icon must be identifiable at 16px.
-- Progress = thin flat bars; loading = opacity-pulsing skeletons.
+- Progress is a thin readout in the running row (a percentage, or the real unit —
+  MB, audio seconds). Not a bar: the design carries progress in the row's own
+  text, and `total == 0` renders no readout at all.
 - Short factual labels: "Indexing · OCR 37/157". No marketing voice anywhere.
-- Derive **all three** of background, border and text from `appSkinInfo`, not just
-  background. Today only `--bg` is theme-derived (`panel.js:52`); `--border`,
-  `--text`, `--dim` are hardcoded neutrals. Closing that gap is a F6 ticket.
+- Tempo ships its own **two themes** (dark + light, both derived from the
+  Figma palette in `docs/design/panel-ui.md`). `appSkinInfo` no longer supplies
+  background/border/text — it is read at startup only to detect which theme to
+  apply. This supersedes the earlier rule that derived all three colors from
+  `appSkinInfo`, which also closes the gap this section used to flag: only
+  `--bg` was ever theme-derived (`panel.js` `applyTheme`).
 
 **Don't (instant-reject in review):**
-- Gradients, glows, glassmorphism, shadows-as-decoration.
-- Rounded "cards" with big radii, floating chips, pill buttons.
+- Glows, glassmorphism, shadows anywhere other than the two pill surfaces.
+- Floating chips. (The design's pills *are* the search field and the indexing
+  heading; a pill that is not one of those is a chip.)
 - Purple/blue "AI product" palettes; any emoji as UI.
 - Placeholder copy like "Ask anything…", "Powered by", exclamation marks.
-- Spinners where skeletons belong; animated backgrounds; confetti-grade polish.
+- Animated backgrounds; confetti-grade polish.
 - Modals for errors; toast stacks; anything that moves that doesn't inform.
+- **More than two animated surfaces on screen at once** (ADR-0011 budget).
+- Elements the design does not have: a result-count line above the grid, a
+  separate Insert button on a card, a duplicate evalScript probe, a second
+  transport module.
+
+**Motion budget (ADR-0011, supersedes the former blanket ban):** shimmer
+sweeps, indeterminate spinners and state-transition animation are permitted.
+Gradients, glows and glassmorphism are permitted only as the *mechanism* of a
+loading sweep, never as a surface treatment. Every animation must answer "what
+state is this?" — a sweep that decorates rather than informs is rejected on the
+same grounds as a spinner over a skeleton. `prefers-reduced-motion: reduce`
+disables all of them (a no-op below CEF 74; see `docs/agents/known-issues.md`).
 
 The bar: if removing an element removes information, it's good. If removing it changes nothing, delete it.
 
@@ -625,6 +652,7 @@ The bar: if removing an element removes information, it's good. If removing it c
 - **Running the engine suite locally** needs the package on the path first (`pip install "./engine[dev]"`). Without it every test errors with `ModuleNotFoundError: No module named 'tempo_engine'`. The sidecar suite has no such requirement.
 - **`test_warm_rank_under_300ms_at_10k_shots` (F2) is order-sensitive.** It passes in isolation and fails when the full engine suite runs first, because the preceding tests leave the process memory-bound. Measured ~157 ms median against a 300 ms budget. Do not chase this as a scoring regression; re-run it alone to confirm.
 - **host.jsx smoke script:** a manual `ae_smoke.jsx` + checklist (open test project → list footage → insert at t → verify trim/playhead/undo). Runs before every release on oldest + newest claimed AE; AE cannot be UI-automated in CI cheaply — manual is the honest option.
+- **Panel screens without AE:** `docs/design/preview.html` opens by double-click and renders every panel screen against the real `panel.css` and `panel.js`, stubbing only `CSInterface` and `TempoAPI`. Screens are deep-linkable (`preview.html#indexing`). `test_contracts.py` pins the preview's copied markup against `index.html`, and `test_panel_js_evaluates_cleanly` runs `panel.js` through `vm.runInThisContext` — `node --check` is parse-only and would pass a file that throws on load.
 - **Regression rule:** any user-visible behavior change ships with (a) a test change, (b) a line in the decisions log, (c) this file updated if it touches a spec above.
 
 ---
@@ -689,6 +717,7 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
 - **D15 Brev L4 engine behind the backend seam** — `engine/` runs the v4 pipeline and search in Docker Compose on `tempo-l4-instance`, bound to the instance's localhost, reached through the sidecar-supervised `brev port-forward`, bearer token on every route but health (see `docs/decisions/0008-brev-engine.md`).
 - **D16 Content-addressed cache** — three layers: path fingerprint (registry), content id (engine library, instant reuse), and per-stage cache (resume and partial rebuild); resumable offset-checked uploads; display thumbs synced down per content id (ADR-0008).
 - **D17 v4 pipeline + z-score fusion** — SigLIP 2 / bge / Florence-2 / VAD Whisper; six-component weighted fusion with per-key z-scores; FAISS candidates with exact statistics; one result per scene (see `docs/decisions/0009-v4-pipeline.md`).
+- **D18 Figma-derived panel UI** — the Figma design ported (radii as ratios, its gradient strokes and shadow, its two-arc indeterminate indicator, shimmer and state-transition motion under a two-surface budget); type re-derived for panel scale; Tempo ships its own two themes and `appSkinInfo` only selects one; step list keyed, not re-rendered. Spec in `docs/design/panel-ui.md` (see `docs/decisions/0011-figma-panel-ui.md`).
 
 Known debt (tracked, not silently fixed):
 - **K1 Key-scale calibration:** RESOLVED by D17 (per-key z-scores before a weighted sum).

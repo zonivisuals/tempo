@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<!-- Standalone panel preview. Not shipped: nothing in panel/www/ loads this.
+     Open it directly (file:// works — there is no fetch) to review every
+     panel screen without After Effects or a running sidecar.
+     It loads the REAL panel/www/panel.css and the REAL panel/www/panel.js.
+     Only CSInterface and TempoAPI are stubbed, by preview-harness.js.
+     The #app markup below is copied verbatim from panel/www/index.html and
+     service/tests/test_contracts.py pins the two copies together. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Tempo panel preview</title>
+<link rel="stylesheet" href="../../panel/www/panel.css">
+<link rel="stylesheet" href="preview-harness.css">
+</head>
+<body>
+<div id="rail">
+  <h1>Tempo &mdash; panel preview</h1>
+  <p class="lede">Real <code>panel.css</code> + real <code>panel.js</code>. Only
+  CSInterface and TempoAPI are stubbed. Every screen is reachable without AE.</p>
+
+  <fieldset>
+    <legend>Screen</legend>
+    <div id="scenarios"></div>
+    <button id="replay" type="button">&#8635; Restart the indexing run</button>
+  </fieldset>
+
+  <p id="err" hidden></p>
+
+  <fieldset>
+    <legend>Panel</legend>
+    <label class="inline">Width <input id="w" type="range" min="240" max="640" value="330"></label>
+    <label class="inline"><input id="theme" type="checkbox"> Light theme</label>
+    <label class="inline"><input id="captions" type="checkbox" checked> Captions (off = transcript only)</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>What to look at</legend>
+    <p class="lede" style="margin:0">
+    The indexing run advances on the 500&nbsp;ms poll, so the step slide and the
+    spinner are live. Drag the width to check the grid's caption clipping.
+    <code>02c</code> is the reused-job case: every stage is <code>done</code> with
+    <code>total&nbsp;=&nbsp;0</code>, so no row may show a number.
+    <code>02b</code> is the synthetic <code>queued</code> row.
+    </p>
+  </fieldset>
+</div>
+
+<div id="stage">
+  <div id="panelwrap">
+    <div class="caption">01 &middot; no footage</div>
+<!-- BEGIN app: copied verbatim from panel/www/index.html -->
+<div id="app">
+  <div id="statusbar">
+    <span id="brand">Tempo</span>
+    <span id="svc-dot" class="dot" aria-hidden="true"></span>
+    <span id="svc">service…</span>
+    <span id="backend">engine…</span>
+    <button id="sync-now" type="button">Sync now</button>
+  </div>
+
+  <!-- Search field, Figma 777:509: radius 32/196, 1.5px white->#171717 edge at
+       0.28 alpha, drop shadow 0 8 12 @0.2. A permanent label line above the
+       value, as drawn. Hidden until one footage is ready: neither the
+       no-footage frame nor the indexing frame has a search field. -->
+  <div id="searchbox" class="edge" hidden>
+    <div class="sb-head">
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/>
+      </svg>
+      <span>Search footage</span>
+    </div>
+    <div class="sb-row">
+      <div class="sb-val">
+        <!-- Two stacked copies of the value: the base stays legible, the sweep
+             overlays it clipped to an accent gradient (777:512). #q's own colour
+             goes transparent while searching so the caret survives. -->
+        <span id="q-base" aria-hidden="true"></span>
+        <span id="q-sweep" aria-hidden="true"></span>
+        <input id="q" type="text" autocomplete="off" spellcheck="false">
+      </div>
+      <button id="submit" type="button" title="Search">
+        <svg class="arrow" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 8h9"/><path d="M8.5 4.5 12 8l-3.5 3.5"/>
+        </svg>
+                <svg class="spin" viewBox="0 0 44 45" width="16" height="16" aria-hidden="true">
+          <path class="arc" fill-rule="evenodd" clip-rule="evenodd" d="M41.8236 25.0704C42.9824 25.4357 43.6256 26.6713 43.2602 27.8301L42.7119 29.5691L41.9774 31.3424L41.0911 33.045L40.0598 34.6638L38.8913 36.1866L37.5945 37.6018L36.1794 38.8985L34.6566 40.067L33.0378 41.0983L31.4204 41.9402C30.3427 42.5013 29.0142 42.0824 28.4531 41.0047C27.8921 39.9269 28.311 38.5984 29.3887 38.0374L30.8357 37.2842L32.1305 36.4593L33.3484 35.5247L34.4803 34.4875L35.5175 33.3556L36.4521 32.1377L37.2769 30.8429L37.9858 29.4811L38.5733 28.0628L39.0639 26.507C39.4292 25.3482 40.6648 24.705 41.8236 25.0704Z"/>
+          <path class="track" fill-rule="evenodd" clip-rule="evenodd" d="M42.012 20.7537C40.8258 21.0167 39.651 20.2682 39.388 19.082L39.0349 17.4894L38.5733 16.0252L37.9858 14.6069L37.2769 13.2451L36.452 11.9503L35.5174 10.7324L34.4802 9.60049L33.3484 8.56331L32.1304 7.62873L30.8356 6.80385L29.4738 6.09497L28.0555 5.50746L26.5913 5.04581L25.0925 4.71353L23.5704 4.51314L22.0366 4.44618L20.5029 4.51314L18.9808 4.71353L17.482 5.04581L16.0178 5.50746L14.5994 6.09497L13.2377 6.80384L11.9429 7.62873L10.7249 8.56331L9.59305 9.60049L8.55586 10.7324L7.62129 11.9503L6.79642 13.2451L6.08752 14.6069L5.50003 16.0252L5.03837 17.4894L4.70609 18.9882L4.5057 20.5103L4.43874 22.0441L4.5057 23.5778L4.70609 25.0999L5.03837 26.5988L5.50002 28.0629L6.08752 29.4813L6.79641 30.843L7.62128 32.1378L8.55586 33.3558L9.59305 34.4877L10.7249 35.5249L11.9429 36.4594L13.2377 37.2843L14.5994 37.9932L16.0178 38.5807L17.482 39.0424L18.9808 39.3746L20.5029 39.575L22.1326 39.6462C23.3465 39.6992 24.2875 40.7262 24.2345 41.94C24.1815 43.1539 23.1545 44.095 21.9407 44.042L20.119 43.9625L18.216 43.7119L16.3421 43.2965L14.5115 42.7193L12.7382 41.9848L11.0356 41.0985L9.41676 40.0671L7.89397 38.8987L6.47881 37.6019L5.18206 36.1868L4.01358 34.664L2.98227 33.0451L2.09597 31.3426L1.36144 29.5692L0.784251 27.7386L0.368806 25.8647L0.118268 23.9617L0.0345446 22.0441L0.118274 20.1265L0.368809 18.2235L0.784252 16.3495L1.36143 14.5189L2.09597 12.7456L2.98227 11.043L4.01358 9.4242L5.18206 7.90141L6.47881 6.48625L7.89397 5.1895L9.41675 4.02102L11.0356 2.98971L12.7382 2.10341L14.5115 1.36888L16.3421 0.791692L18.216 0.37625L20.119 0.125712L22.0366 0.0419875L23.9543 0.125712L25.8573 0.376249L27.7312 0.79169L29.5618 1.36888L31.3351 2.10341L33.0377 2.98971L34.6565 4.02102L36.1793 5.1895L37.5945 6.48625L38.8912 7.90141L40.0597 9.4242L41.091 11.043L41.9773 12.7456L42.7118 14.5189L43.289 16.3495L43.6837 18.1297C43.9467 19.3159 43.1982 20.4907 42.012 20.7537Z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="error" hidden></div>
+
+  <div id="searchmeta" hidden>
+    <select id="footage-filter" hidden></select>
+    <div id="viewtoggle">
+      <button id="view-grid" class="icon" aria-pressed="true" title="Grid view">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="2.5" y="2.5" width="4.5" height="4.5"/><rect x="9" y="2.5" width="4.5" height="4.5"/>
+          <rect x="2.5" y="9" width="4.5" height="4.5"/><rect x="9" y="9" width="4.5" height="4.5"/>
+        </svg>
+      </button>
+      <button id="view-list" class="icon" aria-pressed="false" title="List view">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 4h10"/><path d="M3 8h10"/><path d="M3 12h10"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <section id="indexing" hidden>
+    <!-- Figma 777:698: heading pill carrying the live stage and the two-arc
+         indeterminate indicator. -->
+    <div id="indexing-head">
+      <div id="indexing-pill" class="pill edge" hidden>
+        <span id="indexing-label" class="pill-label">Indexing</span>
+                <svg class="spin" viewBox="0 0 44 45" width="16" height="16" aria-hidden="true">
+          <path class="arc" fill-rule="evenodd" clip-rule="evenodd" d="M41.8236 25.0704C42.9824 25.4357 43.6256 26.6713 43.2602 27.8301L42.7119 29.5691L41.9774 31.3424L41.0911 33.045L40.0598 34.6638L38.8913 36.1866L37.5945 37.6018L36.1794 38.8985L34.6566 40.067L33.0378 41.0983L31.4204 41.9402C30.3427 42.5013 29.0142 42.0824 28.4531 41.0047C27.8921 39.9269 28.311 38.5984 29.3887 38.0374L30.8357 37.2842L32.1305 36.4593L33.3484 35.5247L34.4803 34.4875L35.5175 33.3556L36.4521 32.1377L37.2769 30.8429L37.9858 29.4811L38.5733 28.0628L39.0639 26.507C39.4292 25.3482 40.6648 24.705 41.8236 25.0704Z"/>
+          <path class="track" fill-rule="evenodd" clip-rule="evenodd" d="M42.012 20.7537C40.8258 21.0167 39.651 20.2682 39.388 19.082L39.0349 17.4894L38.5733 16.0252L37.9858 14.6069L37.2769 13.2451L36.452 11.9503L35.5174 10.7324L34.4802 9.60049L33.3484 8.56331L32.1304 7.62873L30.8356 6.80385L29.4738 6.09497L28.0555 5.50746L26.5913 5.04581L25.0925 4.71353L23.5704 4.51314L22.0366 4.44618L20.5029 4.51314L18.9808 4.71353L17.482 5.04581L16.0178 5.50746L14.5994 6.09497L13.2377 6.80384L11.9429 7.62873L10.7249 8.56331L9.59305 9.60049L8.55586 10.7324L7.62129 11.9503L6.79642 13.2451L6.08752 14.6069L5.50003 16.0252L5.03837 17.4894L4.70609 18.9882L4.5057 20.5103L4.43874 22.0441L4.5057 23.5778L4.70609 25.0999L5.03837 26.5988L5.50002 28.0629L6.08752 29.4813L6.79641 30.843L7.62128 32.1378L8.55586 33.3558L9.59305 34.4877L10.7249 35.5249L11.9429 36.4594L13.2377 37.2843L14.5994 37.9932L16.0178 38.5807L17.482 39.0424L18.9808 39.3746L20.5029 39.575L22.1326 39.6462C23.3465 39.6992 24.2875 40.7262 24.2345 41.94C24.1815 43.1539 23.1545 44.095 21.9407 44.042L20.119 43.9625L18.216 43.7119L16.3421 43.2965L14.5115 42.7193L12.7382 41.9848L11.0356 41.0985L9.41676 40.0671L7.89397 38.8987L6.47881 37.6019L5.18206 36.1868L4.01358 34.664L2.98227 33.0451L2.09597 31.3426L1.36144 29.5692L0.784251 27.7386L0.368806 25.8647L0.118268 23.9617L0.0345446 22.0441L0.118274 20.1265L0.368809 18.2235L0.784252 16.3495L1.36143 14.5189L2.09597 12.7456L2.98227 11.043L4.01358 9.4242L5.18206 7.90141L6.47881 6.48625L7.89397 5.1895L9.41675 4.02102L11.0356 2.98971L12.7382 2.10341L14.5115 1.36888L16.3421 0.791692L18.216 0.37625L20.119 0.125712L22.0366 0.0419875L23.9543 0.125712L25.8573 0.376249L27.7312 0.79169L29.5618 1.36888L31.3351 2.10341L33.0377 2.98971L34.6565 4.02102L36.1793 5.1895L37.5945 6.48625L38.8912 7.90141L40.0597 9.4242L41.091 11.043L41.9773 12.7456L42.7118 14.5189L43.289 16.3495L43.6837 18.1297C43.9467 19.3159 43.1982 20.4907 42.012 20.7537Z"/>
+        </svg>
+      </div>
+      <span id="indexing-summary"></span>
+      <button id="indexing-toggle" type="button" class="icon" aria-pressed="false" title="Show indexing detail">
+        <svg class="eye-open" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M1.5 8C3 5 5.3 3.5 8 3.5S13 5 14.5 8C13 11 10.7 12.5 8 12.5S3 11 1.5 8Z"/>
+          <circle cx="8" cy="8" r="2"/>
+        </svg>
+        <svg class="eye-closed" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M1.5 8C3 5 5.3 3.5 8 3.5S13 5 14.5 8C13 11 10.7 12.5 8 12.5S3 11 1.5 8Z"/>
+          <path d="M2.5 13.5 13.5 2.5"/>
+        </svg>
+      </button>
+    </div>
+    <div id="indexing-detail" hidden>
+      <!-- Step rows are keyed and mutated in place (docs/design/panel-ui.md 5);
+           never replaced, so the slide and the spinner survive the 500ms poll. -->
+      <div id="steps"></div>
+      <div class="job-err" id="job-err" hidden></div>
+      <div id="footage-actions"></div>
+    </div>
+  </section>
+
+  <div id="results"></div>
+</div>
+<!-- END app -->
+<script src="preview-harness.js"></script>
+<script src="../../panel/www/panel.js"></script>
+</body>
+</html>
