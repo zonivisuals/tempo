@@ -11,11 +11,14 @@
 ## 0. How to work in this repo (agent instructions)
 
 1. Read this file fully before writing code. The architecture and contracts in §2–§4 are binding; features in §5 have acceptance criteria that define "done".
-2. **No API guessing.** Every ExtendScript or CEP API call you write must be an API that already exists in this repo (proven working), or one you verified in the official docs (§10). When you verify one that wasn't used before, add a short comment citing the doc section, e.g. `// docsforadobe: CompItem.time`. If you cannot verify an API, do not use it — flag it in the PR description.
-3. No regressions to the scoring contract (§3.5). The fusion formula and weights are pinned by golden tests. Changing them requires updating this file, the config defaults, and the tests in the same PR.
-4. Keep changes minimal and scoped. No drive-by refactors, no reformatting of untouched files, no introducing libraries without updating §7 and this file.
-5. Every PR must pass the checklist in §11.
-6. Implement in phases (P0–P6, see PRODUCT.md plan). One phase per commit; never mix phases.
+2. **Start of session.** Run the resume protocol in `docs/agents/session-workflow.md` before touching anything. It is five commands and it catches the failure modes that waste a session: a dirty tree from the last one, a red gate, and stale local artifacts.
+3. **Orientation.** `docs/agents/orientation.md` maps every component to its files, names the seams worth testing at, and lists the dead directories still on disk that are *not* code. Read the section for your subsystem instead of re-reading the codebase. `docs/agents/known-issues.md` records verified divergences between this file and the code; read it before trusting a spec line you are about to act on.
+4. **No API guessing.** Every ExtendScript or CEP API call you write must be an API that already exists in this repo (proven working), or one you verified in the official docs (§10). When you verify one that wasn't used before, add a short comment citing the doc section, e.g. `// docsforadobe: CompItem.time`. If you cannot verify an API, do not use it — flag it in the PR description.
+5. No regressions to the scoring contract (§3.5). The fusion formula and weights are pinned by golden tests. Changing them requires updating this file, the config defaults, and the tests in the same PR.
+6. Keep changes minimal and scoped. No drive-by refactors, no reformatting of untouched files, no introducing libraries without updating §7 and this file.
+7. Every PR must pass the checklist in §11.
+8. Implement in phases (P0–P6, see PRODUCT.md plan). One phase per commit; never mix phases.
+9. One ticket per session. The ticket, its spec, and its blockers are the unit of work; see `docs/agents/session-workflow.md` for the loop.
 
 ---
 
@@ -97,23 +100,38 @@ Why this split (decided, do not revisit without a written ADR):
 tempo/
 ├── AGENTS.md                  # this file
 ├── PRODUCT.md                 # product vision + scope
+├── eslint.config.mjs          # ES3 gate for panel/host (ecmaVersion 3 + restricted syntax)
+├── package.json               # lint tooling only; pnpm + eslint 9, no panel deps
+├── pnpm-lock.yaml
+├── .github/workflows/test.yml # the CI gates named in §9; the source of truth for what runs
 ├── docs/
 │   ├── api.md                 # sidecar request/response schemas (source of truth)
 │   ├── engine-api.md          # engine /v1 contract (sidecar ↔ engine)
-│   └── decisions/             # numbered ADRs for anything overriding §2.1
+│   ├── agents/                # per-session context layer read by every new session
+│   │   ├── session-workflow.md  # resume protocol, gates, the one-ticket-per-session loop
+│   │   ├── orientation.md       # component → file map, seams, hot files, dead dirs on disk
+│   │   ├── known-issues.md      # verified divergences between this file and the code
+│   │   ├── domain.md            # vocabulary + which spec wins per topic
+│   │   └── issue-tracker.md     # where tickets live and how skills reach them
+│   ├── decisions/             # numbered ADRs for anything overriding §2.1
+│   ├── ae-smoke.md            # manual AE checklist backing ae_smoke.jsx
+│   ├── ui-review.md           # §6 reviewer checklist
+│   ├── production.md          # deploy + runbook (see known-issues: parts are aspirational)
+│   └── release.md             # pre-release gates
 ├── service/                   # sidecar (fastapi + pydantic only)
 │   ├── pyproject.toml         # pinned deps, requires-python >=3.11
 │   ├── tempo_service/
-│   │   ├── app.py             # FastAPI wiring, lifespan (proxy, prober, tunnel)
+│   │   ├── app.py             # FastAPI wiring, lifespan (proxy, prober, tunnel), all routes
 │   │   ├── config.py          # Settings (env / config file — no hardcoding)
 │   │   ├── registry.py        # footage registry, fingerprinting, diff (+content_id)
 │   │   ├── fingerprint.py     # content_id (cross-checked against the engine copy)
 │   │   ├── jobs.py            # single-worker handoff queue
 │   │   ├── proxy.py           # handoff: library hit | upload → index → poll → thumbs
 │   │   ├── tunnel.py          # brev port-forward supervisor
+│   │   ├── entitlements.py    # plan/footage/duration quotas enforced at /sync (D14)
 │   │   ├── backends/          # provider seam: base (ABC+errors), http client
 │   │   └── schemas.py         # pydantic request/response models
-│   └── tests/                 # contract, registry, sync, handoff, tunnel tests
+│   └── tests/                 # contract, registry, sync, handoff, tunnel, quota tests
 ├── engine/                    # GPU engine (Brev L4; CPU for offline dev)
 │   ├── pyproject.toml         # pinned core deps + [ml] extra (torch & models)
 │   ├── deploy/                # Dockerfile, compose.yaml, .env.example, brev-deploy.sh
@@ -147,6 +165,8 @@ tempo/
 │       ├── api.js             # single service-communication module
 │       ├── panel.css
 │       └── panel.js           # store + render(), polling, skeletons
+├── packaging/                 # ZXP signing + Windows build scripts (not Velopack)
+├── supabase/licenses.sql      # licence schema for later billing; nothing reads it yet
 └── tempo_pipeline_v4.ipynb    # behavioral reference (gitignored research
                                # artifact, NEVER imported — engine ports it)
 ```
@@ -238,7 +258,7 @@ Rules:
 Purpose: "index every imported footage once, notice changes, forget removed ones" — without hashing gigabyte files, and without ever reindexing content the engine already holds.
 
 - **Fingerprint** = `(resolved_path, size_bytes, mtime_ns)`. Cheap, stable enough for this purpose. Resolved via `File.fsName` on the AE side (this also normalizes OS path casing/slashes).
-- **Registry** = one JSON file per artifact directory, mapping `footage_key → {fingerprint, content_id, format_version, stats}`. `footage_key` = deterministic short hash of the fingerprint's path component.
+- **Registry** = one JSON file per artifact directory, mapping `footage_key → entry`. The entry is **flat**, not nested: `{footage_key, path, content_id, size, mtime_ns, item_id, frame_rate, format_version, state, shot_count, duration_s, indexed_at, reused}`. Transient keys (`pending_fp`, `pending_hits`, `error`) come and go; `pending_*` are cleared the moment a fingerprint resolves. There is no nested `fingerprint` or `stats` object — `registry.py` writes these keys directly. `footage_key` = first 10 hex chars of `sha1(path)`.
 - **Content id (D16):** `sha1(str(size) + first 4 MiB + last 4 MiB)[:16]`.
   - Computed in the job handler, never in `/sync`.
   - The engine library is keyed by it. A ready index under the current
@@ -293,9 +313,24 @@ GET  /search?q&top_k&footage_keys → {query,took_ms,entities,results:[{footage_
                                scene_id,source_path,start_s,end_s,score,contributions{6},raw_cos{3},
                                transcript,dialogue,caption,ocr,entities,emotions}]}
 GET  /thumb/{footage_key}/{shot_id}.jpg → display keyframe (local cache by content_id)
+GET  /host/{name}.jsx       → host.jsx + json2.js served VERBATIM for the panel's runtime
+                               loader (name ∈ {json2.js, host.jsx}; anything else 404)
 ```
 
 Implementation notes:
+- **`GET /host/{name}.jsx`** is a dev convenience: the panel fetches `json2.js`
+  then `host.jsx` over HTTP and `evalScript`s them (§2.3). It is unauthenticated
+  and unverified — the bridge is the panel fetching a script and injecting it into
+  AE's ExtendScript context, with no integrity check. It only works from a source
+  checkout, because `app.py` resolves `panel/host/` by walking two directories up
+  out of its own package. **Never expose this route on a shared host.**
+- **`uploads` duplicates `jobs`.** `app.py` assigns `uploads = list(job_ids)` and
+  returns both. Treat them as one field; the duplicate exists only because the
+  panel reads it.
+- **Error envelopes.** Every failure is `{code, message}` under an `ErrorEnvelope`.
+  Sidecar codes in use: `NOT_FOUND`, `NOT_CANCELLABLE`, `QUOTA_EXCEEDED`,
+  `INTERNAL` (500), plus the three backend codes below. `docs/api.md` documents
+  most; `INTERNAL` and sidecar `NOT_FOUND` are currently undocumented there.
 - **Search.** `GET /search` proxies to the engine, and the fusion is
   computed there.
   - It is budgeted: thumbs render from the local cache instantly, and
@@ -308,8 +343,15 @@ Implementation notes:
   removed, D12). Panel code never holds tokens. The engine bearer token is
   sidecar-to-engine only.
 - **Thumbnails** are served over HTTP, never `file://`, which avoids CEF
-  file-access flags entirely. Add cache headers. Display thumbs sync down
-  as one tar at job completion. Embeddings stay on the engine.
+  file-access flags entirely. Add cache headers (`public, max-age=86400`).
+  Display thumbs sync down as one tar at job completion. The tar member
+  filter is `\d{1,7}\.jpg` (`proxy.py`) and is the only defense against a
+  hostile engine; it is asserted by `test_backends.py`. Embeddings stay on the
+  engine.
+- **Job and footage state vocabulary** lives in `docs/api.md:115` and
+  `schemas.py`, not here. Job: `queued | uploading | running |
+  queued-for-backend | done | error | cancelled`. Footage: `uploading |
+  indexing | ready | stale | error`.
 
 ### 3.5 Scoring specification (pinned — golden-tested, ADR-0009)
 
@@ -357,7 +399,8 @@ sidecar <artifact_root>/
 └── thumbs/<content_id>/<shot_id>.jpg      # display thumbs, synced at job completion
 
 engine <data_root>/  (= /home/ubuntu/workspace/tempo on Brev)
-├── hf/                                    # HF_HOME model cache (+ easyocr/)
+├── hf/                                    # HF_HOME model cache — set by compose.yaml, no code writes it
+├── easyocr/                               # EasyOCR weights (its own cache, NOT under hf/)
 ├── uploads/<content_id>.part|.json        # in-flight resumable uploads
 ├── raw/<content_id>/source.<ext>          # complete upload; purged after index
 ├── jobs/<job_id>.json                     # durable job envelopes
@@ -365,24 +408,37 @@ engine <data_root>/  (= /home/ubuntu/workspace/tempo on Brev)
     ├── stages/<stage>_<deps>.pkl          # per-stage cache
     ├── frames/shotNNNNN_k.jpg             # 3 sampled frames per shot
     ├── thumbs/<shot_id>.jpg               # display thumbs (thumb_width)
+    ├── thumbs.tar                         # the tar the sidecar pulls; built at index time
     ├── index.json                         # meta (signature, fps, …), shots, vocab
     └── index.npz                          # V, D, D_mask, C (float32, L2-normed)
 ```
+
+Two corrections a previous revision of this file got wrong, both verified in code:
+`hf/` has no Python owner (it exists only because `compose.yaml` sets
+`HF_HOME=/data/hf`), and EasyOCR writes to `<data_root>/easyocr/`
+(`stages/ocr.py`), a sibling of `hf/`, not a subdirectory of it.
 
 Disk is the only durable state on both sides. Either process must be restartable at any moment and resume purely from disk.
 
 ### 3.7 Configuration
 
-Both sides use `Settings` via environment variables plus an optional
-config file, with documented defaults and zero absolute paths in code.
+Both sides use `Settings` via environment variables. The sidecar also accepts an
+optional config file; the engine is environment-only. Documented defaults, zero
+absolute paths in code.
 
 **Sidecar** (`TEMPO_`):
 - port, artifact root, log level, job poll/pacing values, `prune_stale`
 - `format_version`, `sync_change_confirmations`
 - `backend_url`, `backend_token` (env only), backend timeouts
+- `backend_health_interval_s` (15 s prober cadence), `backend_poll_miss_retries`
+  (5, then the job fails), `backend_asleep_wait_s` (2 s between sleeps)
 - `brev_instance`, `brev_cli`, tunnel local/remote ports and backoff
-- `upload_chunk_mb`
+- `upload_chunk_mb`, `upload_timeout_s` (120 s per chunk)
 - `plan` (`free|pro|studio`; Supabase licenses override later)
+- **Known gap:** `prune_stale` is declared and has a `registry.prune_stale()`
+  implementation, but nothing calls it. There is no route and `/sync` never
+  invokes it. It is dead until K6 lands (see §12). Do not describe pruning as
+  reachable.
 
 **Engine** (`TEMPO_ENGINE_`):
 - host, port, `data_root`, `token` (env only), `device` (`auto|cuda|cpu`)
@@ -408,13 +464,20 @@ project), never constants. `requires-python >=3.11`.
 
 ### 4.2 Panel ↔ host contract
 
-`host.jsx` exposes exactly these global functions (ES3; JSON in/out; the list is closed — new capabilities mean editing this file section and `docs/api.md`):
+`host.jsx` exposes exactly these three **contract entry points** (ES3; JSON in/out; the list is closed — new capabilities mean editing this file section and `docs/api.md`):
 
 ```
 tempoListFootage()            → JSON string: [{path,size,mtime_ns,item_id,frame_rate}]
 tempoInsertOrFocus(payload)   → JSON string: {ok,comp_id,layer_id} | {ok:false,error}
 tempoGetActiveCompInfo()      → JSON string: {comp_id,name,fps} | {ok:false}
 ```
+
+Two more functions are declared at top level: `tempoFindFootage` and
+`tempoInsertOrFocusInner`. **ExtendScript has no module scope**, so every
+top-level declaration is global and reachable from `evalScript`. They are
+internal helpers called only by `tempoInsertOrFocus`; the panel must not call
+them. If you need a fourth entry point, add it to the list above and to
+`docs/api.md` — do not add a fourth callable global and leave it undocumented.
 
 Rules for host.jsx:
 - Every mutating call is wrapped in `app.beginUndoGroup("Tempo: …")` / `app.endUndoGroup()`. One user action = one undo step. Non-negotiable.
@@ -461,7 +524,8 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 - Footage already indexed and unchanged → skipped (registry fingerprint match).
 - Same content under a new path, project, copy, or mtime touch → `ready` instantly from the engine library (content id), no upload, no GPU (`reused`).
 - Changed file (size/mtime, confirmed over consecutive syncs) whose content changed → re-uploaded + re-indexed; interrupted indexing resumes from the stage cache; engine signature change → rebuilt through the stage cache.
-- Footage removed from project → marked stale (upload cancelled); data pruned only on explicit prune. Acceptance: sync report shows added/changed/removed/unchanged counts that a human can verify against the project panel.
+- Footage removed from project → marked stale. Acceptance: sync report shows added/changed/removed/unchanged counts that a human can verify against the project panel.
+- **Known gap:** an earlier revision of this file promised "upload cancelled" on removal. It is not implemented. `/sync` marks the entry `stale` and the removal count is only logged; `jobs.cancel()` is reachable solely through `POST /jobs/{id}/cancel`. A live upload for removed footage runs to completion. Do not write a test asserting cancellation on removal until it exists.
 
 **F2 — Fast search + result preview**
 - Enter submits. Results render as cards: keyframe thumbnail, footage name, timecode range (comp-fps timecode, from project fps), duration, transcript snippet, caption, and one Insert action. (The API still returns the decomposable score breakdown per result; the panel no longer renders it.)
@@ -488,11 +552,16 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 Tempo's UI mimics AE native panels: dense, gray, flat, quiet. Read the host theme at startup (`CSInterface#getHostEnvironment().appSkinInfo`) and derive background/border/text colors from it; ship neutral fallbacks.
 
 **Do:**
-- Flat surfaces, 1px borders, corner radius ≤ 2px, spacing in a 4px rhythm, system font stack, 12px base size, 11px metadata.
+- Flat surfaces, 1px borders, corner radius ≤ 2px (one documented exception: the
+  7 px status dot, `panel.css:34`, must stay round to read as a dot), spacing in
+  a 4px rhythm, system font stack, 12px base size, 11px metadata.
 - Monochrome + at most ONE accent color, used only for selection/active states.
 - Icons: a minimal consistent set (or none — text labels are fine at this density). Every icon must be identifiable at 16px.
 - Progress = thin flat bars; loading = opacity-pulsing skeletons.
 - Short factual labels: "Indexing · OCR 37/157". No marketing voice anywhere.
+- Derive **all three** of background, border and text from `appSkinInfo`, not just
+  background. Today only `--bg` is theme-derived (`panel.js:52`); `--border`,
+  `--text`, `--dim` are hardcoded neutrals. Closing that gap is a F6 ticket.
 
 **Don't (instant-reject in review):**
 - Gradients, glows, glassmorphism, shadows-as-decoration.
@@ -552,7 +621,9 @@ The bar: if removing an element removes information, it's good. If removing it c
 
 - **Golden search tests (engine):** small synthetic corpus + recorded embeddings; pin the exact result ordering and contribution values. A parity test pins FAISS candidates == the notebook's exhaustive search when n ≤ `faiss_candidates`, and Gram-matrix z-stats == `np.std`. These guard §3.5. Run in CI. When the notebook and the engine disagree, write the failing case down before deciding which is right.
 - **Engine contract tests:** a fake pipeline drives index → poll → done, plus resumable upload offsets, content-id verification, search shape, thumbs, and auth. The sidecar handoff is tested against a fake provider for library reuse, resumed upload, and thumb sync-down.
-- **Contract tests:** every endpoint round-trips its pydantic schema; the `tempoInsertOrFocus` payload built in panel tests must satisfy the same schema fixture.
+- **Contract tests:** every endpoint round-trips its pydantic schema; the `tempoInsertOrFocus` payload built in panel tests must satisfy the same schema fixture. **Known gap:** the panel side is only a substring check against `panel.js` source text (`test_contracts.py:85-89`), not a shared fixture. There is no test for `GET /host/{name}.jsx`.
+- **Running the engine suite locally** needs the package on the path first (`pip install "./engine[dev]"`). Without it every test errors with `ModuleNotFoundError: No module named 'tempo_engine'`. The sidecar suite has no such requirement.
+- **`test_warm_rank_under_300ms_at_10k_shots` (F2) is order-sensitive.** It passes in isolation and fails when the full engine suite runs first, because the preceding tests leave the process memory-bound. Measured ~157 ms median against a 300 ms budget. Do not chase this as a scoring regression; re-run it alone to confirm.
 - **host.jsx smoke script:** a manual `ae_smoke.jsx` + checklist (open test project → list footage → insert at t → verify trim/playhead/undo). Runs before every release on oldest + newest claimed AE; AE cannot be UI-automated in CI cheaply — manual is the honest option.
 - **Regression rule:** any user-visible behavior change ships with (a) a test change, (b) a line in the decisions log, (c) this file updated if it touches a spec above.
 
