@@ -7,6 +7,8 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+build/
+dist/
 
 # Artifacts + models (durable state lives on user disk, never in git)
 artifacts/
@@ -34,5 +36,7 @@ Thumbs.db
 .env.local
 *.log
 
+# Behavioral reference notebook (research artifact, never imported - AGENTS.md 2.2)
 tempo_pipeline_v3.ipynb
+tempo_pipeline_v4.ipynb
 colab/
