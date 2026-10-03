@@ -164,31 +164,41 @@ function stepNumber(s) {
   return Math.round((s.done / s.total) * 100) + "%";
 }
 
+/* The one row the service never reports: job state "queued" has no stage of
+ * its own (docs/design/panel-ui.md 3.2). Built here, used by both stepOrder and
+ * renderSteps — it must stay one object, not two literals that drift. */
+const QUEUED_STAGE = { name: "queued", state: "running", done: 0, total: 0 };
+
 /* ---------- step list ---------- */
 
 /* Display order: running -> done (most recent first). A stage that has not
  * started is not a row: the list is the running stage plus what is finished,
  * so a docked panel shows real progress instead of nine claims about work that
  * has not happened yet (AGENTS.md 5 F4). A row appears when its stage starts
- * and keeps its place until it is done. */
+ * and keeps its place until it is done.
+ *
+ * Returns {key, stage, state} per row rather than bare keys: a caller that had
+ * to look the stage up again would be re-deriving the state, and the one key
+ * with no stage of its own ("queued") is where that re-derivation goes wrong.
+ * The stage vocabulary is closed and validated service-side
+ * (docs/api.md:68), so `state` is taken as reported. */
 function stepOrder(job) {
-  const stages = (job && job.stages) || [];
   const byKey = new Map();
-  for (const s of stages) byKey.set(s.name, s);
-  const queued = job && job.state === "queued" ? { name: "queued", state: "running", done: 0, total: 0 } : null;
-  if (queued) byKey.set("queued", queued);
-  const state = (key) => (byKey.get(key) || {}).state || null;
+  for (const s of (job && job.stages) || []) byKey.set(s.name, s);
+  if (job && job.state === "queued") byKey.set("queued", QUEUED_STAGE);
+  const stateOf = (key) => (byKey.get(key) || {}).state;
 
-  const running = STEPS.filter((s) => state(s.key) === "running").map((s) => s.key);
-  const done = STEPS.filter((s) => state(s.key) === "done").map((s) => s.key).reverse();
-  // Anything else that is not pending still gets a row: an errored stage (why
+  const row = (key) => ({ key, stage: byKey.get(key), state: stateOf(key) });
+  const running = STEPS.filter((s) => stateOf(s.key) === "running").map((s) => s.key);
+  const done = STEPS.filter((s) => stateOf(s.key) === "done").map((s) => s.key).reverse();
+  // Anything else that has started still gets a row: an errored stage (why
   // indexing stopped) and a stage the engine added that STEPS has no label for.
   // Keys come from the Map, not Object.keys, which is empty for a Map.
-  const rest = [...byKey.keys()]
-    .filter((k) => state(k) !== "pending" && !running.includes(k) && !done.includes(k))
+  const erroredOrUnlisted = [...byKey.keys()]
+    .filter((k) => stateOf(k) !== "pending" && !running.includes(k) && !done.includes(k))
     .reverse();
 
-  return [...running, ...done, ...rest];
+  return [...running, ...done, ...erroredOrUnlisted].map(row);
 }
 
 function activeJob() {
@@ -201,7 +211,7 @@ function activeJob() {
 
 function makeStepNode(key) {
   const row = document.createElement("div");
-  row.className = "step pending";
+  row.className = "step";
   row.dataset.k = key;
   const ic = document.createElement("span");
   ic.className = "ic";
@@ -246,28 +256,18 @@ function flip(box, mutate) {
 function renderSteps() {
   const box = $("steps");
   const job = activeJob();
-  const order = job ? stepOrder(job) : [];
+  const wanted = job ? stepOrder(job) : [];
+  const keys = new Set(wanted.map((w) => w.key));
 
   // Drop nodes whose key left the order.
   for (const k of Object.keys(store.stepNodes)) {
-    if (!order.includes(k)) {
+    if (!keys.has(k)) {
       const n = store.stepNodes[k];
       if (n.row.parentNode) n.row.parentNode.removeChild(n.row);
       delete store.stepNodes[k];
     }
   }
-  if (!order.length) { box.textContent = ""; return; }
-
-  const stages = new Map(((job && job.stages) || []).map((s) => [s.name, s]));
-  const wanted = order.map((key) => {
-    // `queued` is the one key stepOrder returns that the job does not report:
-    // it is synthetic, so its row has to be reconstructed here too.
-    const s = stages.get(key)
-      || (key === "queued" ? { name: "queued", state: "running", done: 0, total: 0 }
-                          : { name: key, state: "pending", done: 0, total: 0 });
-    const state = ["running", "done", "error"].indexOf(s.state) >= 0 ? s.state : "pending";
-    return { key, s, state };
-  });
+  if (!wanted.length) { box.textContent = ""; return; }
 
   flip(box, () => {
     for (const w of wanted) {
@@ -277,7 +277,7 @@ function renderSteps() {
       if (row.className !== "step " + w.state) row.className = "step " + w.state;
       const label = stageLabel(w.key);
       if (lab.textContent !== label) lab.textContent = label;
-      const text = w.state === "running" ? stepNumber(w.s) : "";
+      const text = w.state === "running" ? stepNumber(w.stage) : "";
       if (num.textContent !== text) num.textContent = text;
       const icon = w.state === "running" ? ICON.spin : (w.state === "done" ? ICON.done : ICON.idle);
       if (ic.dataset.icon !== icon) { ic.dataset.icon = icon; ic.innerHTML = icon; }
@@ -412,17 +412,21 @@ function renderFilter() {
   l.setAttribute("aria-pressed", store.view === "list" ? "true" : "false");
 }
 
+/* Whether the indexing section has anything to say. Pure, so the rule is
+ * testable without a DOM: a live job, a failed one, or footage this panel can
+ * still act on — stranded mid-index (Resume) or failed (Retry). Both of the
+ * last two are per-footage states that survive a panel restart, unlike a job
+ * id, which is why they are read from the registry and not from store.jobs. */
+function indexingVisible() {
+  return !!activeJob()
+    || Object.keys(store.jobs).some((id) => store.jobs[id].state === "error")
+    || store.footages.some((f) => f.state === "error" || f.state === "indexing" || f.state === "uploading");
+}
+
 function renderIndexing() {
-  const section = $("indexing");
-  const job = activeJob();
-  const live = !!job;
-  const failed = Object.keys(store.jobs).some((id) => store.jobs[id].state === "error");
-  // Footage left mid-index with no live job (service restart, engine never
-  // picked it up) is still work this panel can act on, and the empty-state hint
-  // points here for its Resume button. Nothing else keeps the section open.
-  const stuck = store.footages.some((f) => f.state === "indexing" || f.state === "uploading");
-  const show = live || failed || stuck;
-  section.hidden = !show;
+  const show = indexingVisible();
+  const live = !!activeJob();
+  $("indexing").hidden = !show;
 
   // Figma 777:698: the heading pill carries a fixed label and the two-arc
   // indicator, and it is the whole screen until the first stage reports. The

@@ -38,7 +38,7 @@ flag and reject an element reading as "AI-generated slop".
       check `preview.html#indexing` early in the run: the list must not be a
       column of dim placeholders, and `preview.html#queued` must show the single
       synthetic queued row. No step renders a number when `total` is 0.
-- [ ] Short factual labels ("Indexing · OCR 37/157"); result cards show
+- [ ] Short factual labels (a step row reading "Reading on-screen text 37%"); result cards show
       thumbnail, file name when more than one footage is loaded, timecode range +
       duration, and **one** description line (caption, or transcript when the
       engine produced no caption — never both). No score bars, no percentages, no

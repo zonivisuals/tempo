@@ -201,7 +201,13 @@ def _panel_eval(expr: str) -> str:
 
 def _step_order(job: dict) -> list[str]:
     """The stage keys panel.js would render, in render order, for one job."""
-    return json.loads(_panel_eval(f"stepOrder({json.dumps(job)})"))
+    ordered = json.loads(_panel_eval(f"stepOrder({json.dumps(job)})"))
+    return [row["key"] for row in ordered]
+
+
+def _panel_eval_fn(fn: str, setup: str) -> object:
+    """Run `fn` in panel.js after `setup` has mutated its store."""
+    return json.loads(_panel_eval(f"(() => {{ {setup}; return {fn}(); }})()"))
 
 
 def _job(state: str, stages: list[tuple[str, str]]) -> dict:
@@ -270,6 +276,35 @@ def test_panel_has_no_dead_step_bar():
     for dead in ("stepFraction", "hwm", "className = \"bar\"", "<i>"):
         assert dead not in src, f"panel.js reintroduced {dead!r}"
     assert ".step .bar" not in css, "panel.css still styles a step progress bar"
+
+
+def test_indexing_section_is_visible_only_when_it_has_something_to_say():
+    """The section opens for a live job, a failed one, or footage the panel can
+    still act on, and for nothing else.
+
+    The last two are per-footage states that outlive a panel restart, unlike a
+    job id: a job lost to a service restart leaves the registry entry at
+    `indexing` (Resume) or `error` (Retry), and the empty-state hint in the
+    results area tells the editor to open the indexing detail for both. If the
+    section stayed hidden there, that hint pointed at nothing -- which is the
+    bug the rule exists to prevent.
+    """
+    def visible(footages: list[dict], jobs: dict = None, active: list[str] = None) -> bool:
+        setup = (
+            f"store.footages = {json.dumps(footages)};"
+            f"store.jobs = {json.dumps(jobs or {})};"
+            f"store.activeJobs = {json.dumps(active or [])}"
+        )
+        return bool(_panel_eval_fn("indexingVisible", setup))
+
+    assert not visible([]), "no footage, no job: nothing to say"
+    assert not visible([{"state": "ready"}]), "ready footage needs no indexing detail"
+    assert not visible([{"state": "stale"}]), "stale footage needs no indexing detail"
+    assert visible([{"state": "error"}]), "a failed footage row carries Retry"
+    assert visible([{"state": "indexing"}]), "footage stranded mid-index carries Resume"
+    assert visible([{"state": "uploading"}]), "so does one stranded mid-upload"
+    assert visible([], {"job_1": {"state": "error"}}), "a failed job keeps its message"
+    assert visible([], {"job_1": {"state": "done"}}, ["job_1"]), "a live job is the section"
 
 
 def test_panel_has_no_indexing_summary():

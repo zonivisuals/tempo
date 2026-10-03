@@ -1,10 +1,25 @@
 # ADR-0011 — Panel UI derived from the Figma design: motion allowed, dimensions re-derived
 
-- Status: accepted
+- Status: accepted, amended 2026-10-03 (see "Amendments")
 - Date: 2026-10-03
 - Affects: `AGENTS.md` §6, §5 F3, §4.4; `PRODUCT.md` F3/F6; `docs/ui-review.md`; `docs/release.md`; `panel/www/*`
 - Spec of record: `docs/design/panel-ui.md`
 - Design source: Figma `YJntqqRI69HtwO7aw8bbwz`, group `TEMPO_project_frames` (node `777:771`)
+
+## Amendments
+
+The decision below stands; three of its sentences stopped describing the code
+after this ADR landed. Where they disagree, `docs/design/panel-ui.md` and
+`AGENTS.md` §12 (D18) are current.
+
+- §4's "Nine rows ship" is nine **steps**: a stage that has not started draws no
+  row, so the list is the running stage plus what is finished.
+- §6's bar width and high-water mark were never built. The step rows carry a
+  readout in text (`panel-ui.md` §3.3); there is no bar and no high-water state.
+- §6's "the step list is ~9 rows ... is the tallest thing in it" (§
+  Consequences) was the cost that pushed the summary line off the screen: the
+  indexing screen is now the pill plus the started stages, centred in a capped
+  column, and the summary line is gone.
 
 ## Context
 

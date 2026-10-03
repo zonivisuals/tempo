@@ -192,8 +192,12 @@ The text lives in `index.html`, not in JS.
 a summary line, `Indexing · <file> · <stage> <n>`; it was the only filename on
 this screen outside the footage rows, it repeated what the running row already
 said, and it truncated to nothing in a 300 px panel. With it gone the section
-shows only when there is work to show: a live job, a failed one, or footage
-stranded mid-index whose Resume button the empty-state hint points at.
+shows only when there is work to show: a live job, a failed one, or footage that
+failed or is stranded mid-index. The last two are registry states that outlive a
+panel restart, unlike a job id, which is why the rule reads the footage list and
+not only `store.jobs` — that is the difference between a hint that says "open the
+indexing detail to retry" and a detail that is actually there. `indexingVisible()`
+in `panel.js` is that rule, pure so a test can pin it.
 
 **The screen is centred.** While a job runs this section is the whole panel — the
 search field is hidden until one footage is ready — so it sits in the middle of

@@ -229,7 +229,6 @@ button.icon[aria-pressed="true"] { color: var(--accent); }
 .step .txt { display: flex; align-items: baseline; justify-content: center; gap: 6px; min-width: 0; }
 .step .lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step .num { flex: none; font-variant-numeric: tabular-nums; }
-.step.pending { color: var(--text-dim); }
 .step.running { color: var(--text); }
 .step.running .ic .spin { animation: spin 1s linear infinite; }
 .step.done { opacity: 0.5; }

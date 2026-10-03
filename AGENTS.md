@@ -569,7 +569,7 @@ Tempo's UI mimics AE native panels: dense, gray, flat, quiet. Read the host them
 - Progress is a thin readout in the running row (a percentage, or the real unit —
   MB, audio seconds). Not a bar: the design carries progress in the row's own
   text, and `total == 0` renders no readout at all.
-- Short factual labels: "Indexing · OCR 37/157". No marketing voice anywhere.
+- Short factual labels: "Reading on-screen text 37%". No marketing voice anywhere.
 - Tempo ships its own **two themes** (dark + light, both derived from the
   Figma palette in `docs/design/panel-ui.md`). `appSkinInfo` no longer supplies
   background/border/text — it is read at startup only to detect which theme to
@@ -717,7 +717,7 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
 - **D15 Brev L4 engine behind the backend seam** — `engine/` runs the v4 pipeline and search in Docker Compose on `tempo-l4-instance`, bound to the instance's localhost, reached through the sidecar-supervised `brev port-forward`, bearer token on every route but health (see `docs/decisions/0008-brev-engine.md`).
 - **D16 Content-addressed cache** — three layers: path fingerprint (registry), content id (engine library, instant reuse), and per-stage cache (resume and partial rebuild); resumable offset-checked uploads; display thumbs synced down per content id (ADR-0008).
 - **D17 v4 pipeline + z-score fusion** — SigLIP 2 / bge / Florence-2 / VAD Whisper; six-component weighted fusion with per-key z-scores; FAISS candidates with exact statistics; one result per scene (see `docs/decisions/0009-v4-pipeline.md`).
-- **D18 Figma-derived panel UI** — the Figma design ported (radii as ratios, its gradient strokes and shadow, its two-arc indeterminate indicator, shimmer and state-transition motion under a two-surface budget); type re-derived for panel scale; Tempo ships its own two themes and `appSkinInfo` only selects one; step list keyed, not re-rendered, and a stage that has not started draws no row. Spec in `docs/design/panel-ui.md` (see `docs/decisions/0011-figma-panel-ui.md`).
+- **D18 Figma-derived panel UI** — the Figma design ported (radii as ratios, its gradient strokes and shadow, its two-arc indeterminate indicator, shimmer and state-transition motion under a two-surface budget); type re-derived for panel scale; Tempo ships its own two themes and `appSkinInfo` only selects one; step list keyed, not re-rendered, and a stage that has not started draws no row. The indexing screen later lost its summary line and gained centring (§4.4): the pill and the started stages are the whole screen, so it is centred in a capped column rather than stacked under the status bar. Spec in `docs/design/panel-ui.md` (see `docs/decisions/0011-figma-panel-ui.md`).
 
 Known debt (tracked, not silently fixed):
 - **K1 Key-scale calibration:** RESOLVED by D17 (per-key z-scores before a weighted sum).
