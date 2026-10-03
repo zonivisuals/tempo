@@ -5,14 +5,15 @@
 <title>Tempo</title>
 <!-- ?v= cache buster: CEF caches panel assets aggressively across AE
      restarts; bump on any www/ change so the installed panel reloads. -->
-<link rel="stylesheet" href="panel.css?v=0.3.0">
+<link rel="stylesheet" href="panel.css?v=0.4.0">
 </head>
 <body>
 <div id="app">
   <div id="statusbar">
+    <span id="brand">Tempo</span>
+    <span id="svc-dot" class="dot" aria-hidden="true"></span>
     <span id="svc">service…</span>
     <span id="backend">engine…</span>
-    <span id="sync-summary"></span>
     <button id="sync-now" type="button">Sync now</button>
   </div>
   <div id="searchrow">
@@ -40,10 +41,9 @@
   </section>
   <div id="results"></div>
   <div id="error" hidden></div>
-  <details id="debugbox"><summary>debug (copy-paste)</summary><pre id="debug">boot…</pre></details>
 </div>
 <script src="../CSXS/CSInterface.js"></script>
-<script src="api.js?v=0.3.0"></script>
-<script src="panel.js?v=0.3.0"></script>
+<script src="api.js?v=0.4.0"></script>
+<script src="panel.js?v=0.4.0"></script>
 </body>
 </html>

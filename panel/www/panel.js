@@ -29,28 +29,11 @@ const store = {
 const cs = (typeof CSInterface !== "undefined") ? new CSInterface() : null;
 const $ = (id) => document.getElementById(id);
 
-const bootLines = [];
-function dbg(line, pin) {
-  // Single copy-paste surface: DevTools console + #debug box.
-  try { console.log("[Tempo] " + line); } catch (e) { /* headless */ }
-  try {
-    const el = $("debug");
-    if (!el) return;
-    if (pin) bootLines.push(line);
-    const tail = (el.dataset.tail || "").split("\n").filter(Boolean);
-    if (!pin) {
-      tail.push(line);
-      el.dataset.tail = tail.slice(-60).join("\n");
-    }
-    el.textContent = bootLines.concat(["---"], (el.dataset.tail || "").split("\n")).join("\n");
-  } catch (e) { /* ignore */ }
-}
-
 function evalScript(expr) {
   return new Promise((resolve) => {
-    if (!cs) { dbg("evalScript: NO CSInterface (panel opened outside AE?) expr=" + expr); resolve(null); return; }
+    if (!cs) { resolve(null); return; }
     try { cs.evalScript(expr, (r) => resolve(r)); }
-    catch (e) { dbg("evalScript: throw " + e); resolve(null); }
+    catch (e) { resolve(null); }
   });
 }
 
@@ -129,11 +112,20 @@ function currentStage(job) {
 function renderStatus() {
   $("svc").textContent = store.online ? "service ok" : "service offline";
   const b = store.backend;
-  $("backend").textContent = !store.online ? "engine unknown"
+  const label = !store.online ? "engine unknown"
     : b.tunnel === "down" ? "tunnel down"
     : b.tunnel === "starting" ? "tunnel starting"
     : b.reachable ? (b.gpu ? "engine gpu" : "engine cpu")
     : "engine offline";
+  $("backend").textContent = label;
+  // Status dot: ok = service + reachable engine; warn = transitional
+  // (starting/unknown); bad = offline or down. Presentation only.
+  const dot = $("svc-dot");
+  if (dot) {
+    dot.className = "dot " + (!store.online || b.tunnel === "down" || (store.online && !b.reachable && b.tunnel !== "starting")
+      ? "bad"
+      : (b.reachable ? "ok" : "warn"));
+  }
 }
 
 function indexSummary() {
@@ -186,7 +178,9 @@ function renderJobs() {
       ? `<div class="job err">${esc(j.error || "error")}<div><button type="button" data-retry="${esc(id)}">Retry</button></div></div>`
       : "";
     const name = footageName(j.footage_key) || id;
-    return `<div class="job"><div>${esc(name)} · ${esc(JOB_STATE_LABELS[j.state] || j.state)}</div>${rows}${err}</div>`;
+    const live = LIVE_JOB_STATES.includes(j.state) ? " live" : "";
+    return `<div class="job"><div class="job-head"><span class="job-name">${esc(name)}</span>` +
+      `<span class="job-state${live}">${esc(JOB_STATE_LABELS[j.state] || j.state)}</span></div>${rows}${err}</div>`;
   }).join("");
   box.querySelectorAll("[data-retry]").forEach((btn) => {
     btn.addEventListener("click", (e) => { e.stopPropagation(); retryJob(btn.dataset.retry); });
@@ -203,9 +197,7 @@ function trackJob(id, footageKey) {
 }
 
 async function footageRetry(key) {
-  dbg(`footage-retry: key=${key}`);
   const res = await TempoAPI.retryFootage(key);
-  dbg(`footage-retry: ok=${res.ok} status=${res.status} body=${JSON.stringify(res.body).slice(0, 200)}`);
   if (!res.ok) { showError("RETRY_FAILED", "status " + res.status); return; }
   showError(null);
   trackJob(res.body.job_id, key);
@@ -230,13 +222,16 @@ function renderFootageActions() {
     const detail = f.state === "ready"
       ? `${f.shot_count ? ` · ${f.shot_count} shots` : ""}${f.reused ? " · reused index" : ""}` : "";
     if (f.state === "error") {
-      rows.push(`<div class="job"><div>${base} · error — read the job message, then Retry</div>` +
-        `<div><button type="button" data-fretry="${esc(f.footage_key)}">Retry</button></div></div>`);
+      rows.push(`<div class="job"><div class="job-head"><span class="job-name">${base}</span>` +
+        `<span class="job-state">error</span></div>` +
+        `<div class="row-actions"><button type="button" data-fretry="${esc(f.footage_key)}">Retry</button></div></div>`);
     } else if (!unknown && (f.state === "indexing" || f.state === "uploading") && !covered.has(f.footage_key)) {
-      rows.push(`<div class="job"><div>${base} · ${esc(f.state)} (no active job)</div>` +
-        `<div><button type="button" data-fretry="${esc(f.footage_key)}">Resume</button></div></div>`);
+      rows.push(`<div class="job"><div class="job-head"><span class="job-name">${base}</span>` +
+        `<span class="job-state live">${esc(f.state)}</span></div>` +
+        `<div class="row-actions"><button type="button" data-fretry="${esc(f.footage_key)}">Resume</button></div></div>`);
     } else if (!covered.has(f.footage_key)) {
-      rows.push(`<div class="job"><div>${base} · ${esc(f.state)}${detail}</div></div>`);
+      rows.push(`<div class="job"><div class="job-head"><span class="job-name">${base}</span>` +
+        `<span class="job-state">${esc(f.state)}${detail}</span></div></div>`);
     }
   }
   box.innerHTML = rows.join("");
@@ -246,9 +241,7 @@ function renderFootageActions() {
 }
 
 async function retryJob(id) {
-  dbg(`retry: job=${id}`);
   const res = await TempoAPI.retry(id);
-  dbg(`retry: ok=${res.ok} status=${res.status} body=${JSON.stringify(res.body).slice(0, 200)}`);
   if (!res.ok) { showError("RETRY_FAILED", "status " + res.status); return; }
   showError(null);
   const old = store.jobs[id];
@@ -332,25 +325,18 @@ async function refreshHealth() {
   if (res.ok && res.body) {
     store.online = true;
     store.backend = res.body.backend || { reachable: false, gpu: false, tunnel: "off" };
-    dbg(`health: ok online=true backend=${JSON.stringify(store.backend)} base=${TempoAPI.base()}`);
   } else {
     store.online = false;
     store.backend = { reachable: false, gpu: false, tunnel: "off" };
-    dbg(`health: FAIL ok=${res.ok} status=${res.status} offline=${!!res.offline} base=${TempoAPI.base()}`);
   }
   renderStatus();
 }
 
 async function syncNow() {
   const raw = await evalScript("tempoListFootage()");
-  dbg(`sync: evalScript raw type=${typeof raw} len=${(raw || "").length} raw=${String(raw).slice(0, 300)}`);
-  if (raw === null) dbg("sync: host returned null (CSInterface missing or panel outside AE?)");
-  else if (raw === "") dbg("sync: host returned EMPTY string (host.jsx not loaded — reinstall panel + restart AE)");
   let footages = [];
-  try { footages = JSON.parse(raw) || []; } catch (e) { dbg(`sync: JSON.parse failed: ${e}`); footages = []; }
-  dbg(`sync: parsed footages=${footages.length} ${footages.slice(0, 3).map((f) => f.path).join(" | ")}`);
+  try { footages = JSON.parse(raw) || []; } catch (e) { footages = []; }
   const res = await TempoAPI.sync(footages);
-  dbg(`sync: POST /sync ok=${res.ok} status=${res.status} offline=${!!res.offline} body=${JSON.stringify(res.body).slice(0, 300)}`);
   store.online = res.ok;
   if (res.ok) await refreshHealth();
   else renderStatus();
@@ -360,13 +346,8 @@ async function syncNow() {
   }
   showError(null);
   const b = res.body;
-  $("sync-summary").textContent =
-    `+${b.added.length} ~${b.changed.length} -${b.removed.length} =${b.unchanged.length}`;
-  dbg(`sync: diff +${b.added.length} ~${b.changed.length} -${b.removed.length} =${b.unchanged.length} jobs=${JSON.stringify(b.jobs)} uploads=${JSON.stringify(b.uploads)}`);
-  if (!footages.length) dbg("sync: 0 footages from host — check AE project has FileSource footage (not solid/sequence/missing) + host.jsx loaded");
   for (const id of b.jobs) trackJob(id);
   const fl = await TempoAPI.footage();
-  dbg(`sync: GET /footage ok=${fl.ok} count=${fl.ok ? (fl.body || []).length : "?"}`);
   if (fl.ok) {
     store.footages = fl.body || [];
     renderFilter();
@@ -379,11 +360,9 @@ async function pollJobs() {
   for (const id of store.activeJobs) {
     const res = await TempoAPI.job(id);
     if (!res.ok) {
-      dbg(`jobs: id=${id} poll FAIL status=${res.status} offline=${!!res.offline}`);
       still.push(id); continue;
     }
     store.jobs[id] = res.body;
-    dbg(`jobs: id=${id} state=${res.body.state} stages=${(res.body.stages || []).map((s) => `${s.name}:${s.state}`).join(",")}`);
     if (LIVE_JOB_STATES.includes(res.body.state)) still.push(id);
     else if (res.body.state !== "error") delete store.jobs[id];  // done/cancelled: the footage row takes over
   }
@@ -414,12 +393,10 @@ async function doSearch() {
   if (!res.ok) {
     const code = (res.body && res.body.error && res.body.error.code) ||
       (res.offline ? "SERVICE_OFFLINE" : "SEARCH_FAILED");
-    dbg(`search: q=${JSON.stringify(q)} FAIL code=${code} status=${res.status} offline=${!!res.offline}`);
     showError(code, res.offline ? "service offline" : "status " + res.status);
     store.results = [];
   } else {
     store.results = res.body.results || [];
-    dbg(`search: q=${JSON.stringify(q)} ok results=${store.results.length} took_ms=${res.body.took_ms}`);
   }
   renderResults();
 }
@@ -441,13 +418,11 @@ async function insertResult(r, idx) {
     // Single quotes are escaped too so paths with apostrophes survive.
     const expr = "tempoInsertOrFocus('" + payload.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "')";
     const raw = await evalScript(expr);
-    dbg(`insert: payload=${payload.slice(0, 200)} raw=${String(raw).slice(0, 200)}`);
     try {
       const out = JSON.parse(raw);
-      if (!out || !out.ok) { dbg(`insert: FAIL ${JSON.stringify(out).slice(0, 200)}`); showError("INSERT_FAILED", out && out.error); }
-      else { dbg(`insert: ok comp=${out.comp_id} layer=${out.layer_id}`); showError(null); }
+      if (!out || !out.ok) { showError("INSERT_FAILED", out && out.error); }
+      else { showError(null); }
     } catch (e) {
-      dbg(`insert: bad host response raw=${String(raw).slice(0, 200)}`);
       showError("INSERT_FAILED", "bad host response");
     }
   } finally {
@@ -458,7 +433,7 @@ async function insertResult(r, idx) {
 
 /* ---------- boot ---------- */
 
-const PANEL_VERSION = "0.3.0";
+const PANEL_VERSION = "0.4.0";
 
 function probe(expr) {
   return new Promise((resolve) => {
@@ -473,39 +448,24 @@ async function ensureHost() {
   // ScriptPath evaluation (host functions stay undefined). The service serves
   // the repo files verbatim (GET /host/*.jsx); evalScript them on demand.
   // Probes decide — never blindly re-evaluates over a working host.
-  if (!cs) { dbg("loader: no CSInterface, skipping", true); return; }
+  if (!cs) { return; }
   const kind = await probe("typeof tempoListFootage");
-  if (kind === "function") { dbg("loader: host present via ScriptPath, no action", true); return; }
-  dbg(`loader: host missing (typeof=${kind}), fetching sources from service`, true);
+  if (kind === "function") { return; }
   const needJson2 = (await probe("typeof JSON")) !== "object";
   for (const name of needJson2 ? ["json2", "host"] : ["host"]) {
     const res = await TempoAPI.hostJs(name);
-    dbg(`loader: GET /host/${name}.jsx ok=${res.ok} status=${res.status} bytes=${(res.text || "").length}`);
-    if (!res.ok || !res.text) { dbg(`loader: fetch ${name} failed, host stays missing`, true); return; }
-    const applied = await new Promise((resolve) => {
+    if (!res.ok || !res.text) { return; }
+    await new Promise((resolve) => {
       try { cs.evalScript(res.text, () => resolve(true)); }
       catch (e) { resolve(false); }
     });
-    dbg(`loader: evalScript ${name} sent=${applied}`);
   }
-  const after = await probe("typeof tempoListFootage");
-  dbg(`loader: typeof tempoListFootage=${after} (want function)`, true);
 }
 
 async function boot() {
-  dbg(`boot: panel=${PANEL_VERSION} cs=${cs ? "yes" : "NO"} base=${TempoAPI.base()}`, true);
-  try {
-    cs.evalScript("1+1", (r) => dbg(`boot: bridge 1+1=${r} (want 2)`, true));
-  } catch (e) { dbg(`boot: bridge probe throw ${e}`, true); }
-  try {
-    cs.evalScript("typeof tempoListFootage", (r) => dbg(`boot: typeof tempoListFootage=${r} (want function)`, true));
-  } catch (e) { dbg(`boot: host probe throw ${e}`, true); }
-  try {
-    cs.evalScript("typeof JSON", (r) => dbg(`boot: host typeof JSON=${r} (want object; undefined=json2.js failed)`, true));
-  } catch (e) { dbg(`boot: JSON probe throw ${e}`, true); }
   await ensureHost();
   applyTheme();
-  $("sync-now").addEventListener("click", () => { dbg("ui: Sync now clicked"); syncNow(); });
+  $("sync-now").addEventListener("click", () => syncNow());
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
   $("footage-filter").addEventListener("change", (e) => { store.filter = e.target.value; });
   $("indexing-toggle").addEventListener("click", () => setIndexOpen(!store.index.open, true));
@@ -517,7 +477,4 @@ async function boot() {
   setInterval(pollJobs, JOB_POLL_MS);   // job progress poll while jobs run
 }
 
-window.addEventListener("error", (e) => {
-  try { console.log("[Tempo] window.onerror: " + (e && e.message)); } catch (_e) { /* ignore */ }
-});
 document.addEventListener("DOMContentLoaded", boot);

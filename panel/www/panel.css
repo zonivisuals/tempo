@@ -1,16 +1,18 @@
 /* Tempo panel styles — AE-native: dense, gray, flat, quiet (AGENTS.md §6).
    Flat surfaces, 1px borders, radius ≤ 2px, 4px spacing rhythm,
-   system font, 12px base / 11px metadata. Monochrome + one accent
-   (selection only). Loading = opacity pulse. No gradients, no shadows. */
+   system font, 12px base / 11px metadata. Monochrome + one orange accent
+   (Stalkr-class #F97316, focus/selection/active + primary action hover only).
+   Loading = opacity pulse. No gradients, no shadows. */
 :root {
   --bg: #232323;
   --bg2: #2b2b2b;
   --border: #3a3a3a;
   --text: #d6d6d6;
   --dim: #9a9a9a;
-  --accent: #1f7fff;
+  --accent: #f97316;
   --bar: #6a6a6a;
   --error: #e08a8a;
+  --ok: #8ab87f;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -20,10 +22,21 @@ body {
   font: 12px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 #app { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Header: brand + status dot + status text + sync action. */
 #statusbar {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--dim);
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
 }
+#brand { color: var(--text); font-weight: 600; margin-right: 2px; }
+.dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--dim);
+}
+.dot.ok { background: var(--ok); }
+.dot.warn { background: transparent; border: 1px solid var(--dim); }
+.dot.bad { background: var(--error); }
 #statusbar button {
   margin-left: auto;
   background: var(--bg2); color: var(--text);
@@ -31,17 +44,23 @@ body {
   font: inherit; padding: 2px 8px; cursor: pointer;
 }
 #statusbar button:hover { border-color: var(--accent); }
+
+/* Search is the dominant element. */
 #searchrow { display: flex; gap: 8px; }
 #q {
   flex: 1; background: var(--bg2); color: var(--text);
   border: 1px solid var(--border); border-radius: 2px;
-  font: inherit; padding: 4px 8px;
+  font: inherit; padding: 5px 8px; height: 28px;
 }
 #q:focus { outline: none; border-color: var(--accent); }
+#q:disabled { opacity: 0.6; }
 #footage-filter {
   background: var(--bg2); color: var(--text);
   border: 1px solid var(--border); border-radius: 2px; font: inherit;
+  max-width: 40%;
 }
+
+/* Indexing progress. */
 #indexing { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
 #indexing-head { display: flex; align-items: center; gap: 8px; min-height: 20px; }
 #indexing-summary {
@@ -62,20 +81,34 @@ button.icon[aria-pressed="true"] .eye-closed,
 button.icon[aria-pressed="false"] .eye-open { display: none; }
 #indexing-detail, #jobs, #footage-actions { display: flex; flex-direction: column; gap: 4px; }
 #indexing-detail[hidden] { display: none; }
-.job .stage { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 4px; }
+.job { border: 1px solid var(--border); border-radius: 2px; padding: 4px 8px; }
+.job .job-head { display: flex; align-items: baseline; gap: 8px; }
+.job .job-name {
+  flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.job .job-state { color: var(--dim); flex: none; }
+.job .job-state.live { color: var(--text); }
+.job .stage { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; margin-top: 4px; }
 .job .stage .count { color: var(--dim); font-variant-numeric: tabular-nums; }
 .job .stage.pending { color: var(--dim); }
-.job .stage .bar { grid-column: 1 / -1; margin-top: 0; }
-.job { border: 1px solid var(--border); border-radius: 2px; padding: 4px 8px; }
+.job .stage.running > span:first-child { color: var(--text); }
+.job .stage .bar { grid-column: 1 / -1; margin-top: 2px; }
 .job .bar { height: 3px; background: var(--border); margin-top: 4px; }
 .job .bar > div { height: 100%; background: var(--bar); }
 .job.err { color: var(--error); }
+.job .row-actions { margin-top: 4px; }
 #jobs button, #footage-actions button {
   background: var(--bg2); color: var(--text);
   border: 1px solid var(--border); border-radius: 2px;
   font: inherit; padding: 2px 8px; cursor: pointer;
 }
 #jobs button:hover, #footage-actions button:hover { border-color: var(--accent); }
+button:focus-visible, #q:focus-visible, select:focus-visible {
+  outline: 1px solid var(--accent); outline-offset: 0;
+}
+
+/* Results. */
 #results { display: flex; flex-direction: column; gap: 8px; }
 .res-count { font-size: 11px; color: var(--dim); }
 .card {
@@ -87,8 +120,11 @@ button.icon[aria-pressed="false"] .eye-open { display: none; }
 .card.busy { cursor: default; opacity: 0.7; }
 .card img { width: 96px; height: 54px; object-fit: cover; background: var(--bg2); }
 .card .body { min-width: 0; }
-.card .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card .meta { font-size: 11px; color: var(--dim); }
+.card .title {
+  font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.card .meta { font-size: 11px; color: var(--dim); margin-top: 2px; }
 .card .tc { font-variant-numeric: tabular-nums; }
 .card .snippet {
   font-size: 11px; margin-top: 4px;
@@ -97,14 +133,16 @@ button.icon[aria-pressed="false"] .eye-open { display: none; }
 }
 .card .snippet.dim { color: var(--dim); }
 .card button {
-  margin-top: 4px;
+  margin-top: 6px;
   background: var(--bg2); color: var(--text);
   border: 1px solid var(--border); border-radius: 2px;
   font: inherit; padding: 2px 8px; cursor: pointer;
 }
-.card button:hover { border-color: var(--accent); }
+.card button:hover { border-color: var(--accent); color: var(--accent); }
+.card button:active { border-color: var(--accent); color: var(--accent); }
 .card button:disabled { cursor: default; opacity: 0.6; }
 .card.skel { cursor: default; }
+.card.skel:hover { border-color: var(--border); }
 .card.skel .thumb, .card.skel .line {
   background: var(--bg2); animation: pulse 1s ease-in-out infinite;
 }
@@ -116,10 +154,3 @@ button.icon[aria-pressed="false"] .eye-open { display: none; }
   padding: 4px 8px; font-size: 11px; color: var(--error);
 }
 .empty { font-size: 11px; color: var(--dim); padding: 8px 0; }
-#debugbox { font-size: 11px; color: var(--dim); }
-#debugbox pre {
-  white-space: pre-wrap; word-break: break-all;
-  border: 1px solid var(--border); border-radius: 2px;
-  padding: 4px 8px; margin: 4px 0 0; max-height: 160px; overflow: auto;
-  user-select: text;
-}
