@@ -1,19 +1,64 @@
-/* Tempo panel styles — AE-native: dense, gray, flat, quiet (AGENTS.md §6).
-   Flat surfaces, 1px borders, radius ≤ 2px, 4px spacing rhythm,
-   system font, 12px base / 11px metadata. Monochrome + one orange accent
-   (Stalkr-class #F97316, focus/selection/active + primary action hover only).
-   Loading = opacity pulse. No gradients, no shadows. */
+/* panel.css — the Figma design, ported.
+ *
+ * Source: Figma YJntqqRI69HtwO7aw8bbwz, group TEMPO_project_frames (777:771).
+ * Every colour, radius ratio, border weight, shadow and control treatment below
+ * is the design's own value, re-expressed for panel scale. See
+ * docs/design/panel-ui.md (spec of record) and ADR-0011.
+ *
+ * The frames are 2004x1919 px and a docked AE panel is ~300-360 px wide, so the
+ * port scales geometry proportionally and re-derives type. Radii are therefore
+ * ratios, not the design's raw px: a 32px radius on a 196px-tall field is 0.163
+ * of the height, and 0.163 of a 48px panel field is 8px. Same shape, honest scale.
+ *   search field / CTA / indexing pill   32/196  ->  --r-lg  8px
+ *   submit + toggle buttons             10.67/60, 8/64 -> --r-sm 4px
+ *   cards / thumbnails / skeletons      12/560   ->  --r-md  3px
+ *   status dot                          round, the one exception that must stay round
+ */
 :root {
-  --bg: #232323;
-  --bg2: #2b2b2b;
-  --border: #3a3a3a;
-  --text: #d6d6d6;
-  --dim: #9a9a9a;
-  --accent: #f97316;
-  --bar: #6a6a6a;
-  --error: #e08a8a;
-  --ok: #8ab87f;
+  --bg: #232323;              /* frame fill */
+  --surface: #171717;         /* Rectangle 5411 / 5420 fill */
+  --surface-2: #1f1f1f;
+  --border: #2e2e2e;
+  --text: rgba(255, 255, 255, 0.8);   /* step labels, card text: 777:702, 777:345 */
+  --text-dim: rgba(255, 255, 255, 0.4); /* search label: 777:516, 0.4 alpha */
+  --dim: #8a8a8a;
+  --accent: #eb5017;          /* 777:700 "Analyzing your footage", 777:511 */
+  --thumb: #eb6060;           /* 777:368 thumbnail layer, Rectangle 5421 */
+  --error: #eb6060;
+  --ok: #7fae74;
+  --r-lg: 8px;
+  --r-sm: 4px;
+  --r-md: 3px;
+  --sh: 0 2px 6px rgba(0, 0, 0, 0.2);   /* 0 8 12 @0.2, scaled */
+  /* 1.5px stroke whose paint is white -> surface at 0.28 alpha (777:509) */
+  --edge: linear-gradient(rgba(255, 255, 255, 0.28), rgba(23, 23, 23, 0.28));
+  /* skeleton fills: white 0 -> 0.56 (thumb) and white 0 -> 1 (caption) */
+  --sweep-thumb: linear-gradient(90deg,
+      rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.56) 50%, rgba(255, 255, 255, 0) 100%);
+  --sweep-cap: linear-gradient(90deg,
+      rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 50%, rgba(255, 255, 255, 0) 100%);
 }
+/* Light theme: the same system with surfaces inverted and the accent darkened to
+   hold contrast on a light panel. appSkinInfo only selects which one. */
+html.light {
+  --bg: #d6d6d6;
+  --surface: #f2f2f2;
+  --surface-2: #e8e8e8;
+  --border: #c4c4c4;
+  --text: rgba(0, 0, 0, 0.88);
+  --text-dim: rgba(0, 0, 0, 0.45);
+  --dim: #5c5c5c;
+  --accent: #c23c0c;
+  --thumb: #b3555a;
+  --error: #a32b2b;
+  --ok: #3f7a35;
+  --edge: linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(242, 242, 242, 0.18));
+  --sweep-thumb: linear-gradient(90deg,
+      rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.10) 50%, rgba(0, 0, 0, 0) 100%);
+  --sweep-cap: linear-gradient(90deg,
+      rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.16) 50%, rgba(0, 0, 0, 0) 100%);
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -22,135 +67,290 @@ body {
   font: 12px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 #app { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+[hidden] { display: none !important; }
 
-/* Header: brand + status dot + status text + sync action. */
+/* A 1.5px border painted with a gradient: fill on padding-box, edge on
+   border-box. -webkit- prefixes for the declared CEP 9 floor. */
+.edge {
+  border: 1px solid transparent; border-radius: var(--r-lg);
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    var(--edge) border-box;
+}
+
+/* ---------- status bar ----------
+ * Not in the Figma frames, and kept anyway: AGENTS.md 4.4 requires engine
+ * reachability to render honestly. Everything else in the design is faithful. */
 #statusbar {
   display: flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--dim);
   padding-bottom: 8px; border-bottom: 1px solid var(--border);
 }
 #brand { color: var(--text); font-weight: 600; margin-right: 2px; }
-.dot {
-  width: 7px; height: 7px; border-radius: 50%; flex: none;
-  background: var(--dim);
-}
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dim); }
 .dot.ok { background: var(--ok); }
 .dot.warn { background: transparent; border: 1px solid var(--dim); }
 .dot.bad { background: var(--error); }
 #statusbar button {
   margin-left: auto;
-  background: var(--bg2); color: var(--text);
-  border: 1px solid var(--border); border-radius: 2px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
   font: inherit; padding: 2px 8px; cursor: pointer;
 }
-#statusbar button:hover { border-color: var(--accent); }
+#statusbar button:hover { border-color: var(--accent); color: var(--accent); }
 
-/* Search is the dominant element. */
-#searchrow { display: flex; gap: 8px; }
-#q {
-  flex: 1; background: var(--bg2); color: var(--text);
-  border: 1px solid var(--border); border-radius: 2px;
-  font: inherit; padding: 5px 8px; height: 28px;
+/* ---------- search field (777:509) ----------
+ * radius 32/196 of the height, 1.5px white->#171717 edge at 0.28,
+ * drop shadow 0 8 12 @0.2, fill #171717. */
+#searchbox {
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh);
+  padding: 6px 8px 7px;
+  display: flex; flex-direction: column; gap: 2px;
 }
-#q:focus { outline: none; border-color: var(--accent); }
-#q:disabled { opacity: 0.6; }
+#searchbox:focus-within { border-color: var(--accent); }
+.sb-head { display: flex; align-items: center; gap: 5px; color: var(--text-dim); font-size: 11px; }
+.sb-head svg { fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; }
+.sb-row { display: flex; align-items: center; gap: 8px; }
+
+/* The two mirrors sit over the input's text box. #q's colour goes transparent
+   while searching so the caret survives and the accent band can sweep. */
+.sb-val { position: relative; flex: 1; min-width: 0; height: 20px; }
+.sb-row input {
+  width: 100%; background: transparent; color: var(--text);
+  border: 0; font: inherit; font-size: 13px; padding: 0; height: 20px;
+}
+#q:focus { outline: none; }
+#q-base, #q-sweep {
+  position: absolute; left: 0; top: 0; height: 20px; line-height: 20px;
+  font-size: 13px; white-space: pre; overflow: hidden; pointer-events: none;
+  max-width: 100%;
+}
+#q-base { color: var(--text); display: none; }
+#q-sweep { display: none; }
+#searchbox.searching #q { color: transparent; caret-color: var(--text); }
+#searchbox.searching #q-base, #searchbox.searching #q-sweep { display: block; }
+#q-sweep {
+  color: transparent;
+  background-image: linear-gradient(90deg,
+      rgba(235, 81, 23, 0) 0%, rgba(235, 81, 23, 1) 50%, rgba(235, 81, 23, 0) 100%);
+  background-size: 240% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  animation: qsweep 1.6s linear infinite;
+}
+html.light #q-sweep {
+  background-image: linear-gradient(90deg,
+      rgba(194, 60, 12, 0) 0%, rgba(194, 60, 12, 1) 50%, rgba(194, 60, 12, 0) 100%);
+}
+@keyframes qsweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+
+/* Submit button (777:314): 60px square, radius 10.67, fill white at 0.10,
+ * no border, no shadow, "Arrow up" rotated 90deg, 23px glyph, stroke 4 round. */
+#submit {
+  flex: none; width: 24px; height: 24px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 0; border-radius: var(--r-sm); cursor: pointer;
+}
+html.light #submit { background: rgba(0, 0, 0, 0.08); }
+#submit:hover { background: rgba(235, 81, 23, 0.9); }
+#submit .arrow {
+  fill: none; stroke: var(--text); stroke-width: 1.5;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+#submit:hover .arrow { stroke: #fff; }
+#submit .spin { display: none; }
+#searchbox.searching #submit { cursor: default; }
+#searchbox.searching #submit .arrow { display: none; }
+#searchbox.searching #submit .spin { display: block; animation: spin 1s linear infinite; }
+
+/* The two-arc indicator is filled geometry (the Figma 777:704 export), so its
+ * fills come from CSS rather than from `fill="white"` on the paths — white is
+ * invisible on the light theme. Geometry is untouched. */
+.spin .arc { fill: var(--accent); }
+.spin .track { fill: currentColor; opacity: 0.35; }
+
+/* ---------- inline error row, directly under the search field ---------- */
+#error {
+  border: 1px solid var(--error); border-radius: var(--r-sm);
+  padding: 4px 8px; font-size: 11px; color: var(--error);
+}
+
+/* ---------- filter + view toggle (777:473: two 64px r8 buttons) ---------- */
+#searchmeta { display: flex; align-items: center; gap: 8px; }
 #footage-filter {
-  background: var(--bg2); color: var(--text);
-  border: 1px solid var(--border); border-radius: 2px; font: inherit;
-  max-width: 40%;
+  flex: 0 1 auto; max-width: 60%; min-width: 0;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-sm); font: inherit; font-size: 11px;
 }
+#viewtoggle { margin-left: auto; display: flex; gap: 4px; flex: none; }
+button.icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  background: var(--surface); color: var(--dim);
+  border: 1px solid transparent; border-radius: var(--r-sm); cursor: pointer;
+}
+button.icon svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+button.icon:hover { color: var(--text); }
+button.icon[aria-pressed="true"] { color: var(--accent); }
 
-/* Indexing progress. */
-#indexing { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
-#indexing-head { display: flex; align-items: center; gap: 8px; min-height: 20px; }
+/* ---------- indexing ---------- */
+#indexing { display: flex; flex-direction: column; gap: 6px; font-size: 11px; }
+#indexing-head { display: flex; align-items: center; gap: 8px; }
 #indexing-summary {
   flex: 1; min-width: 0; color: var(--dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-button.icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; padding: 0;
-  background: transparent; color: var(--dim);
-  border: 1px solid transparent; border-radius: 2px; cursor: pointer;
+#indexing-detail { display: flex; flex-direction: column; gap: 4px; }
+#steps { display: flex; flex-direction: column; }
+
+/* Step rows (777:702): 32px icon + 32px label at 0.8 white, running row at full
+ * opacity, completed rows at 0.5, 12px between rows. No bar: the design carries
+ * progress in the running row's own readout ("Finalizing... 80%"). */
+.step {
+  position: relative; display: grid;
+  grid-template-columns: 16px 1fr; align-items: center;
+  gap: 0 8px; padding: 3px 2px;
+  transition: opacity 240ms cubic-bezier(.2, 0, 0, 1),
+              transform 240ms cubic-bezier(.2, 0, 0, 1);
 }
-button.icon:hover { color: var(--text); border-color: var(--border); }
-button.icon[aria-pressed="true"] { color: var(--accent); }
-button.icon svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
-button.icon[aria-pressed="true"] .eye-closed,
-button.icon[aria-pressed="false"] .eye-open { display: none; }
-#indexing-detail, #jobs, #footage-actions { display: flex; flex-direction: column; gap: 4px; }
-#indexing-detail[hidden] { display: none; }
-.job { border: 1px solid var(--border); border-radius: 2px; padding: 4px 8px; }
-.job .job-head { display: flex; align-items: baseline; gap: 8px; }
-.job .job-name {
-  flex: 1; min-width: 0; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
+.step .ic { display: flex; align-items: center; justify-content: center; }
+/* No stroke-width here: each icon carries its own, because the running row's
+   indicator is a 32-unit asset scaled into a 16px slot and needs 3.2 user units
+   to land on the same 1.6px as the 16-unit check and ring. */
+.step .ic svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.step .txt { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.step .lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step .num { flex: none; font-variant-numeric: tabular-nums; }
+.step.pending { color: var(--text-dim); }
+.step.running { color: var(--text); }
+.step.running .ic .spin { animation: spin 1s linear infinite; }
+.step.done { opacity: 0.5; }
+.step.error { color: var(--error); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Indexing heading pill (777:698): radius 32, #171717, gradient edge, shadow,
+ * accent 46px medium label + a two-arc indeterminate indicator (accent arc over
+ * a white track, thickness 4 of 44). */
+.pill {
+  border-radius: var(--r-lg); box-shadow: var(--sh);
+  padding: 12px 18px; display: flex; align-items: center; gap: 12px;
 }
-.job .job-state { color: var(--dim); flex: none; }
-.job .job-state.live { color: var(--text); }
-.job .stage { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; margin-top: 4px; }
-.job .stage .count { color: var(--dim); font-variant-numeric: tabular-nums; }
-.job .stage.pending { color: var(--dim); }
-.job .stage.running > span:first-child { color: var(--text); }
-.job .stage .bar { grid-column: 1 / -1; margin-top: 2px; }
-.job .bar { height: 3px; background: var(--border); margin-top: 4px; }
-.job .bar > div { height: 100%; background: var(--bar); }
-.job.err { color: var(--error); }
-.job .row-actions { margin-top: 4px; }
-#jobs button, #footage-actions button {
-  background: var(--bg2); color: var(--text);
-  border: 1px solid var(--border); border-radius: 2px;
+.pill-label { flex: 1; min-width: 0; color: var(--accent); font-size: 13px; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Material's two-arc indicator (777:704): a light full-circle track under an
+ * accent arc. Sizes itself from the width/height on the element. */
+.pill .spin { flex: none; width: 16px; height: 16px; color: var(--text); animation: spin 1s linear infinite; }
+.job-err {
+  border: 1px solid var(--error); border-radius: var(--r-sm); padding: 4px 8px;
+  color: var(--error); word-break: break-word;
+}
+.job-err button {
+  margin-top: 4px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
   font: inherit; padding: 2px 8px; cursor: pointer;
 }
-#jobs button:hover, #footage-actions button:hover { border-color: var(--accent); }
-button:focus-visible, #q:focus-visible, select:focus-visible {
-  outline: 1px solid var(--accent); outline-offset: 0;
+.job-err button:hover { border-color: var(--accent); color: var(--accent); }
+#footage-actions { display: flex; flex-direction: column; gap: 4px; }
+.frow {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: var(--r-sm); padding: 3px 8px;
 }
+.frow .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow .fstate { color: var(--dim); flex: none; font-variant-numeric: tabular-nums; }
+.frow.live .fstate { color: var(--text); }
+.frow button {
+  flex: none;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  font: inherit; padding: 1px 6px; cursor: pointer;
+}
+.frow button:hover { border-color: var(--accent); color: var(--accent); }
 
-/* Results. */
+/* ---------- results ---------- */
 #results { display: flex; flex-direction: column; gap: 8px; }
-.res-count { font-size: 11px; color: var(--dim); }
+#results.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* Card (Rectangle 5420): 560x399, radius 12, fill #171717 with a 3px #171717
+   stroke; hover flips both to the accent. */
 .card {
-  display: grid; grid-template-columns: 96px 1fr; gap: 8px;
-  border: 1px solid var(--border); border-radius: 2px;
-  padding: 8px; cursor: pointer; background: var(--bg);
+  display: block; width: 100%; text-align: left; padding: 0; overflow: hidden;
+  background: var(--surface); color: var(--text);
+  border: 3px solid var(--surface); border-radius: var(--r-md);
+  cursor: pointer; font: inherit;
 }
-.card:hover { border-color: var(--accent); }
+#results.grid .card { display: flex; flex-direction: column; }
+.card:hover { border-color: var(--accent); background: var(--accent); }
+.card:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .card.busy { cursor: default; opacity: 0.7; }
-.card img { width: 96px; height: 54px; object-fit: cover; background: var(--bg2); }
-.card .body { min-width: 0; }
-.card .title {
-  font-weight: 600;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+
+/* The thumbnail layer is #EB6060 in the design — it is what shows before (or
+   instead of) a keyframe, so it is also the 404 fallback for free. */
+.thumb { position: relative; display: block; width: 100%; padding-top: 56.25%;
+  background: var(--thumb); overflow: hidden; }
+.thumb img { position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: block; width: 100%; height: 100%; object-fit: cover; }
+.plus {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+  font: 500 12px/1 inherit; color: #fff;
+  border: 1.5px solid #fff; border-radius: var(--r-sm);
+  background: rgba(235, 81, 23, 0.9);
+  opacity: 0; transition: opacity 120ms linear;
 }
-.card .meta { font-size: 11px; color: var(--dim); margin-top: 2px; }
-.card .tc { font-variant-numeric: tabular-nums; }
-.card .snippet {
-  font-size: 11px; margin-top: 4px;
+.card:hover .plus, .card:focus-visible .plus { opacity: 1; }
+
+#results.list .card { display: flex; align-items: stretch; gap: 8px; }
+#results.list .thumb { width: 72px; flex: none; padding-top: 0; height: 41px; }
+
+.body { min-width: 0; padding: 6px 3px; display: flex; flex-direction: column; gap: 2px; }
+/* caption_description / duration: Geist Medium 20, white, 26px line box,
+   baseline-aligned with space between (777:368). */
+.cardrow { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.cap {
+  flex: 1; min-width: 0; font-size: 11px; font-weight: 500; color: var(--text);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.card .snippet.dim { color: var(--dim); }
-.card button {
-  margin-top: 6px;
-  background: var(--bg2); color: var(--text);
-  border: 1px solid var(--border); border-radius: 2px;
-  font: inherit; padding: 2px 8px; cursor: pointer;
+.dur { flex: none; font-size: 11px; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+.tc { font-size: 11px; font-weight: 500; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.name { font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Skeletons (777:520): radius-12 blocks, white 0->0.56 thumb and white 0->1
+   caption, swept (ADR-0011: this is the one animated surface while searching). */
+.card.skel { cursor: default; border-color: var(--surface); }
+.card.skel .sk-thumb, .card.skel .sk-cap {
+  display: block; background-color: var(--surface-2);
+  background-size: 200% 100%; animation: sweep 1.2s linear infinite;
 }
-.card button:hover { border-color: var(--accent); color: var(--accent); }
-.card button:active { border-color: var(--accent); color: var(--accent); }
-.card button:disabled { cursor: default; opacity: 0.6; }
-.card.skel { cursor: default; }
-.card.skel:hover { border-color: var(--border); }
-.card.skel .thumb, .card.skel .line {
-  background: var(--bg2); animation: pulse 1s ease-in-out infinite;
+.card.skel .sk-thumb { width: 100%; padding-top: 56.25%; background-image: var(--sweep-thumb); }
+.card.skel .sk-cap { height: 26px; margin: 6px 3px; background-image: var(--sweep-cap); }
+#results.list .card.skel { display: flex; align-items: stretch; gap: 8px; }
+#results.list .card.skel .sk-thumb { width: 72px; flex: none; padding-top: 0; height: 41px; }
+#results.list .card.skel .sk-cap { flex: 1; height: 11px; }
+@keyframes sweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+
+/* ---------- no-footage state (777:639) ----------
+ * The design draws the heading as a disabled CTA. It is rendered as a status
+ * pill instead: a control that cannot be pressed advertises an action it does
+ * not have (AGENTS.md 8). Pixels kept, dead affordance dropped. */
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 28px 8px; text-align: center; }
+.empty-state .warn { font-weight: 600; }
+.empty-state .warn-muted { opacity: 0.7; }   /* 777:692 opacity 0.7 */
+.hint { color: var(--text-dim); font-size: 11px; max-width: 36ch; margin: 0; }
+.empty { color: var(--dim); font-size: 11px; padding: 8px 0; }
+
+button:focus-visible, select:focus-visible, #submit:focus-visible {
+  outline: 1px solid var(--accent); outline-offset: 1px;
 }
-.card.skel .thumb { width: 96px; height: 54px; }
-.card.skel .line { height: 11px; margin-top: 4px; }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-#error {
-  border: 1px solid var(--border); border-radius: 2px;
-  padding: 4px 8px; font-size: 11px; color: var(--error);
+
+/* prefers-reduced-motion landed in CEF 74; a no-op below that, which the
+   declared CEP 9 floor (Chromium 61) still includes. See known-issues.md. */
+@media (prefers-reduced-motion: reduce) {
+  .step, .plus { transition: none; }
+  #q-sweep, .pill .spin, #submit .spin,
+  .step .ic .spin, .card.skel .sk-thumb, .card.skel .sk-cap { animation: none; }
 }
-.empty { font-size: 11px; color: var(--dim); padding: 8px 0; }
