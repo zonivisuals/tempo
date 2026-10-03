@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     upload_chunk_mb: int = 8
     upload_timeout_s: float = 120.0
 
-    # Plans (ADR-0007). Free tier locked: 1 footage, 7 footage-minutes.
+    # Plans (ADR-0007, amended by ADR-0010). Free tier locked: 3 footage, 120 footage-minutes.
     # Supabase licenses override this once billing lands.
     plan: str = "free"
 

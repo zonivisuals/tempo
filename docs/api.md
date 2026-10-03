@@ -36,7 +36,7 @@ The response is immediate. Added and changed keys are enqueued right away. The j
  "jobs": ["job_001"], "uploads": ["job_001"]}
 ```
 Plans apply to new work only (D14). Over quota returns `403 QUOTA_EXCEEDED`
-(free: 1 footage, 7 footage-minutes). Syncs with only unchanged footage always pass.
+(free: 3 footage, 120 footage-minutes). Syncs with only unchanged footage always pass.
 
 Indexing-consistency guards, which make reopening a project safe:
 - Unreadable stats (`size <= 0` or `mtime_ns <= 0`) are never treated as a change.

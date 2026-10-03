@@ -163,6 +163,6 @@ cert expiry (expired cert = silently dead panel).
 | `prefetch --verify` fails on the instance | CUDA/driver or pinned-stack mismatch | Read the traceback via `brev exec tempo-l4-instance "cd ~/workspace/tempo-src/engine/deploy && docker compose logs --tail 200"` |
 | `sync +0`, `evalScript raw len=0` | CEP skipped ScriptPath eval | Loader self-heals (watch `loader:` lines); else reinstall + full AE quit |
 | `Expected: )` running host scripts | Regex literal in ES3 | No regex in `host.jsx` (ESLint gate enforces) |
-| `403 QUOTA_EXCEEDED` | Free tier: 1 footage / 7 min | Prune project or upgrade plan |
+| `403 QUOTA_EXCEEDED` | Free tier: 3 footage / 120 min | Prune project or upgrade plan |
 | Old UI after update | CEF cache | `?v=` bump (in map) + full AE quit |
 | `MODEL_NOT_LOADED` | Query model load failed on the engine | Engine logs; rerun `prefetch --verify` |

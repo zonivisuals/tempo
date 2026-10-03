@@ -15,7 +15,7 @@ Index of decisions (details in AGENTS.md §12). New decisions get a numbered fil
 - D11 Modal backend behind the backend seam → `0004-modal-backend.md` (superseded by D15)
 - D12 Identity removed → `0005-identity.md`
 - D13 Storage providers, raw retention → `0006-storage.md` (transport superseded by D16; retention kept)
-- D14 Plans, entitlements, release gates → `0007-launch-gates.md`
+- D14 Plans, entitlements, release gates → `0007-launch-gates.md` (free footage 1→3 by `0010-free-tier-3-footage.md`)
 - D15 Brev L4 engine behind the backend seam → `0008-brev-engine.md`
 - D16 Content-addressed cache (path → content id → stage cache) → `0008-brev-engine.md`
 - D17 v4 pipeline + z-score fusion + FAISS candidates → `0009-v4-pipeline.md`

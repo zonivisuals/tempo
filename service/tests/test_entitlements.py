@@ -1,6 +1,6 @@
-"""Plans and quota enforcement (ADR-0007).
+"""Plans and quota enforcement (ADR-0007, amended by ADR-0010).
 
-Free tier locked: 1 footage, 7 footage-minutes. Gates only NEW work —
+Free tier locked: 3 footage, 120 footage-minutes. Gates only NEW work —
 pure unchanged syncs always pass so an over-quota project never bricks
 the panel. Unknown plans fail closed to free.
 """
@@ -23,27 +23,33 @@ def test_free_allows_first_footage():
     assert entitlements.check_new_work(["a"], [], [], {}, "free")[0] is True
 
 
-def test_free_denies_second_footage():
-    ok, code, msg = entitlements.check_new_work(["b"], [], ["a"],
-                                                _reg({"a": ("ready", 60.0)}), "free")
+def test_free_allows_three_footage():
+    assert entitlements.check_new_work(["a", "b", "c"], [], [], {}, "free")[0] is True
+
+
+def test_free_denies_fourth_footage():
+    ok, code, msg = entitlements.check_new_work(["d"], [], ["a", "b", "c"],
+                                                _reg({"a": ("ready", 60.0),
+                                                      "b": ("ready", 60.0),
+                                                      "c": ("ready", 60.0)}), "free")
     assert (ok, code) == (False, "QUOTA_EXCEEDED")
-    assert "1 footage" in msg
+    assert "3 footage" in msg
 
 
 def test_unchanged_only_always_passes():
-    reg = _reg({"a": ("ready", 1200.0)})  # 20 min, over quota — still viewable
+    reg = _reg({"a": ("ready", 8000.0)})  # 133 min, over quota — still viewable
     assert entitlements.check_new_work([], [], ["a"], reg, "free")[0] is True
 
 
 def test_free_denies_over_duration_on_new_work():
-    reg = _reg({"a": ("ready", 480.0)})  # 8 min already indexed
+    reg = _reg({"a": ("ready", 7500.0)})  # 125 min already indexed
     ok, code, msg = entitlements.check_new_work([], ["a"], [], reg, "free")
     assert (ok, code) == (False, "QUOTA_EXCEEDED")
-    assert "7 footage-minutes" in msg
+    assert "120 footage-minutes" in msg
 
 
 def test_unknown_plan_fails_closed_to_free():
-    ok, _, _ = entitlements.check_new_work(["a", "b"], [], [], {}, "founder-ultra")
+    ok, _, _ = entitlements.check_new_work(["a", "b", "c", "d"], [], [], {}, "founder-ultra")
     assert ok is False
     assert entitlements.quotas("founder-ultra") == entitlements.quotas("free")
 
@@ -70,9 +76,18 @@ def test_sync_endpoint_enforces_free_quota(tmp_path, monkeypatch):
         "footages": [
             {"path": "C:\\v\\a.mp4", "size": 100, "mtime_ns": 1000, "item_id": 1},
             {"path": "C:\\v\\b.mp4", "size": 100, "mtime_ns": 1000, "item_id": 2},
+            {"path": "C:\\v\\c.mp4", "size": 100, "mtime_ns": 1000, "item_id": 3},
         ]})
-    assert r2.status_code == 403
-    assert r2.json()["error"]["code"] == "QUOTA_EXCEEDED"
+    assert r2.status_code == 200
+    r3 = client.post("/sync", json={
+        "footages": [
+            {"path": "C:\\v\\a.mp4", "size": 100, "mtime_ns": 1000, "item_id": 1},
+            {"path": "C:\\v\\b.mp4", "size": 100, "mtime_ns": 1000, "item_id": 2},
+            {"path": "C:\\v\\c.mp4", "size": 100, "mtime_ns": 1000, "item_id": 3},
+            {"path": "C:\\v\\d.mp4", "size": 100, "mtime_ns": 1000, "item_id": 4},
+        ]})
+    assert r3.status_code == 403
+    assert r3.json()["error"]["code"] == "QUOTA_EXCEEDED"
     # unchanged re-sync still passes (panel never bricks)
-    r3 = client.post("/sync", json=payload("C:\\v\\a.mp4"))
-    assert r3.status_code == 200
+    r4 = client.post("/sync", json=payload("C:\\v\\a.mp4"))
+    assert r4.status_code == 200

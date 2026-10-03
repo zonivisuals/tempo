@@ -1,6 +1,6 @@
-"""Plans and quota enforcement (ADR-0007).
+"""Plans and quota enforcement (ADR-0007, amended by ADR-0010).
 
-Free tier (locked): 1 footage, 7 footage-minutes. Plan comes from
+Free tier (locked): 3 footage, 120 footage-minutes. Plan comes from
 settings.plan today (default "free"); Supabase `licenses` rows override it
 once billing lands (P3+), without changing this module's checks.
 
@@ -11,7 +11,7 @@ are 403 QUOTA_EXCEEDED with the limit named (panel renders it inline).
 """
 
 PLANS = {
-    "free": {"footage": 1, "minutes": 7},
+    "free": {"footage": 3, "minutes": 120},
     "pro": {"footage": 50, "minutes": 600},
     "studio": {"footage": 500, "minutes": 6000},
 }
