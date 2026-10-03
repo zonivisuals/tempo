@@ -6,7 +6,10 @@ shape in docs/api.md (cross-runtime pin without shared imports).
 """
 
 import json
+import re
 from pathlib import Path
+
+import pytest
 
 from tempo_service.schemas import (
     ErrorEnvelope,
@@ -21,6 +24,8 @@ from tempo_service.schemas import (
 PANEL_JS = Path(__file__).resolve().parents[2] / "panel" / "www" / "panel.js"
 PANEL_API_JS = Path(__file__).resolve().parents[2] / "panel" / "www" / "api.js"
 PANEL_HTML = Path(__file__).resolve().parents[2] / "panel" / "www" / "index.html"
+PANEL_CSS = Path(__file__).resolve().parents[2] / "panel" / "www" / "panel.css"
+PREVIEW_HTML = Path(__file__).resolve().parents[2] / "docs" / "design" / "preview.html"
 
 INSERT_KEYS = {"source_path", "start_s", "end_s"}
 
@@ -122,3 +127,126 @@ def test_panel_insert_escapes_windows_paths():
 
     payload = json.dumps({"source_path": "C:\\v\\a.mp4", "start_s": 1.0, "end_s": 2.0})
     assert json.loads(payload)["source_path"] == "C:\\v\\a.mp4"
+
+
+def test_preview_markup_matches_panel():
+    """docs/design/preview.html copies the panel's #app markup so the browser
+    preview cannot silently diverge from what ships. The copy exists because
+    fetch() is blocked on file:// and the preview must open by double-click.
+
+    Assert the two #app blocks are byte-identical, and that the preview loads the
+    real stylesheet and the real panel.js rather than a copy of either.
+    """
+    idx = PANEL_HTML.read_text(encoding="utf-8")
+    prev = PREVIEW_HTML.read_text(encoding="utf-8")
+
+    shipped = re.search(r'(?s)<div id="app">.*?\n</div>(?=\n<script)', idx)
+    assert shipped, "no #app block in panel/www/index.html"
+    copied = re.search(
+        r'(?s)<!-- BEGIN app.*?-->\n(.*?)<!-- END app -->', prev
+    )
+    assert copied, "preview.html is missing its BEGIN/END app markers"
+
+    assert copied.group(1).strip() == shipped.group(0).strip(), (
+        "docs/design/preview.html #app markup has drifted from panel/www/index.html"
+    )
+    assert "../../panel/www/panel.css" in prev, "preview must load the real panel.css"
+    assert "../../panel/www/panel.js" in prev, "preview must load the real panel.js"
+    # The preview must not pull in the real transport: the harness stubs it.
+    assert "panel/www/api.js" not in prev, "preview must not load api.js over the stub"
+    assert "preview-harness.js" in prev
+
+
+def test_panel_js_evaluates_cleanly():
+    """panel.js must load without a runtime error, and define its globals.
+
+    `node --check` (the CI gate) is parse-only: a file that begins `re/* ... */`
+    parses fine and then throws ReferenceError on load, which is exactly how a
+    stray edit reached panel.js once. Evaluating it the way a browser does —
+    vm.runInThisContext, so top-level `const` lands in the global lexical scope —
+    catches that class of bug without needing a browser.
+
+    Only panel.js's top-level code runs: boot() hangs off DOMContentLoaded,
+    which is never dispatched here.
+    """
+    import json
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if not node:  # CI runs node --check, so node is present; be honest if not.
+        pytest.skip("node not on PATH")
+
+    driver = """
+      const fs = require('node:fs'), vm = require('node:vm');
+      window = global;
+      document = { addEventListener() {}, getElementById() { return null; } };
+      CSInterface = function () {};
+      CSInterface.prototype.evalScript = function (e, cb) { cb(null); };
+      CSInterface.prototype.getHostEnvironment = function () { return "{}"; };
+      TempoAPI = {};
+      vm.runInThisContext(fs.readFileSync(process.argv[2], 'utf8'),
+                          { filename: process.argv[2] });
+      vm.runInThisContext(
+        'if (typeof store !== "object") throw new Error("panel.js defined no store");' +
+        'if (typeof render !== "function") throw new Error("panel.js defined no render");' +
+        'if (typeof stepOrder !== "function") throw new Error("panel.js defined no stepOrder");' +
+        'if (typeof stepNumber !== "function") throw new Error("panel.js defined no stepNumber");' +
+        'if (typeof doSearch !== "function") throw new Error("panel.js defined no doSearch");'
+      );
+      console.log("ok");
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "driver.js").write_text(driver, encoding="utf-8")
+        proc = subprocess.run(
+            [node, str(d / "driver.js"), str(PANEL_JS)],
+            capture_output=True, text=True, timeout=60,
+        )
+    assert proc.returncode == 0, (
+        "panel.js does not evaluate cleanly:\n"
+        f"{proc.stdout}\n{proc.stderr}"
+    )
+    assert "ok" in proc.stdout
+
+
+def test_panel_has_no_dead_step_bar():
+    """The Figma step rows carry no progress bar (777:702) — progress is the
+    running row's own readout. The bar markup, its CSS and the high-water store
+    were all removed; a stray reference means someone re-added half of it."""
+    src = PANEL_JS.read_text(encoding="utf-8")
+    css = PANEL_CSS.read_text(encoding="utf-8")
+    for dead in ("stepFraction", "hwm", "className = \"bar\"", "<i>"):
+        assert dead not in src, f"panel.js reintroduced {dead!r}"
+    assert ".step .bar" not in css, "panel.css still styles a step progress bar"
+
+
+def test_panel_top_k_matches_service():
+    """panel.js TOP_K and the sidecar /search default must agree.
+
+    A cross-runtime constant with no pin is one of the nine AGENTS.md 8 lists as
+    unpinned; changing one side silently changes the other. The panel reads its
+    own literal and the service reads app.py's, so assert the two agree and that
+    the panel never hardcodes a bare literal at the call site.
+    """
+    from tempo_service.app import create_app
+
+    panel = PANEL_JS.read_text(encoding="utf-8")
+    m = re.search(r"const TOP_K = (\d+);", panel)
+    assert m, "panel.js must declare a TOP_K constant"
+    panel_top_k = int(m.group(1))
+
+    route = next(
+        r for r in create_app().routes
+        if getattr(r, "path", None) == "/search" and "GET" in getattr(r, "methods", set())
+    )
+    service_top_k = next(
+        p.default for p in route.dependant.query_params if p.name == "top_k"
+    )
+    assert panel_top_k == service_top_k, (
+        f"top_k drift: panel.js TOP_K={panel_top_k}, app.py default={service_top_k}"
+    )
+    # The search call must go through the constant, not a literal.
+    assert "TempoAPI.search(q, TOP_K," in panel, "panel search must use TOP_K"

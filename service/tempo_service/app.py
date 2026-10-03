@@ -402,7 +402,7 @@ def create_app() -> FastAPI:
     @app.get("/search", response_model=SearchResponse)
     def search(
         q: str = Query(min_length=1),
-        top_k: int = Query(default=8, ge=1, le=50),
+        top_k: int = Query(default=9, ge=1, le=50),
         footage_keys: str | None = Query(default=None),
     ) -> SearchResponse:
         t0 = time.perf_counter()
