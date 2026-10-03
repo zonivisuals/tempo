@@ -93,15 +93,18 @@ another file is still indexing (§5 F2).
 #searchbox    label + value + submit                                (ready footage only)
 #error        inline error row                                       (on error)
 #footage-filter                                                       (>1 footage)
-#indexing     summary + eye toggle + detail: step list, footage rows
+#indexing     status pill + summary + step list, footage rows        (job live)
 #results      skeletons | cards | empty state | no-results
 ```
 
-**Search wins.** While the query box holds text or results exist, the indexing
-detail collapses to its one-line summary (`panel.js` `setIndexOpen`). Importing
-new footage never interrupts a search. The status row is always visible —
-`§4.4` requires engine reachability to render honestly, and it has no home in
-the Figma frames.
+**No hide/show toggle.** The stage list is shown whenever a job is live and
+disappears when none is; a failed job keeps its message and Retry visible. The
+eye control is gone from `index.html`, and `store.index` is gone from `panel.js`.
+A search does not collapse it either — searching with a job running shows the
+list and the results together.
+
+The status row is always visible — `§4.4` requires engine reachability to render
+honestly, and it has no home in the Figma frames.
 
 `#searchbox` and `#footage-filter` render only when at least one footage is
 `ready`. Below that the panel shows the indexing scenario (frames 01/02), which
@@ -144,7 +147,7 @@ slide *down* into place.
 |---|---|---|---|
 | 0 | `queued` | Initializing your project | synthetic, job `state == "queued"` |
 | 1 | `upload` | Uploading the footage | engine stage |
-| 2 | `shots` | Processing the scenes | engine stage |
+| 2 | `shots` | Detecting the scenes | engine stage |
 | 3 | `visual` | Embedding the visuals | engine stage |
 | 4 | `transcribe` | Transcribing the audio | engine stage |
 | 5 | `ocr` | Reading on-screen text | engine stage |
@@ -176,9 +179,12 @@ readout (`777:702`, "Finalizing... 80%"):
 | pending | 16 px hollow ring | `--text-dim` | hidden |
 | error | 16 px hollow ring, `--error` | `--error` | hidden |
 
-Above the list, while a job is live, the **indexing pill** (`777:698`): the
-current stage's label in `--accent` plus the same two-arc indicator, on the
-gradient-edged, shadowed `--surface`.
+Above the list, while a job is live, the **indexing pill** (`777:698`): the fixed
+label `Processing your videos` in `--accent` plus the same two-arc indicator, on
+the gradient-edged, shadowed `--surface`. The label does not change with the
+stage — the step list right below names the stage, and the summary line repeats
+it when nothing else competes for the width. The text lives in `index.html`, not
+in JS.
 
 ### 3.3 Progress readouts
 

@@ -47,7 +47,7 @@ The user has long video files (interviews, vlogs, rushes, documentaries). Tempo 
 ┌──────────────────── After Effects (host: AEFT) ───────────────────┐
 │  CEP Panel (HTML/CSS/JS, modern JS is OK here)                    │
 │   - search input, result cards, skeletons                         │
-│   - footage sync status, collapsible indexing progress, status row│
+│   - footage sync status, indexing progress, status row│
 │   - CSInterface.evalScript() ────► host.jsx (ExtendScript, ES3)   │
 └──────────────────────────────┬────────────────────────────────────┘
          │ fetch (http://127.0.0.1:<port>)
@@ -512,7 +512,7 @@ AE exposes (historically) almost no CEP events to panels — do not design aroun
 - Engine address, token, and Brev instance are server config (never panel input). `/health` reports engine reachability and tunnel state; unreachable/asleep/tunnel-down renders as an honest status row, never a spinner.
 - While the panel is open: poll every 2 s (config) — cheap evalScript + registry diff. New imports reuse a ready engine index or enter `uploading` automatically (D16), then indexing (F1).
 - Explicit **Sync now** button as the manual fallback.
-- While any job is running: poll `GET /jobs/{id}` at 500 ms and render the stage list (F4). The indexing section has a one-line summary (always visible) and a detail list behind an eye toggle: it opens when a job starts and closes when all jobs finish or a search is submitted. A manual toggle wins until the next job starts.
+- While any job is running: poll `GET /jobs/{id}` at 500 ms and render the stage list (F4). The indexing section has a one-line summary (always visible), a status pill, and the stage list itself - there is no toggle: the list is shown whenever a job is live and disappears when none is. A failed job keeps its message and Retry visible.
 
 ---
 

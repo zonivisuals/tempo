@@ -289,7 +289,6 @@
       store.searching = !!f.search;
       store.inserting = -1;
       store.error = f.err ? { code: f.err, message: errorMessage(f.err) } : null;
-      store.index = { open: !!f.job, manual: false };
       store.lastQuery = (f.searched || f.search) ? "mikasa fighting with katana" : "";
       const q = document.getElementById("q");
       // Do not fight the reviewer: whatever is typed in the box wins.

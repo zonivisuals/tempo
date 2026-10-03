@@ -175,13 +175,13 @@ Load-bearing behavior with no spec line, found during the audit:
 - `app.py:155-161` probes the engine synchronously only when the health cache was
   never populated; `app.py:76-78` keeps the last known stage list across an
   unreachable engine.
-- `panel.js:81-84` holds display names for the 7 engine stages, a fourth copy of
-  the stage vocabulary after `docs/api.md`, `README.md`, and `/v1/health`. No test
-  pins them.
-- `panel.js:372-373` keeps the indexing detail **open** when a job failed, which
-  `AGENTS.md` §4.4 does not mention.
-- `panel.js` has six render functions and no single `render()`. `showError()`
-  writes to the DOM directly, and `evalScript` and `probe` are two implementations
-  of the same thing.
-- `panel.css:9-11` hardcodes `--border`, `--text`, `--dim`. Only `--bg` comes from
-  `appSkinInfo` (`panel.js:52`).
+- `panel.js` holds editorial labels for the eight engine stages plus a synthetic
+  `queued` row in its `STEPS` map, a fourth copy of the stage vocabulary after
+  `docs/api.md`, `README.md` and `/v1/health`. No test pins the labels, only
+  that the keys match the engine's stage names.
+- `panel.css` ships both a dark and a light palette; `appSkinInfo` is read only
+  to decide which one applies (`panel.js` `applyTheme`, ADR-0011). A user with a
+  custom AE panel colour no longer gets that colour in Tempo.
+- `panel.js` `fmtTC()` falls back to 25 fps when `tempoGetActiveCompInfo()`
+  returns `{ok:false}` or unparseable output, so timecodes render at the wrong
+  rate with no indication that it happened.

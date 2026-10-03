@@ -23,11 +23,11 @@ flag and reject an element reading as "AI-generated slop".
 - [ ] Every animation answers "what state is this?". A sweep that decorates
       rather than informs is rejected here exactly as a spinner over a skeleton
       would be.
-- [ ] Indexing section: one always-visible summary line ("Indexing ·
-      interview.mp4 · Speech 212/481 s", or "3 footage · 3 ready"), an accent pill
-      carrying the live stage, and a 16px monochrome eye toggle (accent only while
-      the detail is shown). Detail opens when a job starts, hides when jobs finish
-      or a search runs, and stays open when a job failed.
+- [ ] Indexing section: a one-line summary line ("Indexing ·
+      interview.mp4 · Speech 212/481 s", or "3 footage · 3 ready") and a status
+      pill reading "Processing your videos" with the two-arc indicator. **There is
+      no hide/show toggle** — the stage list is shown whenever a job is live and
+      gone when none is, and a failed job keeps its message and Retry.
 - [ ] Step list: nine rows, newest at the top, done rows dimmed with a check and
       the running row carrying a readout. No step renders a number when `total` is
       0.

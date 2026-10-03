@@ -30,7 +30,7 @@ const TOP_K = 9;
 const STEPS = [
   { key: "queued", label: "Initializing your project" },
   { key: "upload", label: "Uploading the footage" },
-  { key: "shots", label: "Processing the scenes" },
+  { key: "shots", label: "Detecting the scenes" },
   { key: "visual", label: "Embedding the visuals" },
   { key: "transcribe", label: "Transcribing the audio" },
   { key: "ocr", label: "Reading on-screen text" },
@@ -55,9 +55,6 @@ const store = {
   filter: "",
   error: null,    // {code, message}
   view: "grid",   // "grid" | "list"
-  // Indexing detail: opens when a job starts, closes when all jobs finish or a
-  // search runs; a manual toggle wins until the next job starts.
-index: { open: false, manual: false },
   stepNodes: {},  // stage key -> {row, ic, lab, num}
 };
 
@@ -445,32 +442,20 @@ function renderIndexing() {
   const section = $("indexing");
   const job = activeJob();
   const live = !!job;
+  const failed = Object.keys(store.jobs).some((id) => store.jobs[id].state === "error");
   const hasFootage = store.footages.length > 0;
   section.hidden = !live && !hasFootage;
 
-  // Figma 777:698: the heading pill carries the live stage's label next to the
-  // indeterminate indicator, in the accent colour. While the step list is open
-  // it already says everything the summary line would, and the pill is wider —
-  // so the summary is only shown collapsed, or when nothing is running
-  // (AGENTS.md 4.4 requires it to stay visible).
-  const pill = $("indexing-pill");
-  pill.hidden = !live;
-  if (live) {
-    const st = currentStep(job);
-    $("indexing-label").textContent = st ? stageLabel(st.name) : "Indexing";
-  }
-  const summary = $("indexing-summary");
-  summary.textContent = indexSummary();
-  summary.hidden = live && store.index.open;
-
-  const open = store.index.open;
-  const toggle = $("indexing-toggle");
-  toggle.setAttribute("aria-pressed", open ? "true" : "false");
-  toggle.title = open ? "Hide indexing detail" : "Show indexing detail";
-  toggle.hidden = !live;
-  $("indexing-detail").hidden = !open;
+  // Figma 777:698: the heading pill carries a fixed label and the two-arc
+  // indicator. The live stage is named in the step list right below it, and in
+  // the summary line once the detail is not competing for the width.
+  $("indexing-pill").hidden = !live;
+  $("indexing-summary").textContent = indexSummary();
+  // No toggle: the step list is simply there while a job runs, and disappears
+  // with it. A failed job keeps its message and Retry visible.
+  $("indexing-detail").hidden = !live && !failed;
   renderSteps();
-  if (open) { renderJobError(); renderFootageActions(); }
+  if (live || failed) { renderJobError(); renderFootageActions(); }
 }
 
 function skeletonHTML() {
@@ -615,11 +600,8 @@ async function syncNow() {
 }
 
 function trackJob(id, footageKey) {
-  // A new job opens the indexing detail again (manual hide lasts until then).
-  const fresh = !store.activeJobs.includes(id);
   store.jobs[id] = store.jobs[id] || { job_id: id, footage_key: footageKey, state: "queued", stages: [] };
   store.activeJobs = [...new Set([...store.activeJobs, id])];
-  if (fresh) { store.index.open = true; store.index.manual = false; }
 }
 
 async function pollJobs() {
@@ -633,14 +615,11 @@ async function pollJobs() {
     else if (res.body.state !== "error") delete store.jobs[id];  // done/cancelled: the footage row takes over
   }
   store.activeJobs = still;
-  const failed = Object.keys(store.jobs).some((id) => store.jobs[id].state === "error");
   if (still.length) {
     renderIndexing();
     renderResults();
     return;
   }
-  // All jobs finished: hide the detail unless one failed (its message + Retry stay visible).
-  if (!store.index.manual && !failed) store.index.open = false;
   const fl = await TempoAPI.footage();
   if (fl.ok) store.footages = fl.body || [];
   render();
@@ -669,7 +648,6 @@ async function doSearch() {
   store.searching = true;
   store.lastQuery = q;
   showError(null);
-  if (store.index.open && !store.index.manual) store.index.open = false;
   render();
   const t0 = Date.now();
   await refreshCompFps();
@@ -762,11 +740,6 @@ async function boot() {
   $("q").addEventListener("scroll", syncQueryMirror);
   $("submit").addEventListener("click", () => doSearch());
   $("footage-filter").addEventListener("change", (e) => { store.filter = e.target.value; });
-  $("indexing-toggle").addEventListener("click", () => {
-    store.index.open = !store.index.open;
-    store.index.manual = true;
-    renderIndexing();
-  });
   $("view-grid").addEventListener("click", () => setView("grid"));
   $("view-list").addEventListener("click", () => setView("list"));
 
