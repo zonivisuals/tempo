@@ -40,6 +40,9 @@ log = logging.getLogger("tempo")
 logging.basicConfig(level=settings.log_level)
 
 KEY_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+# content_id is sha1(...)[:16] — 16 lowercase hex. Mirrors the engine's
+# fingerprint.valid so both ends of the contract agree on what a content id is.
+CONTENT_ID_RE = re.compile(r"[0-9a-f]{16}")
 THUMB_CACHE = "public, max-age=86400"
 
 
@@ -146,10 +149,20 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
 
 
 def create_app() -> FastAPI:
-    # No auth wall: the sidecar serves one local editor over 127.0.0.1
-    # (see docs/decisions/0005-identity.md — identity removed).
+# No auth wall: the sidecar serves one local editor over 127.0.0.1
+    # (see docs/decisions/0005-identity.md - identity removed).
     # Every route below is public on localhost by design.
-    app = FastAPI(title="Tempo", lifespan=lifespan)
+    #
+    # docs_url/redoc_url/openapi_url are off: with no auth wall they hand any
+    # process on the machine a complete map of every route, parameter and model
+    # for free. docs/api.md is the contract of record.
+    app = FastAPI(
+        title="Tempo",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -441,7 +454,12 @@ def create_app() -> FastAPI:
         if not KEY_RE.fullmatch(footage_key) or shot_id < 0:
             return not_found
         cid = registry_module.load_registry().get(footage_key, {}).get("content_id")
-        if not cid:
+        # content_id comes from registry.json, not from the request — but that
+        # file is plain unauthenticated JSON on disk, and registry.thumbs_dir()
+        # concatenates it into a path. Validate it here so no future writer (a
+        # prune route, a sync client, another tool) can turn this route into an
+        # arbitrary file read. Same predicate the engine uses.
+        if not cid or not CONTENT_ID_RE.fullmatch(cid):
             return not_found
         path = registry_module.thumbs_dir(cid) / f"{shot_id}.jpg"
         if path.is_file():

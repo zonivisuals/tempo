@@ -589,3 +589,42 @@ def test_no_footage_screen_is_centred_like_the_indexing_one():
     # keep a centring class from an earlier empty state.
     live = "store.activeJobs = ['job_1']; store.jobs = { job_1: %s };" % _RUNNING_JOB
     assert _panel_render("renderResults()", live, cls) == ""
+
+
+def test_interactive_api_docs_are_disabled():
+    """With no auth wall, /docs, /redoc and /openapi.json hand any process on
+    the machine a complete map of every route, parameter and model for free.
+    docs/api.md is the contract of record."""
+    from tempo_service.app import create_app
+
+    app = create_app()
+    paths = {getattr(r, "path", None) for r in app.routes}
+    assert "/docs" not in paths
+    assert "/redoc" not in paths
+    assert "/openapi.json" not in paths
+
+
+def test_thumb_rejects_a_content_id_that_is_not_one(tmp_path, monkeypatch):
+    """content_id is read from registry.json rather than the request, but that
+    file is plain unauthenticated JSON on disk and thumbs_dir() concatenates it
+    into a path. A registry poisoned with a traversal string must not turn
+    GET /thumb into an arbitrary file read."""
+    from fastapi.testclient import TestClient
+
+    from tempo_service import registry as registry_module
+    from tempo_service.app import create_app as _create
+
+    root = tmp_path / "artifacts"
+    (root / "thumbs").mkdir(parents=True)
+    monkeypatch.setattr(registry_module, "load_registry", lambda: {
+        "deadbeef00": {"content_id": "..\\..\\..\\Windows\\win.ini"},
+    })
+    client = TestClient(_create())
+    res = client.get("/thumb/deadbeef00/0.jpg")
+    assert res.status_code == 404, res.text
+
+    # And a well-formed content id still resolves, so the guard is not a blanket deny.
+    monkeypatch.setattr(registry_module, "load_registry", lambda: {
+        "deadbeef00": {"content_id": "0123456789abcdef"},
+    })
+    assert client.get("/thumb/deadbeef00/0.jpg").status_code == 404  # absent file, not invalid id
