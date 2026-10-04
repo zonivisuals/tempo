@@ -131,7 +131,16 @@ def create_app(cfg: EngineSettings | None = None, runner: Runner | None = None,
     def needs_upload(cid: str) -> bool:
         return library.raw(cid) is None and not pipeline.source_cached(cid, library.entry_dir(cid), prof)
 
-    app = FastAPI(title="Tempo engine", lifespan=lifespan)
+    # docs_url/redoc_url/openapi_url are off: they sit on `app`, outside the
+    # /v1 router's require_token dependency, so leaving them on publishes the
+    # full route/parameter/model schema to anything that can reach the port.
+    app = FastAPI(
+        title="Tempo engine",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     v1 = APIRouter(prefix="/v1", dependencies=[Depends(require_token)])
 
     @app.exception_handler(ApiError)

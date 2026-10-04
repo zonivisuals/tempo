@@ -323,3 +323,16 @@ def _match(rel: str, pattern: str) -> bool:
     return fnmatch.fnmatch(rel, pattern) or any(
         fnmatch.fnmatch(part, pattern) for part in rel.split("/")
     )
+
+
+def test_interactive_api_docs_are_disabled():
+    """/docs, /redoc and /openapi.json are registered on `app`, outside the
+    /v1 router's require_token dependency. Leaving them on hands any process that
+    can reach the port the complete route/parameter/model schema for free.
+    docs/engine-api.md is the contract of record.
+    """
+    app = create_app(EngineSettings(token=TOKEN), prof=PROF)
+    paths = {getattr(r, "path", None) for r in app.routes}
+    assert "/docs" not in paths
+    assert "/redoc" not in paths
+    assert "/openapi.json" not in paths
