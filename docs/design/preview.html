@@ -69,16 +69,24 @@
     <button id="sync-now" type="button">Sync now</button>
   </div>
 
-  <!-- Search field, Figma 777:509: radius 32/196, 1.5px white->#171717 edge at
-       0.28 alpha, drop shadow 0 8 12 @0.2. A permanent label line above the
-       value, as drawn. Hidden until one footage is ready: neither the
-       no-footage frame nor the indexing frame has a search field. -->
+  <!-- Search field, Figma 815:294 (search_input, inside 04_search_results_frame):
+       a 1836x196 field, radius 25, 1.5px white->#171717 edge at 0.28 alpha, drop
+       shadow 0 8 12 @0.2. Its 47/46/53 of padding and label-to-value gap scale
+       by 0.406 to 20/20/20, and its 42/40 of side padding to 16; see panel.css.
+       A permanent label line above the value, as drawn. Hidden until one footage
+       is ready: neither the no-footage frame nor the indexing frame has one. -->
   <div id="searchbox" class="edge" hidden>
     <div class="sb-head">
-      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
-        <circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/>
+      <!-- The design's own path at 21px. stroke is currentColor rather than the
+           asset's literal white, which is invisible on the light theme, and
+           stroke-opacity is absent so .sb-head's --text-dim is the only source of
+           the alpha -- 0.4 in dark, matching the design, and 0.45 in light, where
+           a 4% lift is what holds it on a pale surface. stroke-width stays on the
+           path: the design's 2.2751, and .sb-head must not restate it. -->
+      <svg width="21" height="21" viewBox="0 0 21 21" fill="none" aria-hidden="true">
+        <path d="M18.3757 18.3757L14.5693 14.5693M16.6256 9.62531C16.6256 13.4915 13.4915 16.6256 9.62531 16.6256C5.75915 16.6256 2.625 13.4915 2.625 9.62531C2.625 5.75915 5.75915 2.625 9.62531 2.625C13.4915 2.625 16.6256 5.75915 16.6256 9.62531Z" stroke="currentColor" stroke-width="2.2751" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <span>Search footage</span>
+      <span>Search for anything</span>
     </div>
     <div class="sb-row">
       <div class="sb-val">

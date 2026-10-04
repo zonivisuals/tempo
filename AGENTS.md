@@ -556,12 +556,15 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 Tempo's UI mimics AE native panels: dense, gray, flat, quiet. Read the host theme at startup (`CSInterface#getHostEnvironment().appSkinInfo`) — but only to select dark or light; Tempo's own palette wins (ADR-0011). Ship neutral fallbacks. The visual system is the Figma design, re-measured for panel width; `docs/design/panel-ui.md` is the spec of record.
 
 **Do:**
-- Flat surfaces, 1px dividers, and the Figma design's own radii ported as
-  ratios: 32/196 → `--r-lg: 8px` on the search field, CTA and indexing pill,
-  12/560 → `--r-md: 3px` on cards and skeletons, 10.67/60 → `--r-sm: 4px` on
-  buttons. One documented exception stays round: the 7 px status dot, which must
-  read as a dot. Spacing in a 4px rhythm, system font stack, 12px base / 11px
-  metadata.
+- Flat surfaces, 1px dividers, and the Figma design's own radii ported as ratios.
+  The search field is scaled against the panel's type (13px value / 32px in the
+  design = 0.406), which gives 25/196 → `--r-field: 10px`; the rest are ratios of
+  their own box, so 12/560 → `--r-md: 3px` on cards and skeletons and
+  10.67/60 → `--r-sm: 4px` on buttons. `--r-lg: 8px` stays on the indexing and
+  empty-state pills, whose node was not re-measured and whose radius is inherited
+  rather than derived. One documented exception stays round: the 7 px status dot,
+  which must read as a dot. Spacing in a 4px rhythm, system font stack, 12px base /
+  11px metadata.
 - The design's 1.5px white→surface gradient stroke at 0.28 alpha and its
   `0 8 12 rgba(0,0,0,0.2)` shadow on the search field and the pills. This is the
   one place a gradient is a surface treatment; everywhere else a gradient is only
@@ -759,6 +762,27 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
   rules is the thing that was wrong before. Active view is the chip fill, as drawn,
   so the inactive chip is `transparent` rather than a second identical fill; §6's
   accent still names the working view. Spec in `docs/design/panel-ui.md` §1.
+- **D20 The panel scales by type, not by frame geometry.** The port had been
+  claiming one method and using another: the submit button is 60px in the design
+  and 24px in the panel (0.4), and the panel's 13px search value against the
+  design's 32px is 0.406 — the same ratio. §1's prose said the field scaled
+  against the frame, which is a method that cannot work in either direction: the
+  design's field is 10.7% of its content width and the panel's was already 18%,
+  so every frame ratio argued for shrinking the one control that was too tight.
+  The search field's spacing is now re-derived on the 4px rhythm from `815:294`'s
+  measured 47 / 46 / 53 of padding and label-to-value gap (× 0.406 → 20 / 20 / 20,
+  side padding 16, icon-to-label 6), which takes it from 57px to 107px. The rows
+  are set by the icon (21px) and the submit button (24px), not by the text, and
+  the arithmetic says so. Its corrected radius 25/196 × 0.406 = 10.2px gets
+  `--r-field`, split from `--r-lg` so the field's measurement cannot move the
+  indexing and empty-state pills, whose own node (`777:698`) was never measured.
+  §1's icon rule becomes a floor rather than a size, because the design's 21px
+  magnifier at 0.406 would be a grey smudge under §6's own 16px line.
+  `Search for anything` is kept, reversing §3.1's drop: §6 bans *placeholder*
+  copy, and the design draws it as a permanent field label, which is a different
+  thing the earlier reading conflated. The header's `border-bottom` hairline goes,
+  since the design has never had one. Spec in `docs/design/panel-ui.md` §1
+  (see `docs/decisions/0013-search-field-scale-and-spacing.md`).
 
 Known debt (tracked, not silently fixed):
 - **K1 Key-scale calibration:** RESOLVED by D17 (per-key z-scores before a weighted sum).

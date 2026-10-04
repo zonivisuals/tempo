@@ -38,17 +38,68 @@ Tempo ships two themes; `appSkinInfo` only *selects* one — see ADR-0011).
 
 ### Radii are ratios, not raw px
 
-The design's radii are ported **proportionally**, so the shape survives the scale
-change instead of being flattened. A 32 px radius on a 196 px-tall field is 0.163
-of the height; 0.163 of a 48 px panel field is 8 px.
+The port scales **by type, not by frame geometry**: the panel's 13px search value
+against the design's 32px is a ratio of **0.406**, and that is the ratio the
+submit button already used (design 60px → shipped 24px, 0.4) before this section
+existed. Frame-relative ratios are the wrong instrument here, because the frames
+are 2004px wide and a docked panel is 300: the design's field is 10.7% of its
+content width and the panel's is already 18%, so every geometry ratio argues for
+shrinking a control that was too tight. Radii follow the same 0.406.
+
+`search_input` (`815:294`, inside `04_search_results_frame`) measures 25px on a
+196px field, which is 0.128 of the height and **10.2px** of the panel's 13px
+type. It is the design's own value; the spec previously recorded 32, from the
+superseded `Rectangle 5411`.
 
 | Element | Design | Ratio | Shipped |
 |---|---|---|---|
-| search field, CTA, indexing pill | 32 / 196 | 0.163 | `--r-lg: 8px` |
+| search field | 25 / 196 | 0.128 | `--r-field: 10px` (× 0.406) |
+| indexing + empty-state pill | 32 / (pill height) | — | `--r-lg: 8px` |
 | submit button | 10.67 / 60 | 0.178 | `--r-sm: 4px` (0.167 at 24 px) |
 | view-toggle chips | 8 / 64 | 0.125 | `--r-sm: 4px`, exact at 32 px |
 | cards, thumbnails, skeleton blocks | 12 / 560 | 0.021 | `--r-md: 3px` |
 | status dot | — | — | `50%`, the one exception that must stay round |
+
+The field and the pills are separate tokens on purpose. They come from different
+Figma nodes, and the pill's radius was not re-measured when the field's was, so
+giving the field its own token is what stops one measurement from silently
+moving two surfaces. `--r-field` is the only consumer of the corrected figure.
+
+### The search field's spacing
+
+Measured off a 1× render of `815:294`: the 196px field divides into 47 above the
+label, a 46px ink-to-ink gap, and 53 below the value, with 42 and 40 of side
+padding. Scaled by 0.406 those are 19.1 / 18.7 / 21.5 and 17 / 16, which land on
+**20 / 20 / 20** and **16** at the 4px rhythm; the icon-to-label gap is 15 → 6.
+
+| | Design | × 0.406 | Shipped |
+|---|---|---|---|
+| top padding | 47 | 19.1 | 20 |
+| label → value gap | 46 | 18.7 | 20 |
+| bottom padding | 53 | 21.5 | 20 |
+| side padding | 42 / 40 | 17 / 16 | 16 |
+| icon → label gap | 15 | 6.1 | 6 |
+
+Height follows from the parts rather than being a target: 2px of border, 20
+padding, a **21px** label row (the icon sets it, not the 11px text), the 20px
+gap, a **24px** value row (the submit button sets it, not the 20px input box)
+and 20 padding — **107px**, against the 57px it was.
+
+The gap is the substance of the change. At 2px the label and the query read as
+one sentence in a box; the design separates them by nearly a quarter of the
+field's height. Nothing else moved: the submit button was already 24px with the
+design's alignment, its centre 28px below the field's own centre, sitting on the
+value row rather than centred on the field.
+
+Two properties of the icon are load-bearing rather than cosmetic. Its `stroke` is
+`currentColor`, not the asset's literal white, which is invisible on the light
+theme; and its alpha comes from `.sb-head`'s `--text-dim` alone, so carrying
+`stroke-opacity` as well would compound it — 0.4 over 0.4 lands the icon at 0.16
+in the dark theme, and 0.45 over 0.45 at 0.20 in the light one. Its
+`stroke-width` stays on the path because `.sb-head` must not restate it: CSS
+would override the asset's `2.2751` silently, which is a conflict rather than
+the harmless restatement the other paint properties are. The step icons set that
+precedent, and AGENTS.md §8 wants one owner per constant.
 
 ### Other ported properties
 
@@ -152,8 +203,11 @@ for this.
 
 **Spacing**: 4 px rhythm (design `itemSpacing` 12 → 4).
 
-**Icons**: 16px (design 32 → 14 would breach `§6`'s "identifiable at 16px",
-which was not reversed).
+**Icons**: 16px is the floor, not the size (design 32 → 14 would breach `§6`'s
+"identifiable at 16px", which was not reversed). The field's magnifier is the one
+icon above it: the design exports it as a 21×21 path, and 0.406 of that box is
+8.5px — below the floor, and at the magnifier's 2.2751 stroke a smudge. It ships
+at the export's own 21.
 
 ## 2. Layout
 
@@ -214,8 +268,14 @@ Two more variants of the same block, same components:
 
 The design's `Get started by importing your videos to the project` is kept in
 substance; the exact AE menu path is named so the instruction is actionable.
-"Search for anything" from the design is **dropped** — `§6` bans placeholder
-copy of that species and ADR-0011 did not reverse that line.
+
+`Search for anything` is **kept**, reversing the earlier decision to drop it.
+§6 bans placeholder *copy* — the species this was read as, and the reason it was
+cut — but the design draws it as a permanent label line above the value, not as
+a `placeholder` attribute that disappears on the first keystroke. That is a
+field label, which §6 does not name, so the original reading conflated the two.
+It is still a label rather than the input's accessible name: the input carries
+no `aria-label` today, and that gap is unchanged by this.
 
 ### 3.2 Frame 02 — indexing
 

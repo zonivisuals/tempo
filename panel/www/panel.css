@@ -3,13 +3,18 @@
  * Source: Figma YJntqqRI69HtwO7aw8bbwz, group TEMPO_project_frames (777:771).
  * Every colour, radius ratio, border weight, shadow and control treatment below
  * is the design's own value, re-expressed for panel scale. See
- * docs/design/panel-ui.md (spec of record) and ADR-0011.
+ * docs/design/panel-ui.md (spec of record), ADR-0011, and ADR-0013 for the
+ * scale basis.
  *
- * The frames are 2004x1919 px and a docked AE panel is ~300-360 px wide, so the
- * port scales geometry proportionally and re-derives type. Radii are therefore
- * ratios, not the design's raw px: a 32px radius on a 196px-tall field is 0.163
- * of the height, and 0.163 of a 48px panel field is 8px. Same shape, honest scale.
- *   search field / CTA / indexing pill   32/196  ->  --r-lg  8px
+ * The frames are 2004x1919 px and a docked AE panel is ~300-360 px wide. The port
+ * scales by TYPE, not by frame geometry: the panel's 13px value type against the
+ * design's 32px is a ratio of 0.406, and that is the ratio the submit button
+ * already uses (design 60px -> shipped 24px). Frame-relative ratios would argue
+ * for shrinking every control, because the design's are a small share of a very
+ * large frame. Radii therefore follow the same ratio, not the design's raw px.
+ *   search field                         25/196  ->  --r-field  10px
+ *   indexing / empty-state pill          unmeasured (777:698 not re-read here)
+ *                                         ->  --r-lg      8px, inherited
  *   view-toggle chips                    8/64    ->  --r-sm  4px   (exact at 32px)
  *   submit button                        10.67/60->  --r-sm  4px   (0.167 at 24px)
  *   cards / thumbnails / skeletons      12/560   ->  --r-md  3px
@@ -29,11 +34,15 @@
   --ok: #7fae74;
   /* The two-arc indicator's track (777:704): white under the accent arc. */
   --spin-track: #fff;
+  /* The search field's own radius. --r-lg is kept for the pills: they come from
+   * a different Figma node (777:698) whose radius is not measured here, so the
+   * field takes a token rather than moving two surfaces it cannot vouch for. */
+  --r-field: 10px;
   --r-lg: 8px;
   --r-sm: 4px;
   --r-md: 3px;
   --sh: 0 2px 6px rgba(0, 0, 0, 0.2);   /* 0 8 12 @0.2, scaled */
-  /* 1.5px stroke whose paint is white -> surface at 0.28 alpha (777:509) */
+  /* 1.5px stroke whose paint is white -> surface at 0.28 alpha (815:294) */
   --edge: linear-gradient(rgba(255, 255, 255, 0.28), rgba(23, 23, 23, 0.28));
   /* skeleton fills: white 0 -> 0.56 (thumb) and white 0 -> 1 (caption) */
   --sweep-thumb: linear-gradient(90deg,
@@ -97,7 +106,7 @@ body {
 #topbar {
   display: flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--dim);
-  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
 }
 /* The mark is height-driven and the PNG carries the wordmark's own 40:7
  * proportion, so width:auto keeps it from ever distorting — and 14px of height
@@ -124,18 +133,28 @@ html.light #logo { filter: invert(1) hue-rotate(180deg); }
 }
 #topbar button:hover { border-color: var(--accent); color: var(--accent); }
 
-/* ---------- search field (777:509) ----------
- * radius 32/196 of the height, 1.5px white->#171717 edge at 0.28,
- * drop shadow 0 8 12 @0.2, fill #171717. */
+/* ---------- search field (815:294) ----------
+ * radius 25 of 196, 1.5px white->#171717 edge at 0.28, drop shadow 0 8 12 @0.2,
+ * fill #171717.
+ *
+ * The field's 47 / 46 / 53 of top padding, label-to-value gap and bottom padding
+ * scale by the same 0.406 as everything else, landing on 20 / 20 / 20 at the 4px
+ * rhythm; its 42 / 40 of side padding lands on 16. Height is then 2 border +
+ * 20 + a 21px label row (the icon sets it, not the 11px text) + the 20px gap +
+ * a 24px value row (the button sets it, not the 20px input box) + 20 = 107px.
+ * The label-to-value gap is the whole point: at 2px the field read as one
+ * sentence in a box rather than as the design's labelled field. */
 #searchbox {
-  border-radius: var(--r-lg);
+  border-radius: var(--r-field);
   box-shadow: var(--sh);
-  padding: 6px 8px 7px;
-  display: flex; flex-direction: column; gap: 2px;
+  padding: 20px 16px;
+  display: flex; flex-direction: column; gap: 20px;
 }
 #searchbox:focus-within { border-color: var(--accent); }
-.sb-head { display: flex; align-items: center; gap: 5px; color: var(--text-dim); font-size: 11px; }
-.sb-head svg { fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; }
+/* gap 6 is the design's 15 between icon and label, scaled; the icon carries its
+   own stroke-width, so the rule below must not restate it. */
+.sb-head { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 11px; }
+.sb-head svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .sb-row { display: flex; align-items: center; gap: 8px; }
 
 /* The two mirrors sit over the input's text box. #q's colour goes transparent

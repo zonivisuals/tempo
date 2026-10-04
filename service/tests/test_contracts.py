@@ -621,6 +621,87 @@ def test_view_toggle_is_the_design_geometry_on_the_left():
     assert "background: var(--surface)" in _css_rule(css, 'button.icon[aria-pressed="true"]')
 
 
+def test_search_field_carries_the_designs_spacing():
+    """The field is as tall as the design says, not as tight as it fits.
+
+    Measured off a 1x render of Figma `search_input` (815:294, inside
+    `04_search_results_frame`): a 1836x196 field whose top padding, ink-to-ink
+    label-to-value gap and bottom padding are 47 / 46 / 53 of that 196. Scaling
+    by the port's own basis -- the panel's 13px value type against the design's
+    32px, a ratio of 0.406, which is the ratio the submit button already uses
+    (design 60px -> shipped 24px) -- lands them on 20 / 20 / 20 at the 4px
+    rhythm, and the field's 25px radius on 10px.
+
+    Geometry is deliberately not the basis. The design's field is 10.7% of its
+    content width and the panel's was already 18%, so every frame-relative
+    ratio argues for shrinking the one thing that was too tight; only the type
+    ratio says grow. Height follows from the parts: 2px of border, 20 padding,
+    a 21px label row (the icon sets it, not the 11px text), the 20px gap, a 24px
+    value row (the button sets it, not the 20px input box) and 20 padding.
+
+    `--r-lg` stays at 8px on purpose. It also carries the indexing and
+    empty-state pills, which come from a different Figma node whose radius is
+    not verified here, so the field gets its own token rather than moving them.
+
+    The icon is the design's own path, so `stroke` has to be currentColor:
+    literal white is invisible on the light theme, and keeping stroke-opacity
+    beside an already-translucent colour compounds the alpha instead of setting
+    it. Its stroke-width stays on the path: CSS would override the asset's 2.2751,
+    so the two would conflict rather than merely restate each other, and
+    AGENTS.md 8 wants one owner per constant. The step icons set that precedent.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+    html = PANEL_HTML.read_text(encoding="utf-8")
+
+    box = _css_rule(css, "#searchbox")
+    assert "padding: 20px 16px;" in box, box
+    assert "gap: 20px;" in box, box
+    assert "border-radius: var(--r-field);" in box, box
+    assert "--r-field: 10px;" in css, "the field's radius must come from its own token"
+    assert "--r-lg: 8px;" in css, "the pills keep the radius they were measured at"
+
+    head = _css_rule(css, ".sb-head")
+    assert "gap: 6px;" in head, head
+    assert "stroke-width" not in _css_rule(css, ".sb-head svg"), (
+        "the icon carries its own stroke-width; a second owner would drift"
+    )
+
+    assert 'viewBox="0 0 21 21"' in html, "the design's search icon is a 21px asset"
+    assert 'stroke="currentColor"' in html, "a literal white stroke vanishes on light"
+
+    # Scoped to .sb-head rather than the whole document: both assertions are
+    # about one fragment, and a file-wide scan would fail on unrelated markup --
+    # including on this file's own comments, which have to be able to name the
+    # attributes and the old string they explain away.
+    head = re.search(r'(?s)<div class="sb-head">.*?</div>', html)
+    assert head, "index.html has no .sb-head block"
+    head = head.group(0)
+    assert "stroke-opacity=" not in head, (
+        "stroke-opacity over an already-translucent colour compounds it"
+    )
+    assert "Search for anything" in head, "the design's label is the field's label"
+    assert "Search footage" not in head, "the label was replaced, not added to"
+
+
+def test_header_draws_no_hairline_under_the_wordmark():
+    """The header has no rule under it, because the design has none.
+
+    The divider was part of the same invention as the bar it replaced: neither
+    appears in the Figma frames. The two controls stay regardless -- AGENTS.md
+    4.4 binds the honest engine status and the manual sync fallback into this
+    row, and the dot is now the only carrier of that state.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+    html = PANEL_HTML.read_text(encoding="utf-8")
+
+    bar = _css_rule(css, "#topbar")
+    assert "border-bottom" not in bar, bar
+    assert "display: flex" in bar, "the row is still a row"
+    assert "--border" in css, "the hairline token is used elsewhere and must survive"
+    for kept in ('id="svc-dot"', 'id="sync-now"'):
+        assert kept in html, f"{kept} is AGENTS.md 4.4's, not the design's to remove"
+
+
 def test_panel_top_k_matches_service():
     """panel.js TOP_K and the sidecar /search default must agree.
 
