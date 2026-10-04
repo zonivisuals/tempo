@@ -60,6 +60,33 @@ of the height; 0.163 of a 48 px panel field is 8 px.
 | skeleton fills | `#FFF 0→0.56` (thumb), `#FFF 0→1` (caption), radius 12 | `--sweep-thumb`, `--sweep-cap` on `--r-md` |
 | indeterminate indicator | two arcs: an accent active arc over a white track, thickness 4 of 44 | the `777:704` two-path export at 16 px, filled from CSS: `.arc` → `--accent`, `.track` → `--spin-track` |
 | running row's indicator | 12-ray burst, `777:709`, accent | the same export at 16 px, `stroke="currentColor"` with `color: var(--accent)` |
+| wordmark | `tempo_logo`, `777:761`: white caps, two accent marks (the E's middle arm, a wedge at the O's shoulder) | `panel/www/logo.png` at `height: 14px`, `width: auto` |
+
+### The wordmark is an asset, not traced geometry
+
+`tempo_logo` (`777:761`) is a **raster image fill** in the file, not a vector, so
+there is no path data to port and nothing to theme with `fill: currentColor` the
+way the inline icons do. It ships as exported PNG — 280×49, `#FCFCFC` letters,
+both accents in the same `#F6480A` — at `height: 14px`; the asset's 40:7
+proportion makes 14px of height exactly 80px of width, and `width: auto` keeps it
+from distorting. `test_panel_header_is_the_wordmark_not_a_navbar` reads the PNG's
+own header and asserts that arithmetic against both the CSS and the `<img>`
+attributes, so a swapped or re-proportioned asset fails rather than skewing.
+
+It is deliberately **not** re-drawn as SVG. Bold geometric letterforms traced by
+eye would be an invented mark wearing the real one's proportions, which is the
+thing `§8` and the earlier "text mark rather than an invented one" rule exist to
+prevent.
+
+On the light theme a near-white raster on `#d6d6d6` is invisible, so
+`html.light #logo` applies `filter: invert(1) hue-rotate(180deg)`: the letters go
+black and the 180° rotation carries the accents' hue back, where a plain `invert`
+would leave them cyan. Verified against the asset — `#F6480A → #F54709`.
+
+`panel/www/logo.png` is the first raster in `panel/www/`, which is otherwise
+inline SVG only. `docs/design/preview.html` repoints the `src` at it from
+`preview-harness.js` rather than editing the markup, because
+`test_preview_markup_matches_panel` holds the `#app` blocks byte-identical.
 
 **Type** (design px → panel px). The frames are 2004 px wide and a docked panel
 is ~300 px, so type cannot scale with the geometry — 32 px type at frame scale is
@@ -91,7 +118,7 @@ would make it impossible to search footage that is already `ready` while
 another file is still indexing (§5 F2).
 
 ```
-#statusbar    brand · status dot · service · engine · Sync now     (always)
+#topbar       wordmark · status dot · Sync now                      (always)
 #searchbox    label + value + submit                                (ready footage only)
 #error        inline error row                                       (on error)
 #footage-filter                                                       (>1 footage)
@@ -105,8 +132,9 @@ eye control is gone from `index.html`, and `store.index` is gone from `panel.js`
 A search does not collapse it either — searching with a job running shows the
 list and the results together.
 
-The status row is always visible — `§4.4` requires engine reachability to render
-honestly, and it has no home in the Figma frames.
+The header is always visible — `§4.4` requires engine reachability to render
+honestly, and it has no home in the Figma frames. What it renders is the
+shortest honest form: the wordmark, the dot, the button. ADR-0012.
 
 `#searchbox` and `#footage-filter` render only when at least one footage is
 `ready`. Below that the panel shows the indexing scenario (frames 01/02), which
@@ -118,8 +146,8 @@ matches the design: neither frame has a search field.
 
 No search field. No indexing block. Centred on both axes, by the same mechanism
 as frame 02: the block gets `margin: auto` inside `#app`'s column (`#results`
-carries `centered` while it holds nothing else), so with only the status bar
-above it, it sits in the middle of the panel instead of hanging under the bar.
+carries `centered` while it holds nothing else), so with only the header above
+it, it sits in the middle of the panel instead of hanging under the bar.
 `panel.js` sets that class only for this block — a centred result grid or a
 centred skeleton list would float below a search field that is already above it.
 
@@ -213,7 +241,7 @@ in `panel.js` is that rule, pure so a test can pin it.
 **The screen is centred, and the pill does not move.** While a job runs this
 section is the whole panel — the search field is hidden until one footage is
 ready — so it sits in the middle of the panel on both axes rather than stacked
-under the status bar. Three details decide how it reads:
+under the header. Three details decide how it reads:
 
 - `#app` carries `min-height: 100vh` so there is free space to centre inside;
   auto margins collapse to zero when the content is taller than the panel, so a
@@ -390,8 +418,5 @@ Two gates back this up, both in `service/tests/test_contracts.py`:
 
 - No new `host.jsx` entry point. The empty state instructs; it cannot import.
 - `top_k` 8 → 9 (`panel.js`, `app.py`, pinned by `test_panel_top_k_matches_service`).
-- The logo. The design has a `tempo_logo` wordmark with accent strokes; it is a
-  Figma asset with no export in the file, so the panel ships the `Tempo` text
-  mark rather than an invented one.
 - The honest-error plumbing, the `ensureHost` fix, and thumbnail *failure*
   handling, per §6.

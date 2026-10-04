@@ -346,23 +346,28 @@ function readyFootage() {
   return store.footages.filter((f) => f.state === "ready");
 }
 
-function renderStatus() {
-  $("svc").textContent = store.online ? "service ok" : "service offline";
+// One cascade, so the dot's colour and its legend cannot drift apart. The bar
+// this replaced computed them as two separate if-cascades over the same
+// conditions, which is how a dot and the words beside it end up disagreeing.
+// ok = service + reachable engine, warn = transitional, bad = offline or down.
+function backendState() {
   const b = store.backend;
-  const label = !store.online ? "engine unknown"
-    : b.tunnel === "down" ? "tunnel down"
-    : b.tunnel === "starting" ? "tunnel starting"
-    : b.reachable ? (b.gpu ? "engine gpu" : "engine cpu")
-    : "engine offline";
-  $("backend").textContent = label;
-  // Status dot: ok = service + reachable engine; warn = transitional
-  // (starting/unknown); bad = offline or down. Presentation only.
+  if (!store.online) return ["bad", "Service offline · engine unknown"];
+  if (b.tunnel === "down") return ["bad", "Tunnel down · engine unreachable"];
+  if (b.tunnel === "starting") return ["warn", "Tunnel starting"];
+  if (!b.reachable) return ["bad", "Engine offline"];
+  return ["ok", b.gpu ? "Engine ready · GPU" : "Engine ready · CPU"];
+}
+
+function renderStatus() {
   const dot = $("svc-dot");
-  if (dot) {
-    dot.className = "dot " + (!store.online || b.tunnel === "down" || (store.online && !b.reachable && b.tunnel !== "starting")
-      ? "bad"
-      : (b.reachable ? "ok" : "warn"));
-  }
+  if (!dot) return;
+  const [cls, label] = backendState();
+  dot.className = "dot " + cls;
+  // The bar spelled this out on screen. It is now the dot's legend: title for
+  // the pointer, aria-label because the dot is the only thing left carrying it.
+  dot.title = label;
+  dot.setAttribute("aria-label", label);
 }
 
 function renderError() {
@@ -494,7 +499,7 @@ function renderResults() {
     box.innerHTML = skeletonHTML().repeat(n);
     return;
   }
-  // Frame 01, and its three variants: the status bar is all that is above it, so
+  // Frame 01, and its three variants: the header is all that is above it, so
   // it is centred on both axes like the indexing screen (the `centered` rule in
   // panel.css is `margin: auto`, the same thing #indexing does).
   if (!ready) { box.className = "centered"; box.innerHTML = emptyStateHTML(); return; }

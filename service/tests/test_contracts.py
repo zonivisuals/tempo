@@ -326,6 +326,169 @@ def test_panel_has_no_indexing_summary():
     assert "Processing your videos" in html
 
 
+def test_panel_header_is_the_wordmark_not_a_navbar():
+    """The top row is the wordmark, the status dot and Sync now, and nothing else.
+
+    It used to be a navbar: a `Tempo` text mark and the service and engine states
+    written out as `service ok` and `engine gpu`. The wordmark replaces the text
+    mark, and the dot already encodes the same three states (ok / warn / bad) at a
+    glance, so the labels were a second rendering of one value. AGENTS.md 4.4 binds
+    two things into this row, so the test pins what survives as well as what does
+    not: the honest engine status, and the manual sync fallback.
+
+    The removal is pinned by mechanism, not by prose: the states themselves still
+    exist as the dot's legend, so forbidding the words would forbid the honest
+    reporting along with the navbar.
+    """
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    src = PANEL_JS.read_text(encoding="utf-8")
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    for dead in (
+        'id="brand"', 'id="svc"', 'id="backend"', "statusbar",
+        '$("svc")', '$("backend")',
+    ):
+        assert dead not in html, f"index.html reintroduced {dead!r}"
+        assert dead not in src, f"panel.js reintroduced {dead!r}"
+        assert dead not in css, f"panel.css reintroduced {dead!r}"
+
+    # AGENTS.md 4.4, the two reasons this row still exists.
+    assert 'id="sync-now"' in html, "Sync now is 4.4's manual fallback"
+
+    # With the on-screen labels gone the dot carries the whole state, so it must
+    # stay readable to assistive tech -- it used to be aria-hidden because the
+    # text nodes beside it were what said so.
+    assert 'id="svc-dot"' in html
+    assert 'aria-hidden' not in html.split('id="svc-dot"')[1][:80], (
+        "the dot is the only carrier of 4.4's status now; hiding it hides the state"
+    )
+
+    # A near-white raster mark vanishes on the light theme (#d6d6d6). The wordmark
+    # is white with two accent marks, so the light theme inverts lightness and
+    # rotates hue back; a plain invert would turn them cyan.
+    assert re.search(
+        r"html\.light[^{]*#logo[^{]*\{[^}]*invert\(1\)[^}]*hue-rotate\(180deg\)", css
+    ), "the light theme must invert the wordmark and restore the accent hue"
+
+
+def test_status_dot_reports_state_and_its_legend_together():
+    """The dot's colour and its legend come from one decision, and both land.
+
+    Asserting that `dot.title` is assigned would pass for a function that assigns
+    an empty string, so this drives the real renderStatus() through the panel-eval
+    seam and reads what the element ends up carrying. The old bar computed the
+    class and the words as two separate cascades over the same conditions, which is
+    exactly how a dot and the words beside it drift apart; one backendState() now
+    returns both, and each of the five real states gets its own pair here.
+    """
+    stub = (
+        "const dot = { className: '', title: '', attrs: {},"
+        " setAttribute(k, v) { this.attrs[k] = v; } };"
+        "document.getElementById = (id) => (id === 'svc-dot' ? dot : null);"
+    )
+
+    def rendered(online: bool, backend: dict) -> tuple[str, str, str]:
+        setup = (
+            f"{stub}"
+            f"store.online = {str(online).lower()};"
+            f"store.backend = {json.dumps(backend)};"
+            "renderStatus();"
+            "return {cls: dot.className, title: dot.title,"
+            " aria: dot.attrs['aria-label']};"
+        )
+        got = json.loads(_panel_eval(f"(() => {{ {setup} }})()"))
+        return got["cls"], got["title"], got["aria"]
+
+    ok = {"tunnel": "up", "reachable": True, "gpu": True}
+    seen: dict[str, tuple[str, str, str]] = {}
+
+    seen["ok-gpu"] = rendered(True, ok)
+    seen["ok-cpu"] = rendered(True, {**ok, "gpu": False})
+    seen["warn"] = rendered(True, {"tunnel": "starting", "reachable": False, "gpu": False})
+    seen["tunnel-down"] = rendered(True, {"tunnel": "down", "reachable": False, "gpu": False})
+    seen["engine-offline"] = rendered(True, {"tunnel": "up", "reachable": False, "gpu": False})
+    seen["service-offline"] = rendered(False, ok)
+
+    # The three states, and only those three.
+    classes = {name: r[0] for name, r in seen.items()}
+    assert classes == {
+        "ok-gpu": "dot ok",
+        "ok-cpu": "dot ok",
+        "warn": "dot warn",
+        "tunnel-down": "dot bad",
+        "engine-offline": "dot bad",
+        "service-offline": "dot bad",
+    }
+
+    for name, (cls, title, aria) in seen.items():
+        assert title, f"{name}: the dot has a colour but no legend at all"
+        assert aria == title, f"{name}: legend and aria-label disagree ({title!r} / {aria!r})"
+
+    # Each state names itself: no two distinct states share a legend, and the
+    # reachable/unreachable distinction is legible, not just coloured.
+    assert len({t for _, t, _ in seen.values()}) == len(seen)
+    assert "GPU" in seen["ok-gpu"][1] and "CPU" in seen["ok-cpu"][1]
+    assert "offline" in seen["service-offline"][1].lower()
+
+
+def test_wordmark_asset_geometry_agrees_with_css_and_markup():
+    """The 14px / 80px / 280x49 triple is one derived number in three places.
+
+    AGENTS.md 8 lists duplicated constants that must stay in sync as prohibited
+    unless pinned. The wordmark is height-driven and `width: auto`, so the rendered
+    width is the asset's aspect ratio times the CSS height -- and the <img>
+    attributes have to state an integer that matches, or the panel shows a
+    stretched box until the CSS loads. Read the PNG's own header rather than
+    trusting the docs: this also fails if the asset is swapped or re-proportioned.
+    """
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    m = re.search(
+        r'<img id="logo" src="([^"?]+)(?:\?[^"]*)?"[^>]*?width="(\d+)"[^>]*?height="(\d+)"', html
+    )
+    assert m, "index.html must declare the wordmark's size on the <img>"
+    src, attr_w, attr_h = m.group(1), int(m.group(2)), int(m.group(3))
+
+    logo = PANEL_HTML.parent / src
+    assert logo.is_file(), f"{logo} is referenced by index.html but is not on disk"
+
+    # PNG dimensions live in the IHDR: an 8-byte signature, then a 4-byte length,
+    # the "IHDR" type, then width and height as big-endian uint32.
+    blob = logo.read_bytes()
+    assert blob[:8] == b"\x89PNG\r\n\x1a\n" and blob[12:16] == b"IHDR", (
+        f"{logo.name} is not a PNG; the markup and CSS assume a raster asset"
+    )
+    px_w = int.from_bytes(blob[16:20], "big")
+    px_h = int.from_bytes(blob[20:24], "big")
+
+    ch = re.search(r"#logo\s*\{[^}]*?height:\s*(\d+)px", css)
+    assert ch, "#logo must be height-driven so the asset's proportion holds"
+    css_h = int(ch.group(1))
+    assert "width: auto" in re.search(r"#logo\s*\{[^}]*\}", css).group(0), (
+        "the wordmark must keep the asset's own proportion (width: auto)"
+    )
+
+    assert attr_h == css_h, (
+        f"the <img> says height={attr_h} but panel.css renders {css_h}px"
+    )
+    assert attr_w == round(px_w * css_h / px_h), (
+        f"at {css_h}px tall the {px_w}x{px_h} asset renders "
+        f"{px_w * css_h / px_h:.2f}px wide, but the <img> declares {attr_w}"
+    )
+
+
+def test_preview_harness_repoints_the_wordmark():
+    """preview.html's #app must stay byte-identical to the panel's, so it cannot
+    repoint the wordmark's src itself -- the harness has to, or the preview renders
+    a broken image where the panel shows the mark."""
+    harness = (PREVIEW_HTML.parent / "preview-harness.js").read_text(encoding="utf-8")
+    assert "../../panel/www/logo.png" in harness, (
+        "the preview must repoint #logo at the shipped asset; the markup copy is "
+        "pinned byte-identical and cannot do it"
+    )
+
+
 def test_panel_top_k_matches_service():
     """panel.js TOP_K and the sidecar /search default must agree.
 
@@ -550,7 +713,7 @@ def test_spinners_are_the_accent_over_a_white_track():
 
 
 def test_no_footage_screen_is_centred_like_the_indexing_one():
-    """Frame 01 takes the same centring as frame 02: the status bar is all that
+    """Frame 01 takes the same centring as frame 02: the header is all that
     is above it, so it belongs in the middle of the panel, not under the bar.
 
     `margin: auto` on the block inside #app's column is the mechanism both use,

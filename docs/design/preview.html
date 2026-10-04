@@ -55,11 +55,17 @@
     <div class="caption">01 &middot; no footage</div>
 <!-- BEGIN app: copied verbatim from panel/www/index.html -->
 <div id="app">
-  <div id="statusbar">
-    <span id="brand">Tempo</span>
-    <span id="svc-dot" class="dot" aria-hidden="true"></span>
-    <span id="svc">service…</span>
-    <span id="backend">engine…</span>
+  <!-- The header, not a navbar. The wordmark is the whole brand; AGENTS.md 4.4
+       keeps the status dot and Sync now here, and the dot already carries the
+       three states (ok / warn / bad) that the bar used to spell out as
+       "service ok" and "engine gpu". With the labels gone the dot is the only
+       carrier of that state, so it is exposed rather than aria-hidden, and its
+       legend is the text for hover and for assistive tech alike.
+       The <img> size is 14x80, which is what panel.css renders: the asset is
+       280x49 (40:7), so 14px of height is exactly 80px of width. -->
+  <div id="topbar">
+    <img id="logo" src="logo.png?v=0.7.0" alt="Tempo" width="80" height="14">
+    <span id="svc-dot" class="dot" role="status"></span>
     <button id="sync-now" type="button">Sync now</button>
   </div>
 

@@ -48,7 +48,7 @@ The user has long video files (interviews, vlogs, rushes, documentaries). Tempo 
 ┌──────────────────── After Effects (host: AEFT) ───────────────────┐
 │  CEP Panel (HTML/CSS/JS, modern JS is OK here)                    │
 │   - search input, result cards, skeletons                         │
-│   - footage sync status, indexing progress, status row│
+│   - footage sync status, indexing progress, header status dot     │
 │   - CSInterface.evalScript() ────► host.jsx (ExtendScript, ES3)   │
 └──────────────────────────────┬────────────────────────────────────┘
          │ fetch (http://127.0.0.1:<port>)
@@ -166,6 +166,7 @@ tempo/
 │       ├── index.html
 │       ├── api.js             # single service-communication module
 │       ├── panel.css
+│       ├── logo.png           # the wordmark, Figma 777:761 (the one raster)
 │       └── panel.js           # store + render(), polling, skeletons
 ├── packaging/                 # ZXP signing + Windows build scripts (not Velopack)
 ├── supabase/licenses.sql      # licence schema for later billing; nothing reads it yet
@@ -510,7 +511,7 @@ This is deliberately *non-destructive and manual-trim-friendly*: Tempo places an
 AE exposes (historically) almost no CEP events to panels — do not design around nonexistent push events. Instead:
 
 - On panel load: `tempoListFootage()` → `POST /sync`. Show diff counts.
-- Engine address, token, and Brev instance are server config (never panel input). `/health` reports engine reachability and tunnel state; unreachable/asleep/tunnel-down renders as an honest status row, never a spinner.
+- Engine address, token, and Brev instance are server config (never panel input). `/health` reports engine reachability and tunnel state; unreachable/asleep/tunnel-down renders as an honest status indicator, never a spinner. The indicator is the header's status dot — colour plus an `aria-label` naming the state (ADR-0012); the panel does not spell the state out in text.
 - While the panel is open: poll every 2 s (config) — cheap evalScript + registry diff. New imports reuse a ready engine index or enter `uploading` automatically (D16), then indexing (F1).
 - Explicit **Sync now** button as the manual fallback.
 - While any job is running: poll `GET /jobs/{id}` at 500 ms and render the stage list (F4). The indexing section is a status pill and the step list, and nothing else - there is no summary line and no toggle: the list is shown whenever a job is live and disappears when none is. A failed job keeps its message and Retry visible, as does footage stranded mid-index by a service restart. While a job runs the section is the whole panel, so it is centred on both axes in a column capped at 320 px; each step row centres its own line. The pill is sized by its content and holds its position for the whole run - the step block is held at the finished list's height while a job is live, so rows arrive underneath the pill instead of pushing it down the panel. The no-footage block (frame 01) is centred on both axes the same way (`margin: auto`), and only while `#results` holds nothing else.
@@ -719,6 +720,23 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
 - **D16 Content-addressed cache** — three layers: path fingerprint (registry), content id (engine library, instant reuse), and per-stage cache (resume and partial rebuild); resumable offset-checked uploads; display thumbs synced down per content id (ADR-0008).
 - **D17 v4 pipeline + z-score fusion** — SigLIP 2 / bge / Florence-2 / VAD Whisper; six-component weighted fusion with per-key z-scores; FAISS candidates with exact statistics; one result per scene (see `docs/decisions/0009-v4-pipeline.md`).
 - **D18 Figma-derived panel UI** — the Figma design ported (radii as ratios, its gradient strokes and shadow, its two-arc indeterminate indicator, shimmer and state-transition motion under a two-surface budget); type re-derived for panel scale; Tempo ships its own two themes and `appSkinInfo` only selects one; step list keyed, not re-rendered, and a stage that has not started draws no row. The indexing screen later lost its summary line and gained centring (§4.4): the pill and the started stages are the whole screen, so it is centred in a capped column rather than stacked under the status bar. The pill is then sized by its content rather than spanning that column, and the centring resolves against a fixed height - the step block is held at the finished list's height while a job is live, so the pill and the running row stay put and only completed rows move. Every indeterminate indicator is the accent arc over a white track (`--spin-track`), not a dimmed `currentColor` that composited to gray; the light theme overrides the track, white being invisible on it. Frame 01 then took the same centring, so the no-footage block sits in the middle of the panel rather than under the status bar, and only while `#results` holds nothing else. Spec in `docs/design/panel-ui.md` (see `docs/decisions/0011-figma-panel-ui.md`).
+- **D19 The wordmark header** — the navbar's `Tempo` text mark is replaced by the
+  real `tempo_logo` (`panel/www/logo.png`, Figma `777:761`, a raster image fill,
+  so it ships as an asset rather than traced geometry — §8 forbids an invented
+  mark; 280×49 at `height: 14px`, which is exactly 80px wide, with the three-way
+  agreement between the PNG header, the CSS and the `<img>` pinned by a test).
+  `#statusbar` becomes `#topbar` and keeps only what §4.4 binds there: the status
+  dot and the Sync now fallback. The state labels the bar spelled out
+  (`service ok`, `engine gpu`, …) were a second rendering of what the dot already
+  encoded, so they became the dot's legend — one `backendState()` cascade returns
+  the class and the label together, so the colour and the words cannot disagree —
+  and the dot lost `aria-hidden`, because with the text nodes gone it is the only
+  carrier of that state. The light theme filters the near-white raster
+  (`invert(1) hue-rotate(180deg)`) rather than carrying a second asset, which
+  keeps both accents' hue where a plain invert would leave them cyan. The honest
+  status of §4.4 is now a hover (or a screen reader) away rather than always on
+  screen; the error row still surfaces the codes inline. Spec in
+  `docs/design/panel-ui.md` (see `docs/decisions/0012-wordmark-header.md`).
 
 Known debt (tracked, not silently fixed):
 - **K1 Key-scale calibration:** RESOLVED by D17 (per-key z-scores before a weighted sum).

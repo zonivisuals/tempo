@@ -360,6 +360,14 @@ panel.style.width = widthInput.value + "px";
     paint();
   }
 
+  /* ---- shipped asset paths ----
+   * The #app markup is byte-identical to panel/www/index.html, so its relative
+   * asset paths resolve against this file and not against the panel. Repoint the
+   * one image at the file that actually ships, the same way panel.css and
+   * panel.js are loaded from ../../panel/www/ rather than copied. */
+  const logo = document.getElementById("logo");
+  if (logo) logo.src = "../../panel/www/logo.png";
+
   window.addEventListener("load", function () {
     try { ready(); } catch (e) {
       const box = document.getElementById("err");

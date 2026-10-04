@@ -72,7 +72,7 @@ body {
   font: 12px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 /* min-height makes #app fill the panel viewport, which is what lets the indexing
-   screen centre itself in the leftover space below the status bar. Auto margins
+   screen centre itself in the leftover space below the header. Auto margins
    collapse to 0 when the content is taller than the panel, so a long error row
    or footage list still starts at the top and scrolls. */
 #app { padding: 8px; display: flex; flex-direction: column; gap: 8px; min-height: 100vh; }
@@ -87,26 +87,41 @@ body {
     var(--edge) border-box;
 }
 
-/* ---------- status bar ----------
- * Not in the Figma frames, and kept anyway: AGENTS.md 4.4 requires engine
- * reachability to render honestly. Everything else in the design is faithful. */
-#statusbar {
+/* ---------- header ----------
+ * Not a navbar: the wordmark on the left, then only the two things AGENTS.md 4.4
+ * requires — the engine status dot and the Sync now fallback. The bar this
+ * replaced spelled the same states out as text, which was a second rendering of
+ * what the dot already encoded. Not in the Figma frames; kept anyway, same as
+ * the bar it replaces. */
+#topbar {
   display: flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--dim);
   padding-bottom: 8px; border-bottom: 1px solid var(--border);
 }
-#brand { color: var(--text); font-weight: 600; margin-right: 2px; }
+/* The mark is height-driven and the PNG carries the wordmark's own 40:7
+ * proportion, so width:auto keeps it from ever distorting — and 14px of height
+ * is exactly 80px of width, which is what the <img> attributes declare.
+ * test_wordmark_asset_geometry_agrees_with_css_and_markup holds the three. */
+#logo { display: block; height: 14px; width: auto; margin-right: auto; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dim); }
 .dot.ok { background: var(--ok); }
 .dot.warn { background: transparent; border: 1px solid var(--dim); }
 .dot.bad { background: var(--error); }
-#statusbar button {
-  margin-left: auto;
+/* The dot describes the engine; Sync now is an action. Left at the row's 6px
+   gap the dot sat hard against the button and read as that button's badge. */
+#svc-dot { margin-right: 8px; }
+/* The wordmark is a near-white raster with two accent marks, so it cannot take
+ * `fill: currentColor` the way the inline icons do. On the light theme white on
+ * #d6d6d6 is invisible: invert flips the letters to black, and the 180deg hue
+ * rotate puts the accents' orange back where invert alone would have left it
+ * cyan. */
+html.light #logo { filter: invert(1) hue-rotate(180deg); }
+#topbar button {
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r-sm);
   font: inherit; padding: 2px 8px; cursor: pointer;
 }
-#statusbar button:hover { border-color: var(--accent); color: var(--accent); }
+#topbar button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- search field (777:509) ----------
  * radius 32/196 of the height, 1.5px white->#171717 edge at 0.28,
@@ -362,7 +377,7 @@ button.icon[aria-pressed="true"] { color: var(--accent); }
  * pill instead: a control that cannot be pressed advertises an action it does
  * not have (AGENTS.md 8). Pixels kept, dead affordance dropped.
  * `centered` is the same centring the indexing screen gets from `margin: auto`
- * on #indexing: the status bar is the only thing above this block, so it sits
+ * on #indexing: the header is the only thing above this block, so it sits
  * in the middle of the panel on both axes instead of stacked under the bar.
  * panel.js sets it only when this block is what #results holds — cards, the
  * skeleton list and the no-matches row are all top-aligned. */
