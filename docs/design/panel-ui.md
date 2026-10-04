@@ -446,9 +446,54 @@ One description line per card: the caption when the engine produced one,
 otherwise the transcript. Never both — D4 exists because Florence-2 captions tend
 to echo the transcript verbatim, and two near-identical strings under a thumbnail
 is worse than one. The file name appears only when more than one footage is
-loaded. Grid clamps the description to two lines, which at panel width truncates
-the design's 58-character caption to roughly half its length — accepted knowingly
-as the cost of a grid default in a 300 px panel.
+loaded.
+
+**The grid body is two columns; the list body is the design's row.** `777:368`
+puts the caption and the duration on one baseline-aligned row with space between
+them, and the list view still does exactly that. In a half-width grid cell that
+row reads as two loose ends rather than as a caption with metadata, so the grid
+body is re-derived (ADR-0014): the description is the **left** column, centred
+vertically; duration and file name are the **right** column, on the body's bottom
+edge.
+
+| | column 1 — `1fr` | column 2 — `5em` |
+|---|---|---|
+| row 1 | `.cap` — spans **rows 1–2**, centred | `.name`, bottom-aligned |
+| row 2 | | `.dur`, bottom-aligned |
+
+Three details are load-bearing rather than taste:
+
+- The description spans **both** rows (`grid-row: 1 / -1`) so it centres against
+  the whole block. On the first row alone it centres against the name's line and
+  sits visibly high. The rows are therefore declared explicitly — `-1` is the end
+  of the *explicit* grid, and with implicit rows the span silently collapses to
+  one. That was measured, not reasoned: the description rendered 9px above centre
+  while every text assertion still passed.
+- The **name is row 1 and the duration row 2**, because the name is the optional
+  line — it renders only when more than one footage is loaded. When it is missing,
+  the empty row is the one *above* the duration, so the duration stays on the
+  bottom edge. Reversed, the empty row lands below it and lifts the duration off
+  the edge in the single-footage case, which is the common one. `:has()` would say
+  this directly and is not available — Chromium 84 is the panel's real floor
+  (`docs/agents/known-issues.md`).
+- The metadata track is a definite `5em`, not `auto`. An `auto` track is sized to
+  max-content before the flexible track is resolved, so one long file name starves
+  the description to nothing instead of ellipsizing.
+
+A shot with **neither** caption nor transcript renders the name alone: the
+duration rides inside the description's `.cardrow`, so it goes when the
+description does. The name then holds row 1, bottom-aligned within it — a name in
+the right column over an empty description column, not a name floating in row 1 of
+a two-row grid.
+
+Grid clamps the description to two lines, which at panel width truncates the
+design's 58-character caption to roughly half its length — accepted knowingly as
+the cost of a grid default in a 300 px panel. The metadata column spends more of
+it again: `5em` is 60px at the panel's 12px base, and out of the body's 126px of
+content minus the 8px column gap it leaves a measured 58px of description, about
+11 characters per line. The name ellipsizes at about nine (`interview…`). Both
+are visible in `docs/design/preview.html#results`, whose width slider is the
+check.
 
 ## 5. Why the step list is keyed, not re-rendered
 

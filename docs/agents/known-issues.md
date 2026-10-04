@@ -60,6 +60,20 @@ data is not honest yet. Tracked in `docs/design/panel-ui.md` §6; needs
 `docs/api.md` updated in the same change (`INTERNAL`, sidecar `NOT_FOUND`, the
 422 `detail` envelope and the `starting` tunnel state are all undocumented).
 
+### The result card shows no timecode in the grid view
+
+`AGENTS.md` §5 F2 lists the card's contents as "keyframe thumbnail, footage name,
+timecode range (comp-fps timecode, from project fps), duration, transcript
+snippet, caption". `renderResults` gates the timecode to list view only
+(`panel.js:526`), so a grid card carries no timecode at all.
+
+**Consequence:** F2's timecode requirement is met in one of the two views and the
+default view is the other one. This predates ADR-0014, which re-derived the grid
+body and did not change it: the grid has no width for a `00:00:01:12 –
+00:00:04:18` pair beside a description, and the duration is the fact worth its
+11px. Whether the timecode belongs as a third metadata line is a separate call
+about what a grid cell carries.
+
 ### Config weights are not pinned by any test
 
 `engine/tests/test_search.py:14-15` hardcodes its own `WEIGHTS` and `CAP = 3.0`
@@ -123,6 +137,7 @@ has no module scope. If you add a helper, do not assume it is private.
 | Panel insert payload uses substring checks, not a schema fixture | `test_contracts.py:85-89` | The panel and sidecar can drift apart and the test still passes. |
 | `POST /jobs/{id}/cancel` has no `api.js` method | `app.py:325` | A live server feature plus a documented route the panel cannot reach. |
 | Nine cross-runtime constants have no cross-check test | see below | `AGENTS.md` §7.3 and §8 require either derivation or a pinning test. |
+| Panel card layout is pinned as CSS text, never as computed geometry | `test_contracts.py` (the `#results.grid .body` tests) | The `grid-row: 1 / -1` span rendered 9px off while every declaration assertion passed. Same bargain §9 strikes for AE: no browser in CI, so the check is a headless measurement and the finding goes in the test docstring. |
 | The ES3 gate does not enable `no-undef` | `eslint.config.mjs:29-41` | The `globals` list is inert. `docs/production.md` claims a regex ban that does not exist. |
 | Anchor guard `hit.sum() == n` untested | `search.py:177` | Only the `== 0` side is covered. |
 | `.npz` L2-norm invariant unasserted | `index.py:21-24` | §3.6 claims V, D, C are L2-normed; nothing pins it. |

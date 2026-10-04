@@ -967,6 +967,156 @@ def test_no_footage_screen_is_centred_like_the_indexing_one():
     assert _panel_render("renderResults()", live, cls) == ""
 
 
+_GRID_CARD_SETUP = (
+    "TempoAPI.thumbUrl = () => 't.jpg';"
+    "store.footages = [{ footage_key: 'k0', path: 'C:/s/a.mov', state: 'ready', shot_count: 2 }];"
+    "store.results = [{ footage_key: 'k0', source_path: 'C:/s/a.mov', shot_id: '0',"
+    " start_s: 1, end_s: 3.25, caption: 'a dog runs', transcript: 'go on then' }];"
+)
+_TWO_FOOTAGES = _GRID_CARD_SETUP.replace(
+    "shot_count: 2 }];",
+    "shot_count: 2 }, { footage_key: 'k1', path: 'C:/s/b.mov', state: 'ready', shot_count: 2 }];",
+)
+_NO_DESCRIPTION = (
+    "TempoAPI.thumbUrl = () => 't.jpg';"
+    "store.footages = [{ footage_key: 'k0', path: 'C:/s/a.mov', state: 'ready', shot_count: 2 },"
+    " { footage_key: 'k1', path: 'C:/s/b.mov', state: 'ready', shot_count: 2 }];"
+    "store.results = [{ footage_key: 'k0', source_path: 'C:/s/a.mov', shot_id: '0',"
+    " start_s: 1, end_s: 3.25 }];"
+)
+_HTML = "document.getElementById('results').innerHTML"
+
+
+def test_grid_card_body_is_two_columns_with_metadata_on_the_bottom_edge():
+    """The grid card body is a left description and a right metadata column.
+
+    The design's 777:368 puts the caption and the duration on one baseline-aligned
+    row with space between them, which is what the list view still does. In a grid
+    cell that row reads as two loose ends rather than as a caption with metadata,
+    so the grid body is re-derived: the description is the left column, centred
+    vertically, and the duration and file name are the right column, sitting on the
+    body's bottom edge. `docs/design/panel-ui.md` §4.2 is the spec of record and
+    ADR-0014 carries the departure and the measurements.
+
+    Four things are load-bearing, and each one is a silent failure that still
+    renders -- so each is asserted separately:
+
+    - The description spans both rows (`grid-row: 1 / -1`) so it centres against
+      the whole block. On row 1 alone it centres against the name's line and sits
+      visibly high beside a two-line metadata column.
+    - The rows are declared. `-1` is the end of the *explicit* grid, so with
+      implicit rows the span collapses to one. This was measured, not reasoned: the
+      first version declared only columns and the description rendered 9px above the
+      body's centre while every other assertion here still passed, because these
+      tests pin declarations rather than computed geometry.
+    - The **name** is row 1 and the duration row 2. The name is the optional line --
+      `renderResults` emits it only when more than one footage is loaded -- so when
+      it is missing the empty row is the one *above* the duration and the duration
+      stays on the bottom edge. Reversed, the empty row lands below it and lifts the
+      duration off the edge in the single-footage case, which is the common one.
+      `:has()` would state this directly and is Chromium 105 against the panel's
+      real floor of 84 (flexbox `gap`, `docs/agents/known-issues.md`).
+    - The metadata track is a fixed `5em` rather than `auto`. An `auto` track is
+      sized to max-content before the flexible track is resolved, so one long file
+      name starves the description to nothing rather than ellipsizing. `5em`
+      resolves against the 12px base `.body` inherits, so the track is 60px — not
+      the 55px that reading it against the name's 11px suggests — which leaves a
+      measured 58px of description. The derivation is in ADR-0014 §4; only the
+      consequence is repeated here.
+
+    `align-self` on the three children is the whole alignment mechanism, so the
+    grid declares no `align-items` default: a declaration nothing reads is dead
+    weight, and the caption's centring would silently move if a default were
+    reintroduced and won the cascade.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    body = _css_rule(css, "#results.grid .body")
+    assert "display: grid;" in body, body
+    assert "grid-template-columns: minmax(0, 1fr) 5em;" in body, (
+        "the description takes the slack and the metadata track is definite, so a "
+        "long file name ellipsizes rather than squeezing the description to zero"
+    )
+    assert "grid-template-rows: auto auto;" in body, (
+        "the description spans to `-1`, which is the end of the explicit grid; with "
+        "implicit rows the span collapses to one and the description centres against "
+        "the name's line instead of the block"
+    )
+    assert "align-items" not in body, (
+        "the three children each set `align-self`; a default here is unread"
+    )
+    # The 8px is `.cardrow`'s own gap, moved here because `display: contents`
+    # dissolves the wrapper that carried it. The 2px row gap is `.body`'s.
+    assert "column-gap: 8px;" in body, body
+    assert "row-gap" not in body, "the row gap is the 2px `.body` already sets"
+
+    # `.cardrow` is the list view's caption + duration row. Dissolving it is what
+    # puts the two spans in different grid cells without touching the markup.
+    assert "display: contents;" in _css_rule(css, "#results.grid .body .cardrow")
+
+    cap = _css_rule(css, "#results.grid .body .cap")
+    assert "grid-column: 1;" in cap, cap
+    assert "grid-row: 1 / -1;" in cap, cap
+    assert "align-self: center;" in cap, (
+        "the description centres against the whole body, not against one row"
+    )
+
+    name = _css_rule(css, "#results.grid .body .name")
+    assert "grid-column: 2;" in name, name
+    assert "grid-row: 1;" in name, name
+    assert "align-self: end;" in name, name
+    assert "text-align: right;" in name, (
+        "the name stretches to the metadata track; it must align with the duration "
+        "below it"
+    )
+
+    dur = _css_rule(css, "#results.grid .body .dur")
+    assert "grid-column: 2;" in dur, dur
+    assert "grid-row: 2;" in dur, dur
+    assert "align-self: end;" in dur, (
+        "the duration is the bottom line, so it lands on the body's bottom edge "
+        "whether or not a name is rendered above it"
+    )
+    assert "text-align: right;" in dur, "one alignment mechanism for both, not two"
+
+    # The list view is unchanged: its caption and duration still share the
+    # baseline row, so nothing here may reach it.
+    assert "#results.list .body" not in css, (
+        "the two-column body is the grid's shape only; the list keeps the design's "
+        "single caption + duration row"
+    )
+    row = _css_rule(css, ".cardrow")
+    assert "align-items: baseline;" in row, row
+    assert "gap: 8px;" in row, row
+
+    # The markup the CSS depends on: description and duration inside `.body`, and
+    # no name for a single footage -- the case the row order above exists for.
+    html = _panel_render("renderResults()", _GRID_CARD_SETUP, _HTML)
+    assert 'class="body"' in html, html
+    assert 'class="cap"' in html and 'class="dur"' in html, html
+    assert 'class="cardrow"' in html, html
+    assert 'class="name"' not in html, (
+        "one footage renders no name; if this ever renders one, the metadata "
+        "column's row order needs re-deriving"
+    )
+
+    html = _panel_render("renderResults()", _TWO_FOOTAGES, _HTML)
+    assert 'class="name"' in html, html
+
+    # A shot with neither caption nor transcript is reachable, and it is the shape
+    # where the row order is unproven: `renderResults` gates the whole `.cardrow`
+    # on the description being non-empty, so the duration goes with it and the
+    # metadata column is a lone name. The name holds row 1 and bottom-aligns, so the
+    # card is the name alone on its bottom edge rather than a name floating in row 1
+    # of a two-row grid.
+    html = _panel_render("renderResults()", _NO_DESCRIPTION, _HTML)
+    assert 'class="name"' in html, html
+    assert 'class="cap"' not in html and 'class="dur"' not in html, (
+        "the duration rides on the description, so a shot with neither renders the "
+        "name alone; if that gate ever moves, the row order has to be re-derived"
+    )
+
+
 def test_interactive_api_docs_are_disabled():
     """With no auth wall, /docs, /redoc and /openapi.json hand any process on
     the machine a complete map of every route, parameter and model for free.

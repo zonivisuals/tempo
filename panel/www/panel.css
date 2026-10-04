@@ -387,6 +387,35 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 .tc { font-size: 11px; font-weight: 500; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .name { font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Grid card body: the description is the left column and is centred; duration and
+   file name are the right column, on the body's bottom edge. The design's 777:368
+   puts the caption and the duration on one baseline row, which is what the list
+   view above still does -- in a grid cell that row reads as two loose ends, so the
+   grid body is re-derived (docs/design/panel-ui.md 4.2, ADR-0014).
+   `.cardrow` dissolves so its two spans can sit in different cells without touching
+   the markup: it is a plain span carrying no role, so there is no semantics in it
+   for the wrapper to hold. Its 8px gap becomes the column gap; the 2px row gap is
+   the one `.body` already sets. The name is the optional line -- it renders only
+   when more than one footage is loaded -- so it takes row 1 and the duration row 2:
+   an absent name then leaves the empty row *above* the duration, which keeps the
+   duration on the bottom edge. Reversed, the empty row would be below it. The
+   metadata track is a definite 5em rather than `auto`, which would size to
+   max-content first and starve the description instead of ellipsizing the name. */
+#results.grid .body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5em;
+  /* The rows are declared because the description spans them with `grid-row: 1 / -1`,
+     and `-1` is the end of the *explicit* grid: with implicit rows only it resolves
+     to line 1, the span collapses to one row, and the description silently centres
+     against the name's line instead of the block. Measured at 9px out. */
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+}
+#results.grid .body .cardrow { display: contents; }
+#results.grid .body .cap { grid-column: 1; grid-row: 1 / -1; align-self: center; }
+#results.grid .body .name { grid-column: 2; grid-row: 1; align-self: end; text-align: right; }
+#results.grid .body .dur { grid-column: 2; grid-row: 2; align-self: end; text-align: right; }
+
 /* Skeletons (777:520): radius-12 blocks, white 0->0.56 thumb and white 0->1
    caption, swept (ADR-0011: this is the one animated surface while searching). */
 .card.skel { cursor: default; border-color: var(--surface); }
