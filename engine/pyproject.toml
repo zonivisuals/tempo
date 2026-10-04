@@ -9,7 +9,7 @@ description = "Tempo engine: v4 indexing pipeline + search behind the /v1 API (B
 requires-python = ">=3.11"
 # Core: importable and testable on CPU CI (API, library, search, text features).
 dependencies = [
-    "fastapi==0.115.6",
+    "fastapi==0.135.0",
     "uvicorn[standard]==0.30.6",
     "pydantic==2.9.2",
     "pydantic-settings==2.6.0",
