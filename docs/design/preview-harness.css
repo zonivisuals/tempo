@@ -43,6 +43,11 @@ body {
    only gives it a resizable width and a scroll viewport, like a docked panel.
    min-height: 0 opts the frame out of the shipped `min-height: 100vh`, which
    would otherwise stretch it to the browser window and defeat the centring the
-   docked panel gets from its own viewport. */
+   docked panel gets from its own viewport.
+   background: var(--bg) is re-asserted because line 3's `html, body` rule loads
+   after panel.css at equal specificity and wins, which pinned the panel body to
+   the harness's own dark page colour. The light theme then had no light surface
+   to render against, and anything the panel themes by surface — the wordmark's
+   invert, the pill shadows — could not be reviewed here at all. */
 #app { display: flex; flex-direction: column; gap: 8px; height: 760px; min-height: 0;
-  overflow-y: auto; overflow-x: hidden; }
+  overflow-y: auto; overflow-x: hidden; background: var(--bg); }
