@@ -1,0 +1,38 @@
+# Docker build context exclusions. The context is `engine/` (compose.yaml
+# `build.context: ..`), so `deploy/.env` — which holds the live
+# TEMPO_ENGINE_TOKEN and HF_TOKEN — is inside it and would otherwise be
+# handed to the Docker daemon on every `docker compose up --build`.
+#
+# The Dockerfile COPYs exactly two things: `pyproject.toml` and
+# `tempo_engine/`. Nothing here may exclude either, and nothing in the image
+# needs an env file — `.env.example` is repository documentation, read by
+# humans and by brev-deploy.sh, never by the build.
+#
+# Regression-pinned by engine/tests/test_app_contract.py::
+# test_docker_build_context_excludes_secrets.
+
+# Secrets: every .env, at any depth, including the example.
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Model weights and index artifacts, if anyone ever points the context at them.
+models/
+*.pkl
+*.npz
+
+# Python and tool caches.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local noise.
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

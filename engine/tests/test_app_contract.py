@@ -273,3 +273,53 @@ def test_in_memory_cid_matches_file_fingerprint(tmp_path):
         path = tmp_path / "f.bin"
         path.write_bytes(data)
         assert cid_of(data) == fingerprint.content_id(path)
+
+
+def test_docker_build_context_excludes_secrets():
+    """The build context is `engine/`, so deploy/.env - which holds the live
+    TEMPO_ENGINE_TOKEN and HF_TOKEN - sits inside it and would be handed to the
+    Docker daemon on every `docker compose up --build`.
+
+    engine/.dockerignore is what keeps it out. Pin the patterns that matter, and
+    pin that the two paths the Dockerfile actually COPYs are still included, so
+    the fix cannot be "fixed" by excluding the whole directory.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    ignore = root / ".dockerignore"
+    assert ignore.is_file(), "engine/.dockerignore is missing: deploy/.env is in the build context"
+
+    patterns = [
+        p.strip()
+        for p in ignore.read_text(encoding="utf-8").splitlines()
+        if p.strip() and not p.strip().startswith("#")
+    ]
+
+    def excluded(rel: str) -> bool:
+        # Docker's last-match-wins, with "!" re-including.
+        verdict = False
+        for p in patterns:
+            if p.startswith("!"):
+                if _match(rel, p[1:]):
+                    verdict = False
+            elif _match(rel, p):
+                verdict = True
+        return verdict
+
+    assert excluded("deploy/.env"), "deploy/.env would be sent to the daemon"
+    assert excluded(".env"), "a stray .env would be sent to the daemon"
+    assert excluded("deploy/.env.local"), "a nested env variant would be sent to the daemon"
+
+    # Everything the image is actually built from must still be included.
+    for needed in ("pyproject.toml", "tempo_engine/app.py", "tempo_engine/config.py"):
+        assert not excluded(needed), f"{needed} is COPYed by the Dockerfile but excluded from the context"
+
+
+def _match(rel: str, pattern: str) -> bool:
+    import fnmatch
+
+    # Docker patterns match on any path segment, not just the whole string.
+    return fnmatch.fnmatch(rel, pattern) or any(
+        fnmatch.fnmatch(part, pattern) for part in rel.split("/")
+    )
