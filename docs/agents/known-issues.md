@@ -157,11 +157,89 @@ describe systems that were never built or have been deleted.
 
 | Path | Why it costs time |
 |---|---|
-| `service/build/` | A 13-file stale copy of the sidecar package. Grepping `tempo_service` matches it. Not gitignored. |
+| `service/build/` | A 13-file stale copy of the sidecar package. Grepping `tempo_service` matches it. Gitignored (`.gitignore:10`, `build/`) and untracked. |
 | `auth/` | Holds `auth/.env` with Better Auth and Postgres values for the system D12 deleted. Gitignored, so no secret risk, but it reads as live config. |
 | `colab/` | `tempo_shim.py`, 269 lines. The D9/D10 shim: ngrok, Drive, `COLAB_URL`. All superseded by D15. Gitignored. |
-| `tempo_pipeline_v4.ipynb` | Untracked and **not** gitignored. Only `v3` is. Never import it. |
+| `tempo_pipeline_v4.ipynb` | Untracked **and** gitignored (`.gitignore`, last entry). Never import it. |
 | `.pytest_cache/v/cache/lastfailed` | Names tests that no longer exist. Ignore it. |
+
+## Security findings not yet fixed
+
+Verified by a full-repo and full-history scan. **None of these is a committed
+secret** — `git log --all -p` plus every blob on every ref is clean of private
+keys, cloud/GitHub/Slack/OpenAI/Anthropic/Google/Stripe tokens, JWTs and
+credentials. These are the real ones.
+
+### S1 The sidecar treats an unauthenticated request body as trusted local paths — HIGH
+
+`POST /sync` accepts `footages[].path` with no validation (`schemas.py`,
+`FootageItem.path: str`). The only check anywhere downstream is
+`os.path.isfile` (`proxy.py`), after which the file is read and streamed to the
+engine over the Brev tunnel. Any local process can therefore make the sidecar
+read arbitrary files and ship them off-box, plus probe existence via the job
+error string and confirm byte-identity via `content_id` in `GET /footage`.
+
+Cross-origin reachable too: FastAPI parses a body sent with **no `Content-Type`**
+as JSON (`fastapi/routing.py`), and that is a CORS simple request. The design
+docs trust the *caller* in prose and never enforce it.
+
+Fix shape: accept only paths the service can corroborate, or drop `path` from
+the request and let the service resolve footage itself.
+
+### S2 No `TrustedHostMiddleware`, no CORS — HIGH (as an amplifier)
+
+`create_app()` installs no middleware at all. DNS rebinding therefore makes a
+public page **same-origin** with the sidecar, so every response becomes
+readable — `/footage`, `/jobs/{id}`, `/search`, `/host/host.jsx`. Verified: a
+request carrying `Host: evil.example.com` is served normally.
+
+Note the panel loads from `file://`, which is itself cross-origin, so any CORS
+fix must be checked against the panel's current working path before shipping.
+
+### S3 `pickle.load` on a host-writable volume — CRITICAL as a design, not reachable today
+
+`engine/tempo_engine/cache.py` is the only `pickle.load` in the engine. `/data` is
+a bind mount of a Brev host directory and the container runs at the same uid as
+the host writer, so a poisoned `library/<cid>/stages/*.pkl` is code execution
+plus both tokens from `/proc/self/environ`. No route writes `stages/`, so this
+is not network-reachable — and it becomes so the moment anyone adds uid
+isolation or a second container on `/data`.
+
+Fix shape: a non-executing format (`.npz` + JSON, which `index.py` already
+uses), or document `stages/` as exactly as trusted as the engine process.
+
+### S4 Unbounded inbound buffers and query lengths — HIGH
+
+- The engine buffers a whole upload body before the size check
+  (`await request.body()`); a chunked request skips the `Content-Length`
+  pre-check entirely.
+- `q` has no `max_length` on either service. Measured on this repo's own
+  `textproc`: ~9 s of CPU per request against a 60k-entity library, because
+  entity resolution is a pure-Python n-gram scan.
+- `SyncRequest.footages` has no `max_length`; `/search` and `/thumb` are
+  unauthenticated and unrated, and `/thumb` misses write unbounded files into
+  the cache with no eviction.
+
+### S5 Job errors return absolute paths and tracebacks — MEDIUM
+
+`engine/tempo_engine/jobs.py` stores `f"{exc}\n{traceback tail}"` in the job
+error, which `GET /v1/jobs/{id}` and `GET /v1/library/{cid}` return. Leaks
+container paths, resolved model ids and stack frames. Also reflected verbatim
+into sidecar responses and logs (`proxy.py`).
+
+### S6 `GET /v1/library/{cid}` creates directories on a read path — MEDIUM
+
+`library.entry_dir()` `mkdir(parents=True)` runs unconditionally, and
+`needs_upload` reaches it from the GET. Verified: three GETs for an unuploaded
+content id created three directory trees. Unbounded inode growth on the persistent
+volume, and `ready_ids` then walks them on every search.
+
+### S7 Credential-shaped strings in history — LOW, not fixable without a shared rewrite
+
+`packaging/build-windows.ps1` carried `://postgres:postgres@` and
+`://postgres:change-me@` at commit `8d6b8d0` — default local-dev Postgres
+credentials for the auth service D12 deleted. Removed from HEAD; still in
+history. Scrubbing it means rewriting a commit that is on `origin/main`.
 
 ## Undocumented behavior worth knowing
 
