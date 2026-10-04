@@ -45,7 +45,8 @@ of the height; 0.163 of a 48 px panel field is 8 px.
 | Element | Design | Ratio | Shipped |
 |---|---|---|---|
 | search field, CTA, indexing pill | 32 / 196 | 0.163 | `--r-lg: 8px` |
-| submit + toggle buttons | 10.67 / 60, 8 / 64 | 0.178, 0.125 | `--r-sm: 4px` |
+| submit button | 10.67 / 60 | 0.178 | `--r-sm: 4px` (0.167 at 24 px) |
+| view-toggle chips | 8 / 64 | 0.125 | `--r-sm: 4px`, exact at 32 px |
 | cards, thumbnails, skeleton blocks | 12 / 560 | 0.021 | `--r-md: 3px` |
 | status dot | — | — | `50%`, the one exception that must stay round |
 
@@ -61,6 +62,50 @@ of the height; 0.163 of a 48 px panel field is 8 px.
 | indeterminate indicator | two arcs: an accent active arc over a white track, thickness 4 of 44 | the `777:704` two-path export at 16 px, filled from CSS: `.arc` → `--accent`, `.track` → `--spin-track` |
 | running row's indicator | 12-ray burst, `777:709`, accent | the same export at 16 px, `stroke="currentColor"` with `color: var(--accent)` |
 | wordmark | `tempo_logo`, `777:761`: white caps, two accent marks (the E's middle arm, a wedge at the O's shoulder) | `panel/www/logo.png` at `height: 14px`, `width: auto` |
+| view-toggle chips | `777:473`: 64 px square, radius 8, 16 px apart, active one filled `#171717` and the other bare | 32 px square, `--r-sm`, 8 px apart, active one filled `--surface` and the other bare |
+| view-toggle icons | the `777:473` exports: a 38-unit box around a 32-unit glyph; the grid is 4 outlined squares at stroke 3.5625, the list is 3 rules and 3 bullets at stroke 3.16667 | the same path data, `viewBox="0 0 38 38"` at 19 px, `stroke="currentColor"`; the chip carries no `stroke-width` so each icon keeps the weight the design exported |
+
+### The view pair keeps the design's ratios, not its pixels
+
+`777:473` is two 64 px chips 16 px apart, and the left edge of the pair lines up
+with the first card rather than with the search field above it — measured on the
+rendered frame, the chip and the card both start at x=124 while the field starts at
+x=88. The panel has no such second inset: `#app`'s children are all flush, so the
+pair lands on the card grid, which is the line the design chose.
+
+Nothing here scales linearly. At the 2004→300 frame scale a 64 px chip would be
+10 px, and `§1`'s icon floor pins the glyph at 16 px regardless. So the shipped
+control holds the *shape* and drops the pixels:
+
+| | Design | Ratio | Shipped (32 px chip) |
+|---|---|---|---|
+| chip | 64 | — | 32 |
+| radius | 8 | 0.125 | `--r-sm` 4 px, exact |
+| gap between chips | 16 | 0.25 | 8 px |
+| icon slot | 38 | 0.594 | 19 px |
+| glyph | 32 | 0.5 of the chip | 16.0 px, on AGENTS.md §6's floor |
+
+The chip is 32 rather than 24 because of the icon. The exported asset is a 38-unit
+box, and 38/64 of a 32 px chip is 19 px exactly — which puts the 32-unit glyph on
+16.0 px, AGENTS.md §6's floor rather than through it. The same asset in the 24 px chip it
+replaces renders a 13.5 px glyph, which is why the chip grew at all. At the 4 px
+rhythm of this section the vertical gaps do not port: the design's 76 px and 48 px
+are 11 px and 7 px at frame scale, so `#app`'s uniform 8 px is the honest reading.
+
+The active view is marked by the fill, as drawn: the pressed chip is filled
+`--surface` and the other one is `transparent`, because two identical fills read as
+two chips and carry no state. AGENTS.md §6's accent still names the working view in
+the glyph. The icons are the design's own exports, not redrawn — the list icon's
+three bullets are zero-length segments that `stroke-linecap: round` draws as dots,
+and flattening them into three bare rules is what the panel used to ship. At 19 px a
+bullet is the icon's own stroke width, 1.6 px, and lands on one device pixel: that
+is the design's proportion carried through the scale rather than a dot redrawn to
+suit it, and it is legible in the preview at `#list`.
+
+The design has no footage filter, so it says nothing about where ours goes once
+the pair moves left. The pair is the row's first child and the row's `auto` margin
+belongs to the filter, which is the only other thing in it: view mode left on the
+card grid, scope right.
 
 ### The wordmark is an asset, not traced geometry
 
@@ -121,7 +166,7 @@ another file is still indexing (§5 F2).
 #topbar       wordmark · status dot · Sync now                      (always)
 #searchbox    label + value + submit                                (ready footage only)
 #error        inline error row                                       (on error)
-#footage-filter                                                       (>1 footage)
+#searchmeta   view pair (left) · footage filter (right, >1 footage)  (ready footage)
 #indexing     status pill + step list + footage rows                (job live)
 #results      skeletons | cards | empty state | no-results
 ```
@@ -136,9 +181,11 @@ The header is always visible — `§4.4` requires engine reachability to render
 honestly, and it has no home in the Figma frames. What it renders is the
 shortest honest form: the wordmark, the dot, the button. ADR-0012.
 
-`#searchbox` and `#footage-filter` render only when at least one footage is
-`ready`. Below that the panel shows the indexing scenario (frames 01/02), which
-matches the design: neither frame has a search field.
+`#searchbox` and `#searchmeta` render only when at least one footage is `ready`;
+`#footage-filter` is the one part of that row that needs **more** than one, so it
+carries its own `hidden` and the row itself does not. Below that the panel shows
+the indexing scenario (frames 01/02), which matches the design: neither frame has a
+search field.
 
 ## 3. Scenarios
 
@@ -310,11 +357,16 @@ Everything else renders `NN%`.
   matches the previous result count so the list does not reflow on submit; a
   first search renders 9.
 - Skeletons display for at least 200ms (`§5` F3) even on a fast engine.
+- The view pair is present and unchanged from frame 04, on the left as drawn (§1).
 
 ### 4.2 Frame 04 — results
 
 Grid and list, toggled, choice persisted in `localStorage` under
 `tempo_view`. **Grid is the default** (decision Q12).
+
+The pair itself is `777:473` and is ported by ratio, not by pixel — see §1, "The
+view pair keeps the design's ratios, not its pixels" for the measured design
+geometry, the 32 px chip, the 19 px icon slot and why the pair is left.
 
 Card (`Rectangle 5420`): 560 × 399, radius 12, fill `#171717` with a 3 px
 `#171717` stroke. Hover flips both to `--accent` and the caption to white. The

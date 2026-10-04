@@ -489,6 +489,138 @@ def test_preview_harness_repoints_the_wordmark():
     )
 
 
+def _css_rule(css: str, selector: str) -> str:
+    """The declaration block for one selector, so assertions read as properties.
+
+    Anchored at line start and requiring `{` straight after the selector, so
+    `button.icon` does not also match `button.icon svg`.
+    """
+    m = re.search(rf"(?m)^{re.escape(selector)}\s*\{{([^}}]*)\}}", css)
+    assert m, f"panel.css has no rule for {selector}"
+    return m.group(1)
+
+
+def test_view_toggle_is_the_design_geometry_on_the_left():
+    """Figma 777:473 is two 64px chips, 16px apart, flush with the card grid.
+
+    Measured off the design (`docs/design/panel-ui.md` §1, "The view pair keeps the
+    design's ratios, not its pixels"): the chip is 64x64 with radius 8, the icon
+    asset is a 38-unit box holding a 32-unit glyph, the pair is 16 apart, and the
+    left edge of the pair lines up with the first card.
+
+    None of that scales linearly into a 300px panel -- at the frame scale a 64px
+    chip would be 10px, and AGENTS.md §6 pins icons at 16px regardless. What does
+    survive is the shape, so that is what is asserted: the gap's share of the
+    chip, the radius' share of it, and the icon's share of it. A later resize that
+    changes the chip without re-deriving the other two fails here rather than
+    shipping a cramped or a loose control.
+
+    The chip is 32 rather than 24 because of the icon. The exported asset is a
+    38-unit box, and 38/64 of a 32px chip is 19px exactly -- which renders the
+    32-unit glyph at 16.0px, on AGENTS.md §6's floor rather than through it. The
+    same asset in the 24px chip it replaces renders at 13.5px, which is why the
+    chip grew instead of just moving.
+
+    The viewBox is asserted alongside the slot because it is what the glyph size is
+    actually computed from. Changing either alone rescales the icon silently --
+    19px into a 64-unit box is a 9.5px glyph -- and every other assertion here
+    still passes.
+    """
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    # Left, not right. The pair is the row's first child and the row's auto margin
+    # belongs to the filter, which is the only other thing in it.
+    toggle = _css_rule(css, "#viewtoggle")
+    assert "margin" not in toggle, (
+        "the design puts the pair flush left on the card grid; a margin here is "
+        "what pushed it right"
+    )
+    assert "margin-left: auto" in _css_rule(css, "#footage-filter"), (
+        "with the pair on the left, the filter is what the row pushes right"
+    )
+    assert html.index('id="viewtoggle"') < html.index('id="footage-filter"'), (
+        "the pair comes before the filter in the markup, not only in the layout"
+    )
+
+    # Flush left *on the card grid*, which is the line the design puts it on. The
+    # row and the results share an inset because neither declares one; if either
+    # grows a horizontal padding the pair stops lining up with the cards and
+    # nothing else in this file would notice.
+    for row in ("#searchmeta", "#results"):
+        inset = _css_rule(css, row)
+        for side in ("padding", "margin"):
+            for edge in ("left", "right"):
+                assert f"{side}-{edge}" not in inset, (
+                    f"{row} gained {side}-{edge}; the view pair and the card grid "
+                    "are aligned by both being flush in #app"
+                )
+
+    # The design's ratios: gap 16 of 64, radius 8 of 64.
+    box = int(re.search(r"width:\s*(\d+)px", _css_rule(css, "button.icon")).group(1))
+    gap = int(re.search(r"gap:\s*(\d+)px", toggle).group(1))
+    radius = int(re.search(r"--r-sm:\s*(\d+)px", css).group(1))
+    assert gap == box / 4, f"the design spaces the pair 16 into a 64 chip; {gap}px into {box}px"
+    assert radius == box / 8, f"the design rounds the chip 8 into a 64 chip; --r-sm {radius}px in {box}px"
+
+    # The icon's share of the chip, and what that renders the glyph at.
+    chip, icon_box, glyph_units = 64, 38, 32
+    icon = re.search(
+        r'id="view-grid"[\s\S]*?<svg width="(\d+)" height="(\d+)" viewBox="0 0 (\d+) (\d+)"',
+        html,
+    )
+    assert icon, "the view icons must declare their box and their viewBox"
+    slot_w, slot_h, vb_w, vb_h = (int(g) for g in icon.groups())
+    assert (slot_w, slot_h) == (slot_w, slot_w), "the icon slot must not be stretched"
+    assert (vb_w, vb_h) == (icon_box, icon_box), (
+        f"the asset is a {icon_box}-unit box; a viewBox of {vb_w}x{vb_h} rescales "
+        "the glyph and every size below with it"
+    )
+    assert slot_w == round(box * icon_box / chip), (
+        f"the design's icon fills {icon_box} of its {chip} chip, so {box}px wants "
+        f"{round(box * icon_box / chip)}px, not {slot_w}px"
+    )
+    rendered = slot_w * glyph_units / vb_w
+    assert rendered >= 16, (
+        f"AGENTS.md §6 wants icons identifiable at 16px; this one renders at "
+        f"{rendered:.1f}px"
+    )
+
+    # The asset carries its own stroke, so no CSS rule may flatten it back to one
+    # weight for both icons -- the grid exports 3.5625 and the list 3.16667.
+    assert "stroke-width" not in _css_rule(css, "button.icon svg"), (
+        "the exported icons bring their own stroke-width; a CSS one overrides both"
+    )
+    widths = set(re.findall(r'id="view-(?:grid|list)"[\s\S]*?stroke-width="([\d.]+)"', html))
+    assert len(widths) == 2, (
+        f"each icon keeps the stroke the design exported it with, got {widths}"
+    )
+
+    # The list icon is three rules and three bullets. The bullets are zero-length
+    # segments that `stroke-linecap: round` draws as dots; three bare rules is what
+    # the panel shipped before and it is not the design's icon.
+    zero_len = 0.1  # a bullet's segment length; an export puts it just above zero
+    list_d = re.search(r'id="view-list"[\s\S]*?<path d="([^"]+)"', html).group(1)
+    segments = [
+        (float(x0), float(y), float(x1))
+        for x0, y, x1 in re.findall(r"M([\d.]+) ([\d.]+)H([\d.]+)", list_d)
+    ]
+    bullets = [s for s in segments if abs(s[2] - s[0]) < zero_len]
+    rules = [s for s in segments if s[2] - s[0] > zero_len]
+    assert len(rules) == 3 and len(bullets) == 3, (
+        f"the design's list icon is 3 rules and 3 bullets, got {len(rules)} and "
+        f"{len(bullets)}"
+    )
+    assert all(b[0] < r[0] for b, r in zip(bullets, rules)), (
+        "the bullets sit to the left of the rules they mark"
+    )
+
+    # One chip and one bare icon: the design signals the active view with the fill,
+    # so a second identical fill makes the pair two chips and says nothing.
+    assert "background: transparent" in _css_rule(css, "button.icon")
+    assert "background: var(--surface)" in _css_rule(css, 'button.icon[aria-pressed="true"]')
+
+
 def test_panel_top_k_matches_service():
     """panel.js TOP_K and the sidecar /search default must agree.
 

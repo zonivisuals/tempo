@@ -10,7 +10,8 @@
  * ratios, not the design's raw px: a 32px radius on a 196px-tall field is 0.163
  * of the height, and 0.163 of a 48px panel field is 8px. Same shape, honest scale.
  *   search field / CTA / indexing pill   32/196  ->  --r-lg  8px
- *   submit + toggle buttons             10.67/60, 8/64 -> --r-sm 4px
+ *   view-toggle chips                    8/64    ->  --r-sm  4px   (exact at 32px)
+ *   submit button                        10.67/60->  --r-sm  4px   (0.167 at 24px)
  *   cards / thumbnails / skeletons      12/560   ->  --r-md  3px
  *   status dot                          round, the one exception that must stay round
  */
@@ -200,23 +201,32 @@ html.light #submit { background: rgba(0, 0, 0, 0.08); }
   padding: 4px 8px; font-size: 11px; color: var(--error);
 }
 
-/* ---------- filter + view toggle (777:473: two 64px r8 buttons) ---------- */
+/* ---------- filter + view toggle (777:473) ----------
+ * Left, on the card grid's edge, as drawn. The chip is 32 rather than 24 so the
+ * exported 38-unit icon can keep the design's share of it: at 24 it would render a
+ * 13.5px glyph, under AGENTS.md 6's floor. Geometry, and why each number is what
+ * it is, in docs/design/panel-ui.md 1. */
 #searchmeta { display: flex; align-items: center; gap: 8px; }
 #footage-filter {
-  flex: 0 1 auto; max-width: 60%; min-width: 0;
+  flex: 0 1 auto; max-width: 60%; min-width: 0; margin-left: auto;
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r-sm); font: inherit; font-size: 11px;
 }
-#viewtoggle { margin-left: auto; display: flex; gap: 4px; flex: none; }
+#viewtoggle { display: flex; gap: 8px; flex: none; }
 button.icon {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; padding: 0;
-  background: var(--surface); color: var(--dim);
+  width: 32px; height: 32px; padding: 0;
+  background: transparent; color: var(--dim);
   border: 1px solid transparent; border-radius: var(--r-sm); cursor: pointer;
 }
-button.icon svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+/* No stroke-width here: each icon carries the width the design exported it with
+   (the grid draws heavier than the list), the way the 777:704 indicator does. */
+button.icon svg { fill: none; stroke: currentColor; stroke-linecap: round; }
 button.icon:hover { color: var(--text); }
-button.icon[aria-pressed="true"] { color: var(--accent); }
+/* The design marks the active view with the chip fill and leaves the other one
+   bare, so two identical fills would read as two chips and say nothing. The
+   accent stays the working colour; the fill is what pairs with it. */
+button.icon[aria-pressed="true"] { background: var(--surface); color: var(--accent); }
 
 /* ---------- indexing ----------
  * While a job runs this section is the whole panel (the search field is hidden

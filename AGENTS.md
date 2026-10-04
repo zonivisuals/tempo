@@ -567,7 +567,14 @@ Tempo's UI mimics AE native panels: dense, gray, flat, quiet. Read the host them
   one place a gradient is a surface treatment; everywhere else a gradient is only
   ever the mechanism of a loading sweep.
 - Monochrome + at most ONE accent color, used only for selection/active states.
+  The view-toggle chips are the design's own selected-state treatment (`777:473`):
+  the active one carries the surface fill, the inactive one is bare, and the accent
+  names the working view. That is a control's pressed state, not a floating chip —
+  the "Don't" list below bans chips that are neither of the design's two pills.
 - Icons: a minimal consistent set (or none — text labels are fine at this density). Every icon must be identifiable at 16px.
+  The design's own exports are used as exported; where one is scaled to hold this
+  floor (`777:473`'s 38-unit view icons render at a 19 px slot for a 16 px glyph),
+  the icon slot — not the icon — is what gets resized.
 - Progress is a thin readout in the running row (a percentage, or the real unit —
   MB, audio seconds). Not a bar: the design carries progress in the row's own
   text, and `total == 0` renders no readout at all.
@@ -737,6 +744,21 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
   status of §4.4 is now a hover (or a screen reader) away rather than always on
   screen; the error row still surfaces the codes inline. Spec in
   `docs/design/panel-ui.md` (see `docs/decisions/0012-wordmark-header.md`).
+- **D18 addendum — the view pair is `777:473` again, and it is on the left.** The
+  grid/list pair had drifted to the right edge of `#searchmeta` and been redrawn as
+  16-unit icons in 24px chips, so neither its placement nor its geometry was the
+  design's. It is now flush left on the card grid (the line the design puts it on:
+  in the render, the chip and the first card both start at x=124, the search field
+  at x=88), at the design's ratios rather than its pixels — 32px chip, `--r-sm`
+  exact at 0.125, 8px gap at 0.25, and a 19px icon slot, which is 38/64 of the chip
+  and lands the export's 32-unit glyph on exactly 16px. That last number is the
+  reason the chip grew instead of only moving: the same 38-unit asset in the old
+  24px chip renders a 13.5px glyph, under §6's floor. The icons are the design's
+  own path data, including the list icon's three bullets, which are zero-length
+  segments `stroke-linecap: round` draws as dots — flattening them to three bare
+  rules is the thing that was wrong before. Active view is the chip fill, as drawn,
+  so the inactive chip is `transparent` rather than a second identical fill; §6's
+  accent still names the working view. Spec in `docs/design/panel-ui.md` §1.
 
 Known debt (tracked, not silently fixed):
 - **K1 Key-scale calibration:** RESOLVED by D17 (per-key z-scores before a weighted sum).
