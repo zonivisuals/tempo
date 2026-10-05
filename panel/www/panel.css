@@ -42,9 +42,10 @@
   --r-sm: 4px;
   --r-md: 3px;
   --sh: 0 2px 6px rgba(0, 0, 0, 0.2);   /* 0 8 12 @0.2, scaled */
-  /* 1.5px stroke whose paint is a white -> surface ramp (815:294). ADR-0015 made
-     it a 180deg gradient whose top is a lighter 0.16 and whose bottom is the
-     design's 0.28, so the edge catches light from above the way the field does. */
+  /* 1.5px stroke whose paint is a white -> surface ramp (815:294). ADR-0015 made it
+     an explicit 180deg gradient whose top is a lighter 0.16 and whose bottom is
+     the design's 0.28, so the edge catches light from above the way the field
+     does. The light theme's own is a flat 0.18: same shape, different ramp. */
   --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(23, 23, 23, 0.28));
   /* The design's skeleton fill (777:532): white 0 -> 0.08, and the SAME fill on
    * both blocks — so one token serves both, and the peak is the level that comes
@@ -242,15 +243,20 @@ html.light #submit { background: rgba(0, 0, 0, 0.08); }
  * uniform 8px -- the design's 76px and 48px of vertical space are 11 and 7 at
  * frame scale, and neither lands on 8. */
 #searchmeta { margin-top: 16px; display: flex; align-items: center; gap: 8px; }
-/* The design has no footage filter, so its padding is ours: 4 / 8 puts the
- * 11px label on the same optical height as the 32px chips it shares the row with,
- * centred by #searchmeta's align-items. */
+/* The design has no footage filter, so its box is ours: 4 / 8 on an 11px label
+   makes it ~26px tall, which #searchmeta's align-items centres against the 32px
+   chips it shares the row with. That is a deliberate mismatch, not an oversight —
+   the row is not two equal-height controls. */
 #footage-filter {
   flex: 0 1 auto; max-width: 60%; min-width: 0; margin-left: auto; padding: 4px 8px;
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r-sm); font: inherit; font-size: 11px;
 }
-#viewtoggle { display: flex; gap: 0px; flex: none; }
+/* No `gap`: ADR-0015 removed the design's 16-of-64 spacing and the chips touch, so
+   the pair is one 64px control and the pressed fill is its only separator.
+   test_view_toggle_is_the_design_geometry_on_the_left asserts the ABSENCE, so a
+   later `gap:` here — at any value — fails as the regression it would be. */
+#viewtoggle { display: flex; flex: none; }
 button.icon {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; padding: 0;
@@ -454,7 +460,7 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
  * the design's frame has neither: inheriting both made the loading state a grey
  * card with two dimmer rectangles in it. ADR-0016; ADR-0011 owns the motion, and
  * this is the one animated surface while searching. */
-.card.skel { cursor: default; border: 0; background: none; }
+.card.skel { cursor: default; border: 0; background: none; padding: 0 3px; }
 /* .card:hover paints --accent, and a div still matches :hover. */
 .card.skel:hover { background: none; }
 .card.skel .sk-thumb, .card.skel .sk-cap {
@@ -465,21 +471,27 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
   border-radius: var(--r-md);
   animation: sweep 1.2s linear infinite;
 }
-/* The inset is the card's own 3px stroke, so the block lands exactly where the real
-   thumbnail will. 312 of 554 is 0.5632 — 16:9 to within 0.1%. */
-.card.skel .sk-thumb { width: calc(100% - 6px); margin: 0 3px; padding-top: 56.25%; }
+/* The 3px inset is the CARD's padding, not the block's margin, and that is the
+   whole reason it is here: `padding-top: 56.25%` resolves against the containing
+   block's width, so a margin inset on the block itself would still size the
+   block 138 x 0.5625 = 77.6px while the real thumbnail — inside the card's 3px
+   stroke — is 132 x 0.5625 = 74.25px. Putting the inset on the frame makes the
+   containing block 132 and the two identical. 312 of 554 is 0.5632, which is
+   16:9 to within 0.1%. */
+.card.skel .sk-thumb { width: 100%; padding-top: 56.25%; }
 /* The gap is the design's 18 of 560, which is 4.2px on a 132px thumb, on the
    rhythm. The height is the body this block stands in for: two lines of the
    caption's own 11px at the inherited 1.45, plus the body's 6px above and below.
    The design's 69 is that same box at 20px type, so it cannot be copied — at this
-   scale it would be 17px and every row would jump ~30px when results land, which
-   is what §4.1's "the list does not reflow on submit" exists to prevent. */
-.card.skel .sk-cap { height: 44px; margin: 4px 3px 0; }
-/* The list row carries its own 8px gap and a fixed 72px thumb, so the two
-   grid-shaped declarations above are undone there rather than shared. */
+   scale it would be 17px and every row would jump when results land, which is
+   what §4.1's "the list does not reflow on submit" exists to prevent. */
+.card.skel .sk-cap { height: 44px; margin-top: 4px; }
+/* The list row has its own 8px gap between its two blocks, so the cap's 4px does
+   not apply there; the frame's own padding does, and correctly — the list
+   thumbnail is a fixed 72px inside the same inset. */
 #results.list .card.skel { display: flex; align-items: stretch; gap: 8px; }
-#results.list .card.skel .sk-thumb { width: 72px; margin: 0; flex: none; padding-top: 0; height: 41px; }
-#results.list .card.skel .sk-cap { flex: 1; height: 11px; margin: 0; }
+#results.list .card.skel .sk-thumb { width: 72px; flex: none; padding-top: 0; height: 41px; }
+#results.list .card.skel .sk-cap { flex: 1; height: 11px; margin-top: 0; }
 @keyframes sweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 
 /* ---------- no-footage state (777:639) ----------

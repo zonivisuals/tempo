@@ -56,12 +56,19 @@ ADR-0013 shipped it at 21, on the grounds that 0.406 of 21 is 8.5px and "at the
 magnifier's 2.2751 stroke a smudge", and turned §1's "16px" into a floor rather
 than a size.
 
-It now ships at 10px — the same 0.406 the type uses, rounded to the rhythm.
-10 / 21 × 2.2751 is a **1.08px** stroke, which is the honest cost and the reason
-the exception is bounded rather than open: `AGENTS.md` §6 now names this icon as
-the one export below its 16px floor, and the test recomputes 1.08 from the
+It now ships at 10px. That is **0.476** of the export, not the type's 0.406: the
+type ratio would say 8.5px, and 10 is the next step up the 4px rhythm from there —
+chosen because the icon sits beside 11px label text and 8.5px is a smudge at both
+sizes. 10 / 21 × 2.2751 is a **1.08px** stroke, which is the honest cost and the
+reason the exception is bounded rather than open: `AGENTS.md` §6 now names this
+icon as the one export below its 16px floor, and the test recomputes 1.08 from the
 shipped `width` and the design's `stroke-width`, so a future resize that changed
 either number would fail rather than drift.
+
+The number is a product-owner call and is recorded as one. An earlier draft of
+this ADR described 10px as "the same 0.406 the type uses, rounded to the rhythm",
+which is arithmetically false — 0.406 of 21 is 8.5, and 10 is 0.476. The three
+files that repeated the claim were corrected with it.
 
 A 10px magnifier is under the floor and is the honest reading of the floor's own
 wording — "identifiable at 16px" was a statement about legibility, and this is
@@ -123,8 +130,13 @@ paint the design specifies only in the vertical direction (`#FFF 0% → #171717
 100%`). It is now `linear-gradient(180deg, #FFF 0.16, #171717 0.28)`: still the
 design's two colours, still the design's bottom alpha, with the top lifted
 lighter and the direction made explicit so the edge catches light from above the
-way the field does. The light theme's own `--edge` was already a `180deg` ramp,
-so this brings the dark theme onto the same shape rather than introducing one.
+way the field does.
+
+The light theme's own `--edge` was already a `180deg` ramp, so this puts both
+themes on the same shape. They are not the same ramp — the light one is a flat
+`0.18` either side, and the dark one is 0.16 → 0.28 — and an earlier draft of this
+ADR claimed the change made them match, which is not true and which `AGENTS.md` §6
+and `docs/ui-review.md` now state correctly instead.
 
 ### 6. Two small changes with no reversal in them
 

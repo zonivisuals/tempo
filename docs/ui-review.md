@@ -11,10 +11,12 @@ flag and reject an element reading as "AI-generated slop".
       cards, thumbnails and skeleton blocks (`--r-md`), 4px on buttons (`--r-sm`).
       The 7px status dot is the one documented exception. Compare against
       `docs/design/panel-ui.md` §1, not against a flat 2px rule.
-- [ ] The search field carries the design's 1.5px white→surface gradient edge at
-      0.28 alpha and its shadow. No shadow anywhere else. It is **82px** tall: label
-      above value, the icon at 10px beside the 11px label (the one icon below
-      §6's 16px floor), and the value row carrying the 24px submit button.
+- [ ] The search field carries the design's 1.5px white→surface gradient edge and
+      its shadow. No shadow anywhere else. In the dark theme that edge is a
+      `180deg` ramp, white 0.16 → surface 0.28; in the light theme a flat 0.18. It
+      is **82px** tall: label above value, the icon at 10px beside the 11px label
+      (the one icon below §6's 16px floor), and the value row carrying the 24px
+      submit button.
 - [ ] 12px base / 11px metadata, system font stack, 4px spacing rhythm.
 - [ ] Monochrome + at most one accent, used only for selection/active.
 - [ ] Progress is the running row's own readout — a percentage, or the real unit

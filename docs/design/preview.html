@@ -79,10 +79,11 @@
   <div id="searchbox" class="edge" hidden>
     <div class="sb-head">
       <!-- The design's own path, at 10px: ADR-0013 shipped it at its exported 21
-           and ADR-0015 took it down to the panel's own scale, the same 0.406 the
-           type uses. It is the one export below AGENTS.md 6's 16px floor, which
-           that section now names; the design's 2.2751 stroke lands on 1.08px here
-           and the label text, not the icon, sets the label row.
+           and ADR-0015 took it to 10px, which is 0.476 of the export rather than
+           the type's 0.406 — the next step up the 4px rhythm from that 8.5px. It
+           is the one export below AGENTS.md 6's 16px floor, which that section
+           now names; the design's 2.2751 stroke lands on 1.08px here and the
+           label text, not the icon, sets the label row.
            stroke is currentColor rather than the asset's literal white, which is
            invisible on the light theme, and stroke-opacity is absent so
            .sb-head's --text-dim is the only source of the alpha -- 0.4 in dark,

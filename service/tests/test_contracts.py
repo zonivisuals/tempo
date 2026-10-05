@@ -500,6 +500,26 @@ def _css_rule(css: str, selector: str) -> str:
     return m.group(1)
 
 
+# The narrow dock both the badge and the skeleton are sized against: a 300px AE
+# panel, which is the case both were chosen in. One derivation, shared, because
+# two tests quoting 132 is a constant that can go stale in one place only.
+NARROW_DOCK_PX = 300
+
+
+def _grid_thumb_width(css: str) -> float:
+    """The width of one result card's thumbnail at NARROW_DOCK_PX.
+
+    Composed rather than quoted: the dock less #app's padding, split by the
+    grid's gap, less the card's stroke on both sides. A change to any of those
+    moves every consumer, which is the point — a test that hardcodes 132 keeps
+    passing after the geometry moves out from under it.
+    """
+    pad = int(re.search(r"padding:\s*(\d+)px", _css_rule(css, "#app")).group(1))
+    gap = int(re.search(r"gap:\s*(\d+)px", _css_rule(css, "#results.grid")).group(1))
+    stroke = int(re.search(r"border:\s*(\d+)px solid", _css_rule(css, ".card")).group(1))
+    return (NARROW_DOCK_PX - 2 * pad - gap) / 2 - 2 * stroke
+
+
 def test_view_toggle_is_the_design_geometry_on_the_left():
     """Figma 777:473 is two 64px chips, 16px apart, flush with the card grid.
 
@@ -531,9 +551,10 @@ def test_view_toggle_is_the_design_geometry_on_the_left():
     pressed fill is the only thing separating them and the pair reads as one 64px
     control. That is a departure from the design, on the product owner's call, and
     it is the kind that fails silently -- a later edit restoring the gap would look
-    like a fix. So it is asserted as 0 with the reason attached, and the one thing
-    that must survive the adjacency is asserted too: the active chip is still the
-    filled one, or the pair has no state left to carry at all.
+    like a fix. So it is asserted as an ABSENCE (the rule declares no `gap`, rather
+    than declaring the flex default of 0), which fails a restoration at any value,
+    and the one thing that must survive the adjacency is asserted too: the active
+    chip is still the filled one, or the pair has no state left to carry at all.
     """
     html = PANEL_HTML.read_text(encoding="utf-8")
     css = PANEL_CSS.read_text(encoding="utf-8")
@@ -565,15 +586,19 @@ def test_view_toggle_is_the_design_geometry_on_the_left():
                     "are aligned by both being flush in #app"
                 )
 
-    # The design's radius ratio, and the gap's departure from it.
+    # The design's radius ratio, and the gap's departure from it. The rule declares
+    # no `gap` at all: flex gap is 0 by default, so a `gap: 0` declaration would be a
+    # no-op kept alive only to be read here, which is the dead weight §8 lists.
+    # Asserting the absence is the stronger pin anyway — it fails a later `gap: 8px`
+    # and a later `gap: 0px` equally, and says why.
     box = int(re.search(r"width:\s*(\d+)px", _css_rule(css, "button.icon")).group(1))
-    gap = int(re.search(r"gap:\s*(\d+)px", toggle).group(1))
-    radius = int(re.search(r"--r-sm:\s*(\d+)px", css).group(1))
-    assert gap == 0, (
-        f"ADR-0015 sets the pair's gap to 0 in a {box}px chip -- the design's 16 of "
-        f"64 was reversed -- but this reads {gap}px; put the spacing back and the two "
-        "chips stop reading as one control"
+    assert "gap" not in toggle, (
+        "ADR-0015 sets the pair's gap to nothing — the design's 16 of 64 was reversed "
+        f"and the two {box}px chips now touch, with the pressed fill as the only "
+        "separator. A gap here at any value is the regression, so the rule declares "
+        "none"
     )
+    radius = int(re.search(r"--r-sm:\s*(\d+)px", css).group(1))
     assert radius == box / 8, f"the design rounds the chip 8 into a 64 chip; --r-sm {radius}px in {box}px"
 
     # The icon's share of the chip, and what that renders the glyph at.
@@ -716,8 +741,8 @@ def test_search_field_carries_the_designs_spacing():
 
     height = 2 * border + 2 * pad + label_row + gap + int(submit.group(1))
     assert height == pytest.approx(82, abs=0.5), (
-        f"2 + 2*{pad} + {label_row:.2f} + {gap} + 24 = {height:.2f}px, not the 82px "
-        "the field is documented at"
+        f"2 + 2*{pad} + {label_row:.2f} + {gap} + {submit.group(1)} = {height:.2f}px, "
+        "not the 82px the field is documented at"
     )
 
     # The 16px floor is AGENTS.md 6's, and this icon is the one export below it
@@ -734,6 +759,67 @@ def test_search_field_carries_the_designs_spacing():
     )
     assert "Search for anything" in head_html, "the design's label is the field's label"
     assert "Search footage" not in head_html, "the label was replaced, not added to"
+
+    # The field's own edge. AGENTS.md 6 and docs/ui-review.md both state it, so it
+    # is pinned here rather than left to drift against two prose copies: a 180deg
+    # ramp whose top is a lighter white and whose bottom is the design's own 0.28.
+    # The light theme is a flat 0.18 at the same angle, which is a different ramp
+    # and not an inconsistency.
+    edges = re.findall(r"--edge:\s*linear-gradient\((\d+)deg([^;]+)\);", css)
+    assert len(edges) == 2, "both themes must declare --edge"
+    angles = {a for a, _ in edges}
+    assert angles == {"180"}, f"the design's paint is vertical; got {angles}"
+    alphas = [tuple(re.findall(r"([\d.]+)\)", stops)) for _, stops in edges]
+    assert alphas[0] == ("0.16", "0.28"), (
+        f"the dark ramp is white 0.16 -> surface 0.28; got {alphas[0]}"
+    )
+    assert alphas[1] == ("0.18", "0.18"), (
+        f"the light theme is a flat 0.18 at the same angle; got {alphas[1]}"
+    )
+
+
+def test_the_thumbnail_and_the_meta_row_take_their_tokens():
+    """Two values ADR-0015 set that nothing else in the file was watching.
+
+    Both are single declarations with no downstream consumer, which is exactly the
+    shape of a value that gets changed by accident:
+
+    - **`.thumb`'s radius.** `panel-ui.md` §1 has always listed `--r-md` as
+      covering "cards, thumbnails, skeleton blocks" and the rule never declared
+      it, so a keyframe rendered square inside a rounded card. It is the design's
+      12 of 560, the same ratio as the card's, so the two corners agree.
+    - **`#searchmeta`'s top margin.** This one is a product-owner value and is
+      recorded as one: the design's 76px and 48px of vertical space are 11 and 7
+      at frame scale, and neither lands on `#app`'s uniform 8px. There is no
+      derivation that produces 16 from those numbers, so the test pins the value
+      and the reason rather than pretending to derive it — which is the honest
+      thing for a value that was chosen, not computed.
+
+    The margin is a vertical inset, so the flush-left assertion in
+    `test_view_toggle_is_the_design_geometry_on_the_left` (which is about the
+    horizontal inset) does not cover it.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    radius = int(re.search(r"--r-md:\s*(\d+)px", css).group(1))
+    card_radius = int(re.search(r"--r-field:\s*(\d+)px", css).group(1))
+    assert radius == 3 and card_radius == 10, (
+        f"--r-md {radius}px and --r-field {card_radius}px are the design's two "
+        "measured ratios; restate the ADRs if either moved"
+    )
+    assert "border-radius: var(--r-md);" in _css_rule(css, ".thumb"), (
+        "the thumbnail is the design's 12 of 560, the card's own ratio; a keyframe "
+        "square inside a rounded card is what this rule was missing"
+    )
+
+    meta = _css_rule(css, "#searchmeta")
+    margin = int(re.search(r"margin-top:\s*(\d+)px", meta).group(1))
+    assert margin == 16, (
+        f"#searchmeta's own top margin is 16px on the 4px rhythm, one notch tighter "
+        f"than #app's 8px gap; this reads {margin}px. It is a product-owner value — "
+        "the design's 76 and 48 scale to 11 and 7, neither of which is 16 — so change "
+        "it in the ADR and here together"
+    )
 
 
 def test_header_draws_no_hairline_under_the_wordmark():
@@ -1199,11 +1285,6 @@ def test_result_badge_is_the_accent_at_the_thumbs_scale():
     `#app`'s padding, the grid's gap or the card's stroke moves the expected badge
     instead of leaving a stale literal behind it.
 
-    The floor is load-bearing and is asserted as such: 18% of the list view's 72px
-    thumb is 12.96px, under AGENTS.md §6's 16px, which is why the declaration is a
-    `max()` and not a bare percentage. `max()` is Chromium 79 against the panel's
-    real floor of 84 (flexbox `gap`, `docs/agents/known-issues.md`).
-
     The height is the SVG's own square `viewBox` at `height: auto` -- not
     `aspect-ratio` (Chromium 88), and not a percentage height, which for an
     absolutely positioned element resolves against the containing block's *height*
@@ -1235,13 +1316,11 @@ def test_result_badge_is_the_accent_at_the_thumbs_scale():
     )
     floor, pct = int(share.group(1)), int(share.group(2))
 
-    # The grid cell, computed: #app's padding, the grid's gap, the card's stroke.
-    panel = 300  # a narrow dock, the case the 24px was chosen in
-    app_pad = int(re.search(r"padding:\s*(\d+)px", _css_rule(css, "#app")).group(1))
-    grid_gap = int(re.search(r"gap:\s*(\d+)px", _css_rule(css, "#results.grid")).group(1))
-    stroke = int(re.search(r"border:\s*(\d+)px solid", _css_rule(css, ".card")).group(1))
-    cell = (panel - 2 * app_pad - grid_gap) / 2 - 2 * stroke
-    assert cell == 132, f"the grid thumb is {cell}px at {panel}px; the derivation moved"
+    # The grid cell, computed by the shared derivation so a future change to
+    # `#app`'s padding, the grid's gap or the card's stroke moves this rather than
+    # leaving a stale literal here.
+    cell = _grid_thumb_width(css)
+    assert cell == 132, f"the grid thumb is {cell}px at {NARROW_DOCK_PX}px; the derivation moved"
     assert cell * pct / 100 == pytest.approx(24, abs=1), (
         f"{pct}% of a {cell}px thumb is {cell * pct / 100:.1f}px, not the ~24px this "
         "was sized at; the card's geometry moved and the share has to be re-derived"
@@ -1300,16 +1379,27 @@ def test_searching_frame_is_two_blocks_at_the_designs_level():
     - **Both blocks take `--r-md`.** The design gives them the same 12 of 560 the
       card has, which is what `--r-md` is.
     - **The blocks are inset 3px, and the cap is the body box.** The design's
-      `thumb-sk` sits at x=3 of a 560 frame -- inside the card's 3px stroke -- so
+      `thumb-sk` sits at x=3 of a 560 frame — inside the card's 3px stroke — so
       the panel's inset is the stroke's width, and the cap takes `.body`'s own
       horizontal padding so both blocks land exactly where the real thumbnail and
-      the real caption land. The cap's *height* is asserted as a derivation
-      (below), because the design's 69 is its body box at 20px caption type and
-      the panel's caption is 11px: taken literally it would be 17px and every row
-      would jump ~30px when results arrive, which is what §4.1's "count matches
-      the previous result count so the list does not reflow" exists to prevent.
+      the real caption land. The inset lives on the *frame* (`padding`, not the
+      blocks' `margin`) and that is load-bearing rather than cosmetic: percentage
+      padding resolves against the containing block, so a margin inset would size
+      the thumb 138 x 0.5625 = 77.6px while the real thumbnail is 132 x 0.5625 =
+      74.25px. The cap's *height* is asserted as a derivation (below), because the
+      design's 69 is its body box at 20px caption type and the panel's caption is
+      11px: taken literally it would be 17px and every row would jump when results
+      arrive.
+    - **The row does not change height when results land.** That is the property
+      the cap's height exists for, and it is the one thing the derivation above
+      cannot check on its own — a cap that tracks the body while the thumb
+      overshoots still jumps. So the two are added up and compared against a real
+      card, with the card's own stroke and its two-line caption. It is a
+      comparison, not a restatement, and it is the assertion that would catch a
+      reflow.
     """
     css = PANEL_CSS.read_text(encoding="utf-8")
+    cell = _grid_thumb_width(css)
 
     # The render: two blocks, and no trace of the card they stand in for.
     searching = _GRID_CARD_SETUP + "store.searching = true;"
@@ -1345,31 +1435,39 @@ def test_searching_frame_is_two_blocks_at_the_designs_level():
         f"the panel has {peaks}"
     )
 
-    # Both blocks, both radii.
+    # Both blocks, both radii, and the base the ramp sits on. The design paints
+    # no base colour on either block; `--surface-2` is ours, and it is what gives
+    # a block a resting shape when the sweep is at its faintest or disabled.
     blocks = _css_rule(css, ".card.skel .sk-thumb, .card.skel .sk-cap")
     assert "border-radius: var(--r-md);" in blocks, (
         f"the design rounds both blocks at the card's own 12 of 560; got {blocks!r}"
     )
+    assert "background-color: var(--surface-2);" in blocks, (
+        f"the blocks need a base to be a shape; got {blocks!r}"
+    )
 
-    # The thumb's inset is the card's stroke, so it cannot drift from the real
-    # thumbnail it stands in for, and the gap above the cap is the design's 18 of
-    # 560 landed on the 4px rhythm.
+    # The thumb's inset is the card's stroke, and it is the FRAME's padding, so
+    # that `padding-top: 56.25%` resolves against the inset width. A margin inset
+    # on the block would look identical and size the block off the full cell.
     stroke = int(re.search(r"border:\s*(\d+)px solid", _css_rule(css, ".card")).group(1))
-    inset = re.search(r"margin:\s*0\s+(\d+)px", _css_rule(css, ".card.skel .sk-thumb"))
+    inset = re.search(r"padding:\s*0\s+(\d+)px", _css_rule(css, ".card.skel"))
     assert inset and int(inset.group(1)) == stroke, (
-        f"the design's thumb-sk is inset by the card's {stroke}px stroke; this one is "
-        f"{inset and inset.group(1)}"
+        f"the design's thumb-sk is inset by the card's {stroke}px stroke; the "
+        f"skeleton frame insets by {inset and inset.group(1)}"
     )
     thumb = _css_rule(css, ".card.skel .sk-thumb")
-    assert f"width: calc(100% - {2 * stroke}px);" in thumb, (
-        f"the block is the stroke's width narrower than the frame; got {thumb!r}"
+    assert "width: 100%;" in thumb, (
+        f"with the inset on the frame the block fills what is left of it; got {thumb!r}"
+    )
+    assert "margin" not in thumb, (
+        "a margin inset would leave the percentage padding resolving against the "
+        "full cell, and the block would be 3.4px taller than the thumbnail"
     )
     assert "padding-top: 56.25%;" in thumb, (
         "the design's thumb-sk is 312 of 554 = 0.5632, which is 16:9 to within 0.1%"
     )
 
-    gap = re.search(r"margin:\s*(\d+)px\s+\d+px\s+0", _css_rule(css, ".card.skel .sk-cap"))
-    cell = 132  # the grid thumb, as in the badge test: 300px dock less #app and the stroke
+    gap = re.search(r"margin-top:\s*(\d+)px", _css_rule(css, ".card.skel .sk-cap"))
     design_gap, design_card = 18, 560
     assert gap and int(gap.group(1)) == round(cell * design_gap / design_card), (
         f"the design's cap-sk starts {design_gap} of {design_card} below the thumb, "
@@ -1380,24 +1478,43 @@ def test_searching_frame_is_two_blocks_at_the_designs_level():
     # than restated: two lines of the caption's own type at the inherited line
     # height, plus the body's padding above and below. The design's 69 is the same
     # box at 20px type, which is why it cannot be copied.
+    body = _css_rule(css, ".body")
     cap_h = int(re.search(r"height:\s*(\d+)px", _css_rule(css, ".card.skel .sk-cap")).group(1))
     cap_fs = int(re.search(r"font-size:\s*(\d+)px", _css_rule(css, ".cap")).group(1))
-    line_height = float(re.search(r"font:\s*12px/([\d.]+)", css).group(1))
-    body_pad = int(re.search(r"padding:\s*(\d+)px", _css_rule(css, ".body")).group(1))
-    assert cap_h == pytest.approx(2 * cap_fs * line_height + 2 * body_pad, abs=1), (
+    line_height = float(re.search(r"font:\s*12px/([\d.]+)", _css_rule(css, "body")).group(1))
+    body_pad = int(re.search(r"padding:\s*(\d+)px", body).group(1))
+    body_box = 2 * cap_fs * line_height + 2 * body_pad
+    assert cap_h == pytest.approx(body_box, abs=1), (
         f"the cap is the body: 2 x {cap_fs}px at {line_height} plus {body_pad}px of "
-        f"padding is {2 * cap_fs * line_height + 2 * body_pad:.1f}px, not {cap_h}px. A "
-        "cap that is the design's literal 17px makes every row jump on arrival"
+        f"padding is {body_box:.1f}px, not {cap_h}px. A cap that is the design's "
+        "literal 17px makes every row jump on arrival"
     )
 
-    # The list view shares the rules and has to undo the two that are grid-shaped:
-    # its row already has the 8px gap, and its 72px thumb is a fixed width.
-    list_thumb = _css_rule(css, "#results.list .card.skel .sk-thumb")
-    assert "margin: 0;" in list_thumb, (
-        f"the shared 3px inset would push the list's fixed thumb to 78px; got {list_thumb!r}"
+    # And the property all of the above exists for: the row's height is the same
+    # before and after. Skeleton = thumb + gap + cap. A real card = its stroke +
+    # the same thumb + the same body, with the body at its full two lines (the
+    # grid clamps the caption to two, and the metadata column beside it is no
+    # taller). The residual is therefore the card's 6px of stroke less the 4px the
+    # skeleton puts back as the gap — 2px, and the tolerance absorbs the cap's
+    # rounding onto the rhythm. A caption that comes back one line short still
+    # shortens the card, because a content-sized card cannot be predicted; what
+    # this rules out is the thumb overshooting its own thumbnail, which is the
+    # failure that a per-block assertion cannot see.
+    thumb_h = cell * 0.5625
+    skeleton_h = thumb_h + int(gap.group(1)) + cap_h
+    card_h = 2 * stroke + thumb_h + body_box
+    residual = 2 * stroke - int(gap.group(1))
+    assert card_h - skeleton_h == pytest.approx(residual, abs=1), (
+        f"skeleton {skeleton_h:.1f}px against card {card_h:.1f}px: the difference "
+        f"should be {residual}px — the card's {stroke}px stroke either side less "
+        "the gap the skeleton spends. A larger difference is the reflow this whole "
+        "re-derivation is about"
     )
-    assert "margin: 0;" in _css_rule(css, "#results.list .card.skel .sk-cap"), (
-        "the list row's own 8px gap is the spacing; the grid's 4px cap margin is not"
+
+    # The list view shares the frame's padding and the block rules; only the
+    # grid's cap margin has to be undone there, because the row has its own gap.
+    assert "margin-top: 0;" in _css_rule(css, "#results.list .card.skel .sk-cap"), (
+        "the list row's own 8px gap is the spacing; the grid's 4px is not"
     )
 
 

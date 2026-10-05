@@ -221,7 +221,8 @@ are 11 and 7 at frame scale, and neither lands on `#app`'s uniform 8.
 
 **Icons**: 16px is the floor, not the size. The field's magnifier is the one
 export below it: the design exports a 21×21 path, and ADR-0015 took it to **10px**,
-which is 0.406 of that box — where the design's own 2.2751 stroke lands on
+which is **0.476** of that box — the type's 0.406 would say 8.5, and 10 is the
+next step up the rhythm from there — where the design's own 2.2751 stroke lands on
 **1.08px**. It is the silhouette in the panel that survives that loss, and §6
 names it as a bounded exception rather than leaving the floor open. Everything
 else is at or above 16px: the view pair's glyph is exactly 16, the step icons are
@@ -443,26 +444,42 @@ fill of its own:
 
 | | Design | Shipped |
 |---|---|---|
-| frame | 560 × 399, no fill, no stroke | `.card.skel` drops the card's 3px stroke and `--surface` |
-| `thumb-sk` | 554 × 312 at x=3, radius 12 | inset by the card's own 3px stroke, `--r-md`, `padding-top: 56.25%` |
+| frame | 560 × 399, no fill, no stroke | `.card.skel` drops the card's 3px stroke and `--surface`, and takes a 3px `padding` |
+| `thumb-sk` | 554 × 312 at x=3, radius 12 | fills the frame's inset, `--r-md`, `padding-top: 56.25%` |
 | gap | `cap-sk` starts 18 down | `margin-top: 4px` (18/560 is 4.2px on a 132px thumb) |
-| `cap-sk` | 560 × 69, radius 12 | the body box: 44px, inset 3px, `--r-md` |
-| fill | `#FFF 0→0.08`, **both** blocks | one `--sweep` token at 0.08 |
+| `cap-sk` | 560 × 69, radius 12 | the body box: 44px, `--r-md` |
+| fill | `#FFF 0→0.08`, **both** blocks | one `--sweep` token at 0.08, over a `--surface-2` base |
 
 Three of those are re-derivations rather than copies, and each has a reason.
 
+**The inset is the frame's padding, not the blocks' margin.** That is the
+load-bearing detail. `thumb-sk` is 554 wide at `left: 3` of a 560 frame — inside
+the card's 3px stroke — so the panel's inset is the stroke width, the same value
+the stroke used to have. It has to live on the frame: percentage padding resolves
+against the *containing block*, so a margin inset would leave the block sized
+138 × 0.5625 = 77.6px while the real thumbnail, inside the stroke, is
+132 × 0.5625 = 74.25px. On the frame, the containing block is already the inset
+width and the two are identical.
+
 **The thumb's aspect is the design's own.** 312 of 554 is 0.5632, which is 16:9
 to within 0.1%, so `padding-top: 56.25%` is the design's ratio and not a
-convenience. Its 3px inset is the card's stroke width, which is why the block and
-the real thumbnail land on the same edges.
+convenience.
 
 **The cap is the body, not a number.** The design's 69 is its body box at 20px
 caption type; the panel's caption is 11px, so the same box is two lines at the
 inherited 1.45 plus the body's 6px above and below — 44px. Taken literally, 69 of
-560 would be 17px here and **every row would jump ~30px** when results arrive,
-which is the reflow the count rule exists to prevent. With 44 the skeleton is
-122.2px against a real card's 124.2, and the design has the same slack: its
-skeleton fills all 399 while its result card insets 3px.
+560 would be 17px here and **every row would jump** when results arrive, which is
+the reflow the count rule exists to prevent. With 44 the skeleton is 122.2px
+against a real card's 124.2 — the difference is the card's 6px of stroke less the
+4px the skeleton spends as a gap — and the design has the same slack: its
+skeleton fills all 399 while its result card insets 3px. That figure is the
+two-line-caption case, which is what the grid clamps to; a caption that comes back
+one line short still shortens its card, because a content-sized card cannot be
+predicted.
+
+**The blocks keep a base the design does not draw.** `--surface-2` sits under the
+ramp. The design paints no base on either block, so this is ours, and it is what
+gives a block a resting shape when the sweep is at its faintest or disabled.
 
 **The fill is one level, not two.** The design gives both blocks the *same* white
 at 0.08. The panel had two tokens with two invented peaks — 0.56 on the thumb,
