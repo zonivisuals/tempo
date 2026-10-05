@@ -13,6 +13,8 @@ changed and can check the reasoning.
 
 | Was wrong | Now says | Verified against |
 |---|---|---|
+| `orientation.md` line counts | Re-measured 2026-10-05 across both tables; `app.py` 432→507, `proxy.py` 188→260, `models.py` 155→213 | `wc -l` over both packages |
+| `orientation.md` named `models.get_whisper`, `get_easyocr`, `get_florence` | Only the three query models go through the singleton registry. The other three load inline in their stage modules | `models.py:31,94,122,161,183` |
 | Registry maps to `{fingerprint, content_id, format_version, stats}` | Entry is flat; no nested `fingerprint` or `stats` | `registry.py:180-192` |
 | `host.jsx` exposes "exactly three global functions" | Three **contract** entry points, plus two internal helpers that are technically global because ExtendScript has no module scope | `host.jsx:16,55,66,90,106` |
 | Route table omitted `GET /host/{name}.jsx` | Route documented, with its security shape and its source-checkout-only constraint | `app.py:252`, route added to §3.4 |
@@ -173,6 +175,9 @@ describe systems that were never built or have been deleted.
 | Path | Why it costs time |
 |---|---|
 | `service/build/` | A 13-file stale copy of the sidecar package. Grepping `tempo_service` matches it. Gitignored (`.gitignore:10`, `build/`) and untracked. |
+| `engine/build/` | The same trap for `tempo_engine`, 22 files. Not listed in `orientation.md`'s hazard table before 2026-10-05. |
+| `service/tempo_service/indexer/` | No `.py` file remains, only `__pycache__` with six stale `.pyc` names from the pre-D15 pipeline (`build_index`, `captions`, `cluster`, `models`, `ner`, `pipeline`). Grepping `indexer` finds them. |
+| `service/tempo_service/storage/` | Same shape, from the deleted providers (D13). One `.pyc` still reads `s3`. |
 | `auth/` | Holds `auth/.env` with Better Auth and Postgres values for the system D12 deleted. Gitignored, so no secret risk, but it reads as live config. |
 | `colab/` | `tempo_shim.py`, 269 lines. The D9/D10 shim: ngrok, Drive, `COLAB_URL`. All superseded by D15. Gitignored. |
 | `tempo_pipeline_v4.ipynb` | Untracked **and** gitignored (`.gitignore`, last entry). Never import it. |
@@ -262,6 +267,53 @@ volume, and `ready_ids` then walks them on every search.
 credentials for the auth service D12 deleted. Removed from HEAD; still in
 history. Scrubbing it means rewriting a commit that is on `origin/main`.
 
+## Open: dead code and unreachable code
+
+Found by a full-tree grep on 2026-10-05. "Dead" means no caller outside tests
+or docs.
+
+| Item | Where | Why it matters |
+|---|---|---|
+| `models.release()` has **no possible caller** | `models.py:103-106` | `_MODELS` is populated only by `_get` (`:94`), whose three callers are `get_siglip` (`:130`), `get_text_embedder` (`:167`), `get_ner` (`:191`). Those are the three `QUERY_MODELS` (`:31`), which D8 says stay resident. Whisper, EasyOCR and Florence-2 load inline in their stage modules and never enter `_MODELS`, so `release("florence")` would pop a missing key and do nothing. The docstring at `:15` and D8 both describe a mechanism that cannot execute. |
+| `models.loaded()` | `models.py:90-91` | No caller at all. |
+| `search.zpos()` | `search.py:38-51` | No production caller. `rank` uses `KeyStats.z` (`:77-85`) instead. Kept as the notebook-exhaustive form its own docstring names, and pinned by `test_search.py:57,59,60,88-90`. |
+| `prune_stale()` and its config knob | `registry.py:225`, `config.py:38` | Called only by `test_registry.py:79`. No route, no reader. Already recorded above; repeated because the knob is separately dead. |
+| `sync_poll_s` | `config.py:30` | **No reader in Python.** The panel hardcodes `SYNC_POLL_MS = 2000` (`panel.js:18`) while its comment at `:15` claims it mirrors this setting. `job_poll_s` next to it *is* read (`proxy.py:170`), which makes the pair look symmetric. |
+| `tunnel.self.spawns` | `tunnel.py:46,79` | Write-only in production. Read only by `test_tunnel.py:51,64`. |
+| `#indexing-label` | `index.html` | The id appears in no `.js` and no `#id` CSS rule. Its text is styled through the `pill-label` class, so only the id is dead. |
+| `POST /jobs/{id}/cancel` | `app.py:338-364` | No `api.js` method reaches it. Already recorded above. |
+
+## Open: duplication and drift
+
+| Item | Where | Why it matters |
+|---|---|---|
+| ~~Atomic write implemented 5 times~~ | FIXED 2026-10-05 | `engine/tempo_engine/atomic.py` now owns the engine's four (`cache.py`, `index.py`, `library.py`, `jobs.py`); the sidecar's one is `registry.save_registry`. Per package, not shared, because the two deploy separately and §8's ban applies to copies that must stay in sync across artifacts. Each side has its own idempotency test: `engine/tests/test_atomic.py` and the locked-write block in `service/tests/test_registry.py`. Neither fsyncs, so a machine crash is still a loss. |
+| `l2norm` byte-identical in two homes | `search.py:33-35`, `models.py:43-45` | Same `1e-8` floor, same float32 cast. `search.rank` uses its copy; `stages/visual.py:25` and `stages/captions.py:88` use the other. |
+| `KeyStats` defined twice | `search.py:77`, `corpus.py` | Same type, two homes. |
+| `CONTENT_ID_RE` re-spelled instead of imported | `app.py:45` | A third copy of a rule that already has a cross-check test (`test_backends.py:543`). The sidecar's `fingerprint.py` has no regex at all. |
+| Footage key regex written 3 times | `app.py:42` (`KEY_RE`), `:278`, `:373` | Two are inline `re.fullmatch` calls. |
+| Job state vocabularies differ | sidecar 7 values, `engine/schemas.py:65` 4 values | The engine has no `uploading` or `queued-for-backend`, which is correct, but nothing states the relationship. |
+| Footage states written as bare literals | `registry.py:188,213`, `proxy.py:199,255`, `app.py:314,409` | `schemas.py:70` declares the `Literal`; six write sites ignore it. |
+| Signature computed twice per build | `pipeline.py:59-60` at startup, `pipeline.py:111-112` inside `build` | Same value, two code paths. |
+| `MB = 1024 * 1024` | `proxy.py:41`, `engine/app.py:48` | Across packages, so not a §8 violation. |
+| `MAX_AGE` cache header | `app.py:46`, `engine/app.py:47` | Two packages, two constants, both pinned separately (`test_backends.py:337`, `test_app_contract.py:243`). |
+
+## Open: untested surfaces, wider than the table above
+
+| Module | Test status |
+|---|---|
+| `engine/tempo_engine/models.py` | Imported only for `current_profile()`. No test of `device()`, `l2norm`, `free_memory`, the singleton cache, or any loader. |
+| `engine/tempo_engine/library.py` | No direct import. `_safe_ext`, `_atomic_json`, the `thumbs_tar` rebuild branch, `ready_ids` untested. |
+| `engine/tempo_engine/jobs.py` | No direct import. Reached only through `/v1` routes. |
+| `engine/tempo_engine/prefetch.py` | Never imported by any test. |
+| `engine/tempo_engine/stages/speech.py` | Never imported. The `_seg_dict` hallucination filter and the turbo fallback are untested. |
+| `engine/tempo_engine/stages/ocr.py` | Never imported. `_edge_fraction`, the language map, the reader path untested. |
+| `engine/tempo_engine/stages/visual.py` | Never imported. |
+| `engine/tempo_engine/corpus.py::CorpusCache` | Only `Corpus` is constructed in tests. The LRU is untested. |
+
+Refactoring any of these needs characterization tests first. That is its own
+ticket, deliberately out of the 2026-10-05 architecture pass.
+
 ## Undocumented behavior worth knowing
 
 Load-bearing behavior with no spec line, found during the audit:
@@ -278,6 +330,34 @@ Load-bearing behavior with no spec line, found during the audit:
   `queued` row in its `STEPS` map, a fourth copy of the stage vocabulary after
   `docs/api.md`, `README.md` and `/v1/health`. No test pins the labels, only
   that the keys match the engine's stage names.
+- ~~**`registry.json` has no lock.**~~ FIXED 2026-10-05. `registry.update(key, **fields)`,
+  `registry.read(key)` and `registry.transaction()` are the only write paths now,
+  and each holds `_lock` (`registry.py:35`). `/sync` holds it across diff +
+  apply + save, so a job worker's write can no longer be lost between the diff
+  and the save. The concurrency test
+  (`test_registry.py::test_concurrent_updates_do_not_lose_writes`) was verified
+  to fail with the lock stubbed out. The engine already did this correctly:
+  `library.py:65-67` takes a per-content-id lock.
+- **`GET /v1/search` does disk I/O per request.** `search.rank` is genuinely
+  pure, but its caller is not: `corpus.py:90` `stat()`s each content dir and
+  `corpus.py:99` loads `index.json`/`index.npz`, both inside the request
+  (`app.py:243`). With `content_ids` omitted, `library.ready_ids`
+  (`library.py:160-163`) walks the whole library directory first
+  (`app.py:239`). F2's 300 ms budget sits on this path, not on the fusion.
+- **`service/tests/test_contracts.py` runs under the service CI job, not the
+  panel job.** It is 2444 of the service suite's 3581 lines and asserts against
+  `panel.js` source text and `docs/design/preview.html`. A panel-only change is
+  gated by the Python job, and `pnpm lint` never executes either script.
+- **`service/app.py` is 507 lines doing seven jobs:** 10 routes, the lifespan,
+  the backend-prober thread (`:103-126`), tunnel construction (`:94-100`), a
+  module-global health cache with its own lock (`:58-61`), the `/sync` registry
+  diff inlined in the route (`:194-244`), a retry closure shared by two routes
+  (`:304-318`), and the uvicorn entrypoint (`:495-503`).
+- **`proxy.py` reaches into `jobs.py`'s privates** at five sites (`:84, 163,
+  219, 228, 236`), calling `jobs._set` and `jobs._mark_stage`. `JobManager`'s
+  public interface is smaller than its only real caller needs. Candidate 2 in
+  the 2026-10-05 architecture review; a `JobHandle` closes the dual write path.
+- **`engine/app.py:70-71` reaches into `models`** for device and dtype.
 - `panel.css` ships both a dark and a light palette; `appSkinInfo` is read only
   to decide which one applies (`panel.js` `applyTheme`, ADR-0011). A user with a
   custom AE panel colour no longer gets that colour in Tempo.

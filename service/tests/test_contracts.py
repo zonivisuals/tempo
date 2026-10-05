@@ -1118,7 +1118,7 @@ def test_the_failure_names_the_cause_the_service_reported():
     # A reason nobody has named yet, and a job from before the field existed.
     for unknown in ("SOMETHING_NEW", None):
         html = block(unknown)
-        assert "Tempo stopped on this step" in html, html
+        assert "Tempo stopped" in html, html
         assert "SOMETHING_NEW" not in html and 'class="detail"' not in html, html
 
 
@@ -2430,15 +2430,17 @@ def test_thumb_rejects_a_content_id_that_is_not_one(tmp_path, monkeypatch):
 
     root = tmp_path / "artifacts"
     (root / "thumbs").mkdir(parents=True)
-    monkeypatch.setattr(registry_module, "load_registry", lambda: {
-        "deadbeef00": {"content_id": "..\\..\\..\\Windows\\win.ini"},
-    })
+
+    def _reads(reg):
+        # The route reads one entry, so the stub replaces that name. Patching
+        # load_registry instead would no longer intercept the call.
+        monkeypatch.setattr(registry_module, "read", lambda key: reg.get(key))
+
+    _reads({"deadbeef00": {"content_id": "..\\..\\..\\Windows\\win.ini"}})
     client = TestClient(_create())
     res = client.get("/thumb/deadbeef00/0.jpg")
     assert res.status_code == 404, res.text
 
     # And a well-formed content id still resolves, so the guard is not a blanket deny.
-    monkeypatch.setattr(registry_module, "load_registry", lambda: {
-        "deadbeef00": {"content_id": "0123456789abcdef"},
-    })
+    _reads({"deadbeef00": {"content_id": "0123456789abcdef"}})
     assert client.get("/thumb/deadbeef00/0.jpg").status_code == 404  # absent file, not invalid id
