@@ -192,6 +192,9 @@ def _panel_eval(expr: str) -> str:
         proc = subprocess.run(
             [node, str(d / "driver.js"), str(PANEL_JS)],
             capture_output=True, text=True, timeout=60,
+            # Explicitly UTF-8: the default is the locale's, and panel.js writes the
+            # typographic quotes it quotes a query with, which cp1252 cannot decode.
+            encoding="utf-8",
         )
     assert proc.returncode == 0, (
         f"panel.js failed to evaluate:\n{proc.stdout}\n{proc.stderr}"
@@ -941,6 +944,9 @@ def _panel_render(call: str, setup: str, expr: str) -> object:
         proc = subprocess.run(
             [node, str(d / "driver.js"), str(PANEL_JS)],
             capture_output=True, text=True, timeout=60,
+            # Explicitly UTF-8: the default is the locale's, and the rendered HTML
+            # carries the typographic quotes a query is quoted back with.
+            encoding="utf-8",
         )
     assert proc.returncode == 0, (
         f"panel.js failed to render:\n{proc.stdout}\n{proc.stderr}"
@@ -1064,15 +1070,70 @@ def test_spinners_are_the_accent_over_a_white_track():
     )
 
 
-def test_no_footage_screen_is_centred_like_the_indexing_one():
-    """Frame 01 takes the same centring as frame 02: the header is all that
-    is above it, so it belongs in the middle of the panel, not under the bar.
+def _block_for(footage: str) -> str:
+    return _panel_render("renderResults()", "store.footages = " + footage + ";", _HTML)
 
-    `margin: auto` on the block inside #app's column is the mechanism both use,
-    and it only bites if the block is the one thing there. So assert the class is
-    set for the no-footage block and for nothing else -- a centred result grid or
-    a centred skeleton list would float in the middle of a panel whose search
-    field is above them.
+
+def test_the_frame_01_variants_each_keep_their_own_wording():
+    """Four states, four sentences, one block.
+
+    They shared a shape long before they shared a builder, and the shape is the cheap
+    half: what distinguishes these screens is which file the editor has to go and look
+    at, so the wording is the behaviour. Nothing else pins these strings.
+    """
+    html = _block_for("[]")
+    assert "No Footage Found" in html and "importing your videos" in html, html
+
+    html = _block_for("[{ footage_key: 'k0', path: 'C:/s/b.mov', state: 'error' }]")
+    assert "Indexing Failed" in html and "b.mov" in html, html
+
+    # Stranded mid-index: the job id was lost, so Resume is the action, not a retry.
+    html = _block_for("[{ footage_key: 'k0', path: 'C:/s/c.mov', state: 'indexing' }]")
+    assert "Indexing Stalled" in html and "resume it" in html, html
+
+    html = _block_for("[{ footage_key: 'k0', path: 'C:/s/d.mov', state: 'stale' }]")
+    assert "No Searchable Footage" in html and "stale" in html, html
+
+
+def test_the_state_block_hint_wraps_and_the_detail_line_is_a_token():
+    """The block's text is the query the editor typed and the service's own words.
+
+    Both can be long, and `max-width` alone does not stop an unbroken token from
+    widening the block past the panel — the hint has to be allowed to break inside a
+    word. The detail line is the service's line verbatim, so its colour is a token like
+    every other colour in the panel rather than a literal of its own.
+
+    `.empty` is asserted gone: the no-matches screen was its only user, and §8 bans
+    dead code.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+    js = PANEL_JS.read_text(encoding="utf-8")
+
+    hint = _css_rule(css, ".hint")
+    assert "overflow-wrap: anywhere;" in hint, hint
+
+    detail = _css_rule(css, ".empty-state .detail")
+    assert "var(--" in detail, f"the detail line needs a colour token, not a literal: {detail}"
+    assert "font-size: 11px;" in detail, detail
+
+    assert not re.search(r"^\.empty \{", css, re.M), (
+        ".empty had one user (the no-matches row) and that row is now a block"
+    )
+    assert 'class="empty"' not in js, "the markup went with the rule"
+
+
+def test_the_state_block_is_centred_like_the_indexing_one():
+    """Every block that has nothing to show takes frame 02's centring: the header
+    (and the search field, when there is one) is all that is above it, so it belongs
+    in the middle of the panel rather than hung under the bar.
+
+    `margin: auto` on the block inside #app's column is the mechanism, and it only
+    bites if the block is the one thing there. So assert the class is set for each
+    block and not for content -- a centred result grid or a centred skeleton list
+    would float in the middle of a panel whose search field is above them.
+
+    The no-matches screen joined the blocks in this change: it was one grey sentence
+    at the top of the results area, so the panel had two shapes for the same fact.
     """
     css = PANEL_CSS.read_text(encoding="utf-8")
     assert re.search(r"#results\.centered \{ margin: auto; \}", css), (
@@ -1091,17 +1152,23 @@ def test_no_footage_screen_is_centred_like_the_indexing_one():
         cls,
     ) == "centered"
 
-    # Cards, skeletons and the no-matches row stay top-aligned.
-    ready = "store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'ready', shot_count: 9 }];"
-    assert "centered" not in _panel_render("renderResults()", ready, cls)
-    searching = ready + " store.searching = true;"
-    assert "centered" not in _panel_render("renderResults()", searching, cls)
+    # A failure with nothing to show, and the two "ready but nothing to show" blocks.
+    assert _panel_render(
+        "renderResults()",
+        none_ready + " store.error = { code: 'SERVICE_OFFLINE', message: 'service offline' };",
+        cls,
+    ) == "centered", "an error block outranks the no-footage claim: the panel cannot know"
+    assert _panel_render("renderResults()", _READY, cls) == "centered"
+    assert _panel_render("renderResults()", _READY + " store.lastQuery = 'zzz';", cls) == "centered"
+
+    # Cards and skeletons stay top-aligned.
+    assert "centered" not in _panel_render("renderResults()", _READY + _RESULT, cls)
     assert "centered" not in _panel_render(
-        "renderResults()", ready + " store.lastQuery = 'zzz';", cls
+        "renderResults()", _READY + _RESULT + " store.searching = true;", cls
     )
 
     # A live job owns the panel: #results is emptied outright, so it must not
-    # keep a centring class from an earlier empty state.
+    # keep a centring class from an earlier block.
     live = "store.activeJobs = ['job_1']; store.jobs = { job_1: %s };" % _RUNNING_JOB
     assert _panel_render("renderResults()", live, cls) == ""
 
@@ -1124,6 +1191,100 @@ _NO_DESCRIPTION = (
     " start_s: 1, end_s: 3.25 }];"
 )
 _HTML = "document.getElementById('results').innerHTML"
+
+_READY_AND_QUERY = (
+    "store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'ready', shot_count: 9 }];"
+    "store.lastQuery = 'zzz';"
+)
+_READY = "store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'ready', shot_count: 9 }];"
+_RESULT = (
+    # Rendering cards calls thumbUrl, so the stub belongs to the fixture: results on
+    # screen is a state that can be rendered, not just a length.
+    "TempoAPI.thumbUrl = () => 't.jpg';"
+    "store.results = [{ footage_key: 'k0', source_path: 'a.mov', shot_id: '0',"
+    " start_s: 1, end_s: 3.25, caption: 'a dog runs' }];"
+)
+_LIVE_JOB = "store.activeJobs = ['job_1']; store.jobs = { job_1: %s };" % _RUNNING_JOB
+_SCREEN = "resultsScreen()"
+
+
+def test_results_screen_cascade_names_every_state_the_area_can_hold():
+    """One cascade decides what #results holds, and the inline error row reads it.
+
+    The two used to be derived separately — `renderResults` asked whether footage was
+    ready, `renderError` asked only whether an error existed. An error arriving over
+    results is then the row's business while the block stays away, and the moment the
+    results clear the block takes over; any drift between those two questions shows up
+    as the same failure on screen twice, or nowhere. So each branch is pinned.
+    """
+    # A live job with nothing else to show owns the panel outright.
+    assert _panel_render("", _LIVE_JOB, _SCREEN) == "job"
+    # A search in flight is the skeleton list, even with footage ready.
+    assert _panel_render("", _READY + " store.searching = true;", _SCREEN) == "searching"
+    # An error with nothing to show takes the block...
+    assert _panel_render(
+        "", _READY + " store.error = { code: 'BACKEND_ASLEEP', message: 'x' };", _SCREEN
+    ) == "error"
+    # ...and an error arriving OVER results is not one: the cards are still good, and
+    # the row under the search field is where a failure belongs.
+    assert _panel_render(
+        "", _READY + _RESULT + " store.error = { code: 'INSERT_FAILED', message: 'x' };", _SCREEN
+    ) == "results"
+    # The no-footage states, then the two "ready but nothing to show" ones.
+    assert _panel_render("", "", _SCREEN) == "empty"
+    assert _panel_render(
+        "", "store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'stale' }];", _SCREEN
+    ) == "empty"
+    assert _panel_render("", _READY, _SCREEN) == "nomatch"
+    assert _panel_render("", _READY + _RESULT, _SCREEN) == "results"
+
+
+def test_the_error_row_is_hidden_exactly_when_the_block_speaks():
+    """The failure is reported once, not twice.
+
+    The block carries the code and the row carries the code, so a panel showing both
+    would print the same failure twice for one fault. The row is the fallback for
+    errors that arrive over content, so it stands down precisely when the block owns
+    the panel — which is the `error` branch of the cascade above, not a second opinion
+    about whether an error exists.
+    """
+    failed = _READY + " store.error = { code: 'BACKEND_ASLEEP', message: 'engine search failed' };"
+    row = "document.getElementById('error').hidden"
+
+    assert _panel_render("renderError()", failed, row), (
+        "the block owns this panel, so the row must stand down"
+    )
+    # With results on screen the block does not speak, so the row must.
+    assert not _panel_render("renderError()", failed + _RESULT, row)
+    assert not _panel_render(
+        "renderError()",
+        _READY + _RESULT + " store.error = { code: 'INSERT_FAILED', message: 'bad host response' };",
+        row,
+    )
+    # No error at all: nothing to report.
+    assert _panel_render("renderError()", _READY + _RESULT, row)
+
+
+def test_no_matches_screen_is_the_no_footage_block():
+    """A search that matched nothing renders frame 01's block, not one grey line.
+
+    The no-matches screen was a single `--dim` sentence in an `.empty` div at the top
+    of the results area: one treatment for every "nothing to show" state where frame 01
+    already had a centred block, so the panel had two shapes for the same fact. The
+    query is quoted back because the editor needs to see what was actually searched.
+
+    Centring is asserted here rather than only in the centring test below, because a
+    block that renders but floats under the search field is not the frame-01 block.
+    """
+    html = _panel_render("renderResults()", _READY_AND_QUERY, _HTML)
+    assert 'class="pill edge warn warn-muted" role="status"' in html, (
+        f"the state must be a status pill, as frame 01 draws it: {html}"
+    )
+    assert "No Shots Found" in html, html
+    assert "zzz" in html, "the block must quote the query that found nothing"
+    assert _panel_render(
+        "renderResults()", _READY_AND_QUERY, "document.getElementById('results').className"
+    ) == "centered"
 
 
 def test_grid_card_body_is_two_columns_with_metadata_on_the_bottom_edge():

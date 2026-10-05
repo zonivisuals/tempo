@@ -289,6 +289,28 @@ Two more variants of the same block, same components:
 The design's `Get started by importing your videos to the project` is kept in
 substance; the exact AE menu path is named so the instruction is actionable.
 
+### 3.1a The block is the shape for every "nothing to show"
+
+The no-matches screen used to be one `--dim` sentence in a bare div at the top of
+the results area, so the panel had two shapes for the same fact. It is a block
+now, and so is the screen before any search has run:
+
+| Condition | Heading | Hint |
+|---|---|---|
+| a search returned nothing | `No shots found` | `Nothing in this project matches "<query>". Try a word from the dialogue or captions.` |
+| ready footage, no search yet | `Ready to search` | `Type a few words to find shots across your footage.` |
+
+The query is quoted back because the editor needs to see what was actually
+searched, and `overflow-wrap: anywhere` on the hint is what keeps a long unbroken
+query from widening the block past the panel — `max-width` alone does not stop
+one. The no-matches block is centred like frame 01, which is a change of
+geometry: it used to hang under the search field. Cards and the skeleton list
+stay top-aligned, since a centred grid would float in a panel that has a search
+field above it.
+
+The block has an optional third line, `.detail`, in `--dim` one step below the
+hint: the service's own line verbatim, for the states that have one (§6).
+
 `Search for anything` is **kept**, reversing the earlier decision to drop it.
 §6 bans placeholder *copy* — the species this was read as, and the reason it was
 cut — but the design draws it as a permanent label line above the value, not as
@@ -649,6 +671,28 @@ high-water state to keep: progress is the running row's text (§3.3).
 One inline row directly under the search box, `#error`. `CODE` in `--error`
 plus the message, 11px, 1px border, radius 2px. No modal, no toast, no spinner.
 
+A failure with **nothing else on screen** is not that row: it is the §3.1 block,
+centred, and the row stands down so the same fault is never printed twice. Which
+of the two speaks is one decision — `resultsScreen()` — read by both:
+
+| `resultsScreen()` | `#results` holds | The row |
+|---|---|---|
+| `job` | nothing (a live job owns the panel) | speaks |
+| `searching` | skeleton list | speaks |
+| `error` | the failure block | **stands down** |
+| `empty` | frame 01 | speaks |
+| `nomatch` | the no-matches block | speaks |
+| `results` | cards | speaks |
+
+`error` sits above `empty` deliberately: with the service down and no footage
+known, `No footage found` is a claim about the project the panel cannot make.
+It also requires an empty result set — an error arriving over cards is the row's
+business, because the block would wipe results the editor is still reading.
+
+The block's heading carries the service code for now, with the message as the
+instruction. Naming each code in its own words is copy, tracked separately; the
+structure is what this section binds.
+
 **This work is layout-only.** The panel still discards the server's error code
 and message on four of five actions (`SYNC_FAILED · status 403` for a quota
 denial) — fixing that is a separate ticket, and the row is sized for it. Two
@@ -688,7 +732,8 @@ is also how the headless checks drive it:
 | `#results` | nine cards, grid (frame 04) |
 | `#nocaption` | transcript shown instead of caption |
 | `#list` | list view |
-| `#emptyresults` | no matches |
+| `#emptyresults` | no matches — the §3.1a block |
+| `#idle` | ready to search — the same block, no query yet |
 | `#offline` / `#asleep` / `#quota` | the three inline error rows |
 
 Any uncaught error — from the harness, from `panel.js`, or from a click handler —

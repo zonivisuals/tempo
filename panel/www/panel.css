@@ -528,15 +528,23 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
  * `centered` is the same centring the indexing screen gets from `margin: auto`
  * on #indexing: the header is the only thing above this block, so it sits
  * in the middle of the panel on both axes instead of stacked under the bar.
- * panel.js sets it only when this block is what #results holds — cards, the
- * skeleton list and the no-matches row are all top-aligned. */
+ * panel.js sets it only when this block is what #results holds — cards and the
+ * skeleton list are both top-aligned. */
 #results.centered { margin: auto; }
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px;
   padding: 28px 8px; text-align: center; }
 .empty-state .warn { font-weight: 600; }
 .empty-state .warn-muted { opacity: 0.7; }   /* 777:692 opacity 0.7 */
-.hint { color: var(--text-dim); font-size: 11px; max-width: 36ch; margin: 0; }
-.empty { color: var(--dim); font-size: 11px; padding: 8px 0; }
+/* The instruction is the design's own sentence, except where it quotes a query or
+   names a file, so it can be long: `max-width` does not stop an unbroken token from
+   widening the block past the panel, only a break inside one does. */
+.hint { color: var(--text-dim); font-size: 11px; max-width: 36ch; margin: 0;
+  overflow-wrap: anywhere; }
+/* The service's own line, verbatim, under the instruction — the code a failure
+   reports itself with, or the message behind it. It is quotation, not instruction,
+   so it sits below the 11px dimmer level the hint already uses. */
+.empty-state .detail { color: var(--dim); font-size: 11px; max-width: 44ch; margin: 0;
+  overflow-wrap: anywhere; }
 
 button:focus-visible, select:focus-visible, #submit:focus-visible {
   outline: 1px solid var(--accent); outline-offset: 1px;

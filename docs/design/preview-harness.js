@@ -162,6 +162,8 @@
     quota: { footages: ["ready", "ready", "ready", "ready"], job: null,
       err: "QUOTA_EXCEEDED", results: 0, captions: true },
     emptyresults: { footages: ["ready"], job: null, err: null, results: 0, captions: true, searched: true },
+    // Ready footage, nothing searched yet: the other half of the no-matches block.
+    idle: { footages: ["ready"], job: null, err: null, results: 0, captions: true },
   };
 
   const ok = (body) => ({ ok: true, status: 200, body: body });
@@ -247,6 +249,7 @@
     { id: "nocaption", label: "04b · transcript instead of caption" },
     { id: "list", label: "04c · results (list view)" },
     { id: "emptyresults", label: "04d · no matches" },
+    { id: "idle", label: "04e · ready to search" },
     { id: "offline", label: "error · service offline" },
     { id: "asleep", label: "error · engine asleep" },
     { id: "quota", label: "error · quota exceeded" },

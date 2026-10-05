@@ -396,7 +396,10 @@ function renderStatus() {
 function renderError() {
   const el = $("error");
   if (!store.error) { el.hidden = true; el.textContent = ""; return; }
-  el.hidden = false;
+  // The block under the header carries the code too, so when it owns the panel the
+  // row stands down: one fault, one report. The row is the fallback for an error
+  // that arrives over results, which the cascade above calls `results`.
+  el.hidden = resultsScreen() === "error";
   el.textContent = store.error.code + (store.error.message ? " · " + store.error.message : "");
 }
 
@@ -474,62 +477,114 @@ function skeletonHTML() {
   return `<div class="card skel"><span class="sk-thumb"></span><span class="sk-cap"></span></div>`;
 }
 
+/* One decision about what #results holds, read by `renderResults` and by
+ * `renderError` alike. They used to ask different questions — this one whether
+ * footage was ready, that one only whether an error existed — so a failure could be
+ * reported by the row while the block stayed away, or by both. One cascade, one
+ * answer. Ordered most-specific first: a live job outranks everything, and an error
+ * outranks the no-footage claim, which is a claim about the project the panel cannot
+ * make while the service is down. */
+function resultsScreen() {
+  const ready = readyFootage().length > 0;
+  if (!ready && activeJob()) return "job";
+  if (store.searching) return "searching";
+  if (store.error && !store.results.length) return "error";
+  if (!ready) return "empty";
+  if (!store.results.length) return "nomatch";
+  return "results";
+}
+
+/* One block, every state that has nothing to show. Figma 777:639 draws the heading
+ * as a disabled CTA; it is a status pill instead: a control that cannot be pressed
+ * advertises an action it does not have (AGENTS.md 8). Pixels kept, dead affordance
+ * dropped. `detail` is the raw service line, for the states that have one. */
+function stateBlock(pill, hint, detail) {
+  return `<div class="empty-state">` +
+    `<div class="pill edge warn warn-muted" role="status"><span class="pill-label">${esc(pill)}</span></div>` +
+    `<p class="hint">${esc(hint)}</p>` +
+    (detail ? `<p class="detail">${esc(detail)}</p>` : "") +
+    `</div>`;
+}
+
+/* A failure with nothing else on screen. Until each code is named in its own words
+ * the pill carries the code itself: it is the vocabulary the service and the row
+ * already speak, and a named state for each code is copy, not structure. */
+function errorStateHTML() {
+  const e = store.error || {};
+  return stateBlock(e.code || "Error", e.message || "The service returned an error.");
+}
+
 function emptyStateHTML() {
-  // Figma 777:639: an accent heading above one line of instruction, centred.
-  // The heading is a status pill, not the design's disabled CTA — same pixels,
-  // no control that cannot be pressed.
-  const pill = (text) =>
-    `<div class="pill edge warn warn-muted" role="status"><span class="pill-label">${esc(text)}</span></div>`;
   const fs = store.footages;
   if (!fs.length) {
-    return `<div class="empty-state">${pill("No Footage Found")}` +
-      `<p class="hint">Get started by importing your videos to the project</p></div>`;
+    return stateBlock("No Footage Found",
+      "Get started by importing your videos to the project");
   }
   const bad = fs.find((f) => f.state === "error");
   if (bad) {
-    return `<div class="empty-state">${pill("Indexing Failed")}` +
-      `<p class="hint">${esc(baseName(bad.path))} could not be indexed. Open the indexing detail to retry.</p></div>`;
+    return stateBlock("Indexing Failed",
+      `${baseName(bad.path)} could not be indexed. Open the indexing detail to retry.`);
   }
   // Footage stuck in indexing/uploading with no live job: the job id was lost
   // (service restart) or the engine never picked it up. Resume lives in the
   // indexing detail, so point there rather than claiming the files are stale.
   const stuck = fs.find((f) => f.state === "indexing" || f.state === "uploading");
   if (stuck) {
-    return `<div class="empty-state">${pill("Indexing Stalled")}` +
-      `<p class="hint">${esc(baseName(stuck.path))} has not started. Open the indexing detail to resume it.</p></div>`;
+    return stateBlock("Indexing Stalled",
+      `${baseName(stuck.path)} has not started. Open the indexing detail to resume it.`);
   }
-  return `<div class="empty-state">${pill("No Searchable Footage")}` +
-    `<p class="hint">Every file in this project is stale. Re-import it, or delete it from the project.</p></div>`;
+  return stateBlock("No Searchable Footage",
+    "Every file in this project is stale. Re-import it, or delete it from the project.");
+}
+
+/* Nothing matched, or nothing asked yet. Both take frame 01's shape: the state
+ * named, then one line saying what to do. The query is quoted back, because the
+ * editor needs to see what was actually searched. */
+function noMatchHTML() {
+  const q = store.lastQuery;
+  if (!q) {
+    return stateBlock("Ready to Search", "Type a few words to find shots across your footage.");
+  }
+  return stateBlock("No Shots Found",
+    `Nothing in this project matches “${q}”. Try a word from the dialogue or captions.`);
 }
 
 function renderResults() {
   const box = $("results");
-  const ready = readyFootage().length > 0;
-  // While a job is live the indexing screen owns the panel: an empty-state pill
-  // under a running step list reads as two contradictory states at once.
-  if (!ready && activeJob()) { box.className = ""; box.innerHTML = ""; return; }
-  // The grid class is only applied when there are cells to grid. Applying it to
-  // a single empty-state or "no results" row would split it across two columns.
-  const gridding = ready && (store.searching || store.results.length > 0);
-  box.className = store.view === "grid" && gridding ? "grid" : "list";
-  if (store.searching) {
+  const screen = resultsScreen();
+  // A live job owns the panel: a state block under a running step list reads as two
+  // contradictory states at once. The grid class is applied only when there are cells
+  // to grid — on a single state block it would split it across two columns.
+  if (screen === "job") { box.className = ""; box.innerHTML = ""; return; }
+  if (screen === "searching") {
+    box.className = store.view === "grid" ? "grid" : "list";
     // Count matches the previous result count so the list does not reflow on
     // submit; a first search renders TOP_K.
     const n = Math.max(3, Math.min(TOP_K, store.results.length || TOP_K));
     box.innerHTML = skeletonHTML().repeat(n);
     return;
   }
-  // Frame 01, and its three variants: the header is all that is above it, so
-  // it is centred on both axes like the indexing screen (the `centered` rule in
-  // panel.css is `margin: auto`, the same thing #indexing does).
-  if (!ready) { box.className = "centered"; box.innerHTML = emptyStateHTML(); return; }
-  if (!store.results.length) {
-    const q = store.lastQuery;
-    box.innerHTML = `<div class="empty">${q ? `No shots matched “${esc(q)}”.` : "Search your footage."}</div>`;
+  if (screen === "results") {
+    box.className = store.view === "grid" ? "grid" : "list";
+    box.innerHTML = renderCards();
+    box.querySelectorAll(".card").forEach((el) => {
+      el.addEventListener("click", () => insertResult(store.results[Number(el.dataset.i)], Number(el.dataset.i)));
+    });
     return;
   }
+  // Frame 01, its variants, a search that matched nothing, and a failure with nothing
+  // else to show: the header (and the search field, when there is one) is all that is
+  // above them, so each is centred on both axes like the indexing screen (the
+  // `centered` rule in panel.css is `margin: auto`, the same thing #indexing does).
+  box.className = "centered";
+  box.innerHTML = screen === "error" ? errorStateHTML()
+    : screen === "nomatch" ? noMatchHTML()
+    : emptyStateHTML();
+}
+
+function renderCards() {
   const many = store.footages.length > 1;
-  box.innerHTML = store.results.map((r, i) => {
+  const html = store.results.map((r, i) => {
     const dur = Math.max(0, r.end_s - r.start_s).toFixed(1);
     const busy = store.inserting === i;
     // One description line: the caption when the engine produced one, otherwise
@@ -551,10 +606,9 @@ function renderResults() {
       `<span class="plus" aria-hidden="true">${ICON.badge}</span></span>` +
       `<span class="body">${name}${desc ? row : ""}${tc}</span></button>`;
   }).join("");
-  box.querySelectorAll(".card").forEach((el) => {
-    el.addEventListener("click", () => insertResult(store.results[Number(el.dataset.i)], Number(el.dataset.i)));
-  });
+  return html;
 }
+
 
 function render() {
   renderStatus();
