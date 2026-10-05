@@ -1074,6 +1074,67 @@ def _block_for(footage: str) -> str:
     return _panel_render("renderResults()", "store.footages = " + footage + ";", _HTML)
 
 
+def test_quota_denial_names_the_limit_the_service_reported():
+    """The numbers are the useful part, and they belong to the service.
+
+    A plan limit written into the panel would be wrong the moment the limit moves, and
+    §7.3 forbids it: the block's own wording says a limit was reached, and the service's
+    sentence carries which plan, what it allows and what the project holds. Raising the
+    limit on the server changes this line with no panel change.
+
+    The hint also says what is still true — footage already indexed stays searchable —
+    because a denial on sync gates new work only, and an editor who reads "limit
+    reached" as "nothing works" would be wrong.
+    """
+    quota = ("store.error = { code: 'QUOTA_EXCEEDED', message: %s };")
+    free = _panel_render(
+        "renderResults()", _READY + quota % '"plan \'free\' allows 3 footage; project holds 4"', _HTML
+    )
+    assert "Limit Reached" in free, free
+    assert "already indexed stays searchable" in free, free
+    # The message is compared without the plan name: `esc` rewrites its apostrophe,
+    # which is the escaper's business and not what this assertion is about.
+    assert "allows 3 footage; project holds 4" in free, free
+    assert "QUOTA_EXCEEDED" in free, free
+
+    # A different plan, a different limit, the same line.
+    pro = _panel_render(
+        "renderResults()", _READY + quota % '"plan \'pro\' allows 50 footage; project holds 61"', _HTML
+    )
+    assert "allows 50 footage; project holds 61" in pro, pro
+
+    # A denial gates new work, so results already on screen are untouched: the block
+    # does not speak, and the inline row reports it.
+    assert "class=\"card" in _panel_render(
+        "renderResults()",
+        _READY + _RESULT + quota % '"plan \'free\' allows 3 footage; project holds 4"',
+        _HTML,
+    )
+    assert not _panel_render(
+        "renderError()",
+        _READY + _RESULT + quota % '"plan \'free\' allows 3 footage; project holds 4"',
+        "document.getElementById('error').hidden",
+    )
+
+
+def test_the_block_clamps_the_service_words_it_quotes():
+    """A job error is 2000 characters of engine traceback, and a block that tall is
+    not a message. The ellipsis says it was cut, the way the indexing error row's does.
+
+    Both routes into the block are bounded, not just the one that quotes: on an unnamed
+    code the service's message *is* the instruction.
+    """
+    verbose = "ENGINE_MELTED " + ("stack frame " * 40)
+
+    for code in ("QUOTA_EXCEEDED", "NEW_THING_NOBODY_NAMED"):
+        html = _panel_render(
+            "renderResults()", _READY + " store.error = { code: %r, message: %r };" % (code, verbose), _HTML
+        )
+        assert "…" in html, f"{code}: the cut must be visible"
+        assert verbose not in html, f"{code}: the whole traceback reached the block"
+        assert verbose[:60] in html, f"{code}: the beginning of the message must survive the cut"
+
+
 def test_each_failure_names_itself_and_says_what_to_do():
     """Four failures, four headings, four instructions — and the code, every time.
 

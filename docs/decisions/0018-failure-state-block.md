@@ -74,12 +74,21 @@ is not cosmetic: it is the difference between an honest panel and a confident li
 | `BACKEND_ASLEEP` | `Engine asleep` | `The GPU engine is not running. Start the instance, then search again.` |
 | `BACKEND_UNREACHABLE` | `Engine unreachable` | `Tempo cannot reach the GPU engine. Check the tunnel, then search again.` |
 | `BACKEND_TIMEOUT` | `Search timed out` | `The engine took too long to answer. Search again.` |
+| `QUOTA_EXCEEDED` | `Limit reached` | `This project is over your plan's footage limit. Footage already indexed stays searchable.` |
 
 A code in the heading is a label, not a name: `BACKEND_ASLEEP` says nothing about what
 stopped, and nothing about what to do about it. So the heading is a state in words and
 the instruction is the action — the one part the editor can take. The service's own
-message is *not* quoted on these four, because it restates the heading
+message is *not* quoted on the first four, because it restates the heading
 (`service offline`, `engine search failed`) and would say less.
+
+`QUOTA_EXCEEDED` is the exception, and it is `withMessage` in the table: the numbers
+are the useful part. The panel's wording says a limit was reached, and the service's
+sentence carries which plan, what it allows and what the project holds. That is §7.3
+made concrete — a plan limit written into the panel would be wrong the moment the limit
+moves, so raising the limit on the server changes this line with no panel change. Its
+instruction also says what is still true, because a denial on `/sync` gates new work
+only and an editor who read "limit reached" as "nothing works" would be wrong.
 
 The code goes on the new third line, `.detail`, in `--dim`: F2 requires the code on
 screen, and a failure the editor cannot name is one they cannot report. A code the
@@ -87,10 +96,9 @@ table has no copy for falls back to a generic heading with the service's message
 the instruction and the code on the detail line, so a new backend error cannot leave
 the panel blank.
 
-Nothing about the deployment is written into that table: no instance name, no port, no
-path, and no plan limit. Every number an editor needs arrives from the service, which
-is the same rule §7.3 states for code and the reason the quota wording is separate
-work.
+Both routes into the block are clamped. A job error is 2000 characters of engine
+traceback, and a block that tall is not a message; the cut is marked with an ellipsis,
+the way the indexing error row's already was.
 
 ### 4. The pill is the accent, not the error colour
 
@@ -123,6 +131,8 @@ kind of screen from the one it is.
 
 ## Not decided here
 
-- The quota wording, which needs the service's limit and count rather than a fixed
-  sentence. Tracked separately.
-- `prefers-reduced-motion` needs nothing here: the block does not move.
+- `prefers-reduced-motion` needs nothing here: the block does not move, so it adds no
+  animation to ADR-0011's budget.
+- Whether the no-matches screen's *query* needs the same clamp the service's words get.
+  The query is this panel's own input and `overflow-wrap` already stops it widening the
+  block; a pathological paste would still make the block tall.

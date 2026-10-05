@@ -319,12 +319,21 @@ hint: the service's own line verbatim, for the states that have one (§6).
 | `BACKEND_ASLEEP` | `Engine asleep` | `The GPU engine is not running. Start the instance, then search again.` |
 | `BACKEND_UNREACHABLE` | `Engine unreachable` | `Tempo cannot reach the GPU engine. Check the tunnel, then search again.` |
 | `BACKEND_TIMEOUT` | `Search timed out` | `The engine took too long to answer. Search again.` |
+| `QUOTA_EXCEEDED` | `Limit reached` | `This project is over your plan's footage limit. Footage already indexed stays searchable.` |
 
 A code in the heading is a label, not a name: `BACKEND_ASLEEP` says nothing about
 what stopped, and nothing about what to do. So the heading is a state in words and
 the instruction is the action — the part the editor can take. The service's own
 message is not quoted on these four, because it restates the heading
 (`service offline`, `engine search failed`) and says less.
+
+`QUOTA_EXCEEDED` is the exception, and the reason is in its `.detail` line: the
+numbers are the useful part. The panel's wording says a limit was reached, and the
+service's own sentence carries which plan, what it allows and what the project
+holds — `plan 'free' allows 3 footage; project holds 4`. §7.3 keeps that number out
+of the panel, so raising the limit on the server changes this line with no panel
+change. Its instruction also says what is still true: a denial on `/sync` gates new
+work only, and footage already indexed stays searchable.
 
 The heading is `--accent`, like every other block. `--error` stays where the state is
 already carried: the header dot (ADR-0012) and the retained inline row.
@@ -334,6 +343,10 @@ message as the instruction and the code on the `.detail` line, so a new backend 
 cannot leave the panel blank. Nothing about the deployment is written here — no
 instance name, no port, no path, no plan limit (§7.3); every number an editor needs
 arrives from the service.
+
+Both routes into the block are **clamped**: a job error is 2000 characters of engine
+traceback, and a block that tall is not a message. The cut is marked with an ellipsis,
+the way the indexing error row's is.
 
 `Search for anything` is **kept**, reversing the earlier decision to drop it.
 §6 bans placeholder *copy* — the species this was read as, and the reason it was

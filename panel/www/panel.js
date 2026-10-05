@@ -530,7 +530,23 @@ const ERROR_COPY = {
     pill: "Search Timed Out",
     hint: "The engine took too long to answer. Search again.",
   },
+  // The one state that quotes the service's own sentence: the numbers are the useful
+  // part, and §7.3 keeps them out of the panel, so they arrive as text.
+  QUOTA_EXCEEDED: {
+    pill: "Limit Reached",
+    hint: "This project is over your plan's footage limit. Footage already indexed stays searchable.",
+    withMessage: true,
+  },
 };
+
+/* The service's words, bounded. A job error is 2000 characters of engine traceback
+ * (engine/jobs.py:179), and a block that tall is not a message; the ellipsis says it
+ * was cut, the way the indexing error row's does. */
+const BLOCK_TEXT_MAX = 160;
+function clamp(s) {
+  const t = String(s == null ? "" : s);
+  return t.length > BLOCK_TEXT_MAX ? t.slice(0, BLOCK_TEXT_MAX).trimEnd() + "…" : t;
+}
 
 /* A failure with nothing else on screen. The heading and the instruction come from
  * the copy table; the code is the detail line either way, because F2 requires it on
@@ -541,10 +557,10 @@ function errorStateHTML() {
   const e = store.error || {};
   const copy = ERROR_COPY[e.code];
   if (!copy) {
-    return stateBlock("Request Failed", e.message || "The service returned an error.", e.code);
+    return stateBlock("Request Failed", clamp(e.message) || "The service returned an error.", e.code);
   }
-  const detail = copy.withMessage && e.message ? `${e.code} · ${e.message}` : e.code;
-  return stateBlock(copy.pill, copy.hint, detail);
+  const detail = copy.withMessage && e.message ? `${e.code} · ${clamp(e.message)}` : e.code;
+  return stateBlock(copy.pill, clamp(copy.hint), detail);
 }
 
 function emptyStateHTML() {
