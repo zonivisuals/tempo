@@ -16,12 +16,13 @@ Deviations from the notebook:
 import hashlib
 import json
 import logging
-import os
 import pickle
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from . import atomic
 
 log = logging.getLogger("tempo.engine.cache")
 
@@ -58,9 +59,6 @@ class StageCache:
                 log.warning("stage %s: unreadable cache %s (%s); rebuilding", name, path, exc)
         t0 = time.time()
         out = fn()
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "wb") as f:
-            pickle.dump(out, f)
-        os.replace(tmp, path)
+        atomic.write_bytes(path, pickle.dumps(out))
         log.info("stage %s: built in %.1fs", name, time.time() - t0)
         return out

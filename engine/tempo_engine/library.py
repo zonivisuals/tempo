@@ -21,7 +21,7 @@ import tarfile
 import threading
 from pathlib import Path
 
-from . import fingerprint
+from . import atomic, fingerprint
 from .index import INDEX_JSON, THUMBS_DIR, TempoIndex
 
 log = logging.getLogger("tempo.engine.library")
@@ -49,9 +49,7 @@ def _safe_ext(name: str) -> str:
 
 
 def _atomic_json(path: Path, obj: dict) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj), encoding="utf-8")
-    os.replace(tmp, path)
+    atomic.write_json(path, obj)
 
 
 class Library:

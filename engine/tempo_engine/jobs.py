@@ -10,7 +10,6 @@ returns that job (no duplicate GPU runs).
 
 import json
 import logging
-import os
 import queue
 import threading
 import time
@@ -19,6 +18,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
+from . import atomic
 from .pipeline import Reporter
 
 log = logging.getLogger("tempo.engine.jobs")
@@ -44,10 +44,7 @@ class EngineJobs:
 
     # --- persistence -------------------------------------------------------
     def _save(self, job: dict) -> None:
-        path = self.dir / f"{job['job_id']}.json"
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(job), encoding="utf-8")
-        os.replace(tmp, path)
+        atomic.write_json(self.dir / f"{job['job_id']}.json", job)
 
     def _snapshot(self, job: dict) -> dict:
         return {**job, "stages": [dict(s) for s in job["stages"]]}

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import atomic
 from .config import settings
 
 INDEX_ARRAYS = ("V", "D", "D_mask", "C")
@@ -50,13 +51,12 @@ class TempoIndex:
 
     def save(self) -> None:
         payload = {"meta": self.meta, "shots": self.shots, "vocab": self.vocab}
+        # index.json lands last: its presence is what marks the index complete.
         npz_tmp = self.root / (INDEX_NPZ + ".tmp.npz")
         np.savez_compressed(npz_tmp, **{k: getattr(self, k) for k in INDEX_ARRAYS})
         os.replace(npz_tmp, self.root / INDEX_NPZ)
-        # index.json lands last: its presence is what marks the index complete.
-        json_tmp = self.root / (INDEX_JSON + ".tmp")
-        json_tmp.write_text(json.dumps(payload, ensure_ascii=False, default=_json_default), encoding="utf-8")
-        os.replace(json_tmp, self.root / INDEX_JSON)
+        atomic.write_json(self.root / INDEX_JSON, payload,
+                          ensure_ascii=False, default=_json_default)
 
     def write_thumbs(self, progress) -> None:  # type: ignore[no-untyped-def]
         from PIL import Image
