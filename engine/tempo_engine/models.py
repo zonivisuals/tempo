@@ -2,9 +2,10 @@
 
 Port of notebook cell 6e0e818c (get_siglip, siglip_image_embeds,
 siglip_text_embeds, get_text_embedder, embed_passages, embed_query, get_ner)
-plus `free_memory`/`l2norm` from cell 50d52b88. Heavy imports (torch,
-transformers, sentence-transformers) happen inside functions so the engine
-core imports on CPU CI without the `[ml]` extra.
+plus `free_memory` from cell 50d52b88. Heavy imports (torch, transformers,
+sentence-transformers) happen inside functions so the engine core imports on
+CPU CI without the `[ml]` extra. `l2norm` is re-exported from `search`, which
+owns it; the notebook carried a copy in this cell's scope.
 
 Deviations from the notebook:
   - one lock per model: search requests (threadpool) and the index worker
@@ -27,6 +28,7 @@ import numpy as np
 
 from . import textproc
 from .config import profile, settings
+from .search import l2norm
 
 log = logging.getLogger("tempo.engine.models")
 
@@ -40,11 +42,6 @@ _MODELS: dict = {}
 _LOCKS: dict[str, threading.Lock] = {name: threading.Lock() for name in QUERY_MODELS}
 _LOAD_LOCK = threading.Lock()
 _DEVICE: str | None = None
-
-
-def l2norm(x) -> np.ndarray:  # type: ignore[no-untyped-def]
-    x = np.asarray(x, dtype=np.float32)
-    return x / np.maximum(np.linalg.norm(x, axis=-1, keepdims=True), 1e-8)
 
 
 def device() -> str:

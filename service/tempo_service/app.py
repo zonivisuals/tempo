@@ -17,6 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 
+from . import fingerprint
 from . import jobs as jobs_module
 from . import registry as registry_module
 from .backends import ASLEEP, TIMEOUT, get_provider
@@ -39,10 +40,9 @@ from .tunnel import Tunnel
 log = logging.getLogger("tempo")
 logging.basicConfig(level=settings.log_level)
 
+# A footage key reaches the filesystem (thumbs_dir) and the registry, so it is
+# restricted to characters neither can misread.
 KEY_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
-# content_id is sha1(...)[:16] — 16 lowercase hex. Mirrors the engine's
-# fingerprint.valid so both ends of the contract agree on what a content id is.
-CONTENT_ID_RE = re.compile(r"[0-9a-f]{16}")
 THUMB_CACHE = "public, max-age=86400"
 
 
@@ -272,21 +272,19 @@ def create_app() -> FastAPI:
         # the panel evalScripts the text only when its boot probes fail.
         # No shared JS modules across the bridge (AGENTS.md §2.3); the contract
         # still lives in docs/api.md. Never cachable — panel must get fresh code.
-        import re
-
         from fastapi.responses import PlainTextResponse
 
+        # The whitelist is the guard; a key that is not in it cannot reach the
+        # filesystem, so there is nothing for a pattern to add.
         sources = {"json2": "json2.js", "host": "host.jsx"}
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name) or name not in sources:
+        if name not in sources:
             return JSONResponse(
                 status_code=404,
                 content=ErrorEnvelope(
                     error=ErrorBody(code="NOT_FOUND", message="unknown host file")
                 ).model_dump(),
             )
-        from pathlib import Path as _Path
-
-        host_dir = _Path(__file__).resolve().parents[2] / "panel" / "host"
+        host_dir = Path(__file__).resolve().parents[2] / "panel" / "host"
         path = host_dir / sources[name]
         if not path.is_file():
             log.warning("host source missing: %s", path)
@@ -366,9 +364,7 @@ def create_app() -> FastAPI:
         # Same as job retry, addressed by footage key — covers orphaned
         # entries (service restarted, panel reloaded, job id lost) and lets
         # the panel offer Retry/Resume straight from the footage list.
-        import re as _re
-
-        if not _re.fullmatch(r"[A-Za-z0-9_-]{1,64}", footage_key):
+        if not KEY_RE.fullmatch(footage_key):
             return JSONResponse(
                 status_code=404,
                 content=ErrorEnvelope(
@@ -457,7 +453,7 @@ def create_app() -> FastAPI:
         # concatenates it into a path. Validate it here so no future writer (a
         # prune route, a sync client, another tool) can turn this route into an
         # arbitrary file read. Same predicate the engine uses.
-        if not cid or not CONTENT_ID_RE.fullmatch(cid):
+        if not cid or not fingerprint.valid(cid):
             return not_found
         path = registry_module.thumbs_dir(cid) / f"{shot_id}.jpg"
         if path.is_file():

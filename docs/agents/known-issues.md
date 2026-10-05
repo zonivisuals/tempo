@@ -300,13 +300,13 @@ or docs.
 | Item | Where | Why it matters |
 |---|---|---|
 | ~~Atomic write implemented 5 times~~ | FIXED 2026-10-05 | `engine/tempo_engine/atomic.py` now owns the engine's four (`cache.py`, `index.py`, `library.py`, `jobs.py`); the sidecar's one is `registry.save_registry`. Per package, not shared, because the two deploy separately and §8's ban applies to copies that must stay in sync across artifacts. Each side has its own idempotency test: `engine/tests/test_atomic.py` and the locked-write block in `service/tests/test_registry.py`. Neither fsyncs, so a machine crash is still a loss. |
-| `l2norm` byte-identical in two homes | `search.py:33-35`, `models.py:43-45` | Same `1e-8` floor, same float32 cast. `search.rank` uses its copy; `stages/visual.py:25` and `stages/captions.py:88` use the other. |
-| `KeyStats` defined twice | `search.py:77`, `corpus.py` | Same type, two homes. |
-| `CONTENT_ID_RE` re-spelled instead of imported | `app.py:45` | A third copy of a rule that already has a cross-check test (`test_backends.py:543`). The sidecar's `fingerprint.py` has no regex at all. |
-| Footage key regex written 3 times | `app.py:42` (`KEY_RE`), `:278`, `:373` | Two are inline `re.fullmatch` calls. |
+| ~~`l2norm` byte-identical in two homes~~ | `search.py:33` | FIXED 2026-10-05. `search` owns it; `models` re-exports, so `models.l2norm` still resolves for `stages/visual.py` and `stages/captions.py`. One definition, one `1e-8` floor. |
+| ~~`KeyStats` defined twice~~ | `search.py:77` | NOT a duplicate. `corpus.py:22` imports it from `search`. One definition; the survey that claimed two was wrong. |
+| ~~`CONTENT_ID_RE` re-spelled in app.py~~ | `app.py` | FIXED 2026-10-05. `fingerprint.valid()` now exists on the sidecar too, mirroring the engine's, and `/thumb` calls it. One rule per package, both halves of the mirror, cross-checked by `test_backends.py::test_content_id_matches_engine_copy`. |
+| ~~Footage key regex written 3 times~~ | `app.py` | FIXED 2026-10-05. `KEY_RE` is the only copy. `/host/{name}.jsx` dropped its inline pattern entirely: its whitelist is the guard, and a name not in the two-entry dict cannot reach the filesystem, so the pattern added nothing. |
+| Signature computed twice per build | `pipeline.py:59-60` at startup, `pipeline.py:111-112` inside `build` | LEFT ALONE deliberately. Two call sites, two different moments: the startup value answers `/health` and `index_state`, the build value lands in `index.json`. Sharing it would mean threading a value through `build`'s signature or a module global. Both compute the same thing from the same inputs, so there is no drift to prevent. |
 | Job state vocabularies differ | sidecar 7 values, `engine/schemas.py:65` 4 values | The engine has no `uploading` or `queued-for-backend`, which is correct, but nothing states the relationship. |
-| Footage states written as bare literals | `registry.py:188,213`, `proxy.py:199,255`, `app.py:314,409` | `schemas.py:70` declares the `Literal`; six write sites ignore it. |
-| Signature computed twice per build | `pipeline.py:59-60` at startup, `pipeline.py:111-112` inside `build` | Same value, two code paths. |
+| Footage states written as bare literals | `registry.py:188,213`, `proxy.py:199,255`, `app.py:314,409` | `schemas.py:70` declares the `Literal`; six write sites ignore it. Candidate 4 in the 2026-10-05 review. |
 | `MB = 1024 * 1024` | `proxy.py:41`, `engine/app.py:48` | Across packages, so not a §8 violation. |
 | `MAX_AGE` cache header | `app.py:46`, `engine/app.py:47` | Two packages, two constants, both pinned separately (`test_backends.py:337`, `test_app_contract.py:243`). |
 
