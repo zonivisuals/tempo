@@ -191,30 +191,32 @@ def create_app() -> FastAPI:
             )
         if len(body.footages) > 10:
             log.info("sync: ... +%d more", len(body.footages) - 10)
-        registry = registry_module.load_registry()
-        log.info("sync: registry entries=%d keys=%s", len(registry), sorted(registry)[:10])
-        result = registry_module.diff(body.footages, registry)
-        log.info(
-            "sync: diff added=%s changed=%s removed=%s unchanged=%s pending=%s",
-            result["added"], result["changed"], result["removed"],
-            result["unchanged"], result["pending"],
-        )
-        from . import entitlements as entitlements_module
-
-        allowed, code, message = entitlements_module.check_new_work(
-            result["added"], result["changed"], result["unchanged"],
-            registry, settings.plan,
-        )
-        if not allowed:
-            log.info("sync: quota deny plan=%s (%s)", settings.plan, message)
-            return JSONResponse(  # type: ignore[return-value]
-                status_code=403,
-                content=ErrorEnvelope(
-                    error=ErrorBody(code=code, message=message)
-                ).model_dump(),
+        # One locked read → diff → apply → write. The job worker may write an
+        # entry between the diff and the save; holding the lock across all four
+        # steps is what stops that write being lost.
+        with registry_module.transaction() as registry:
+            log.info("sync: registry entries=%d keys=%s", len(registry), sorted(registry)[:10])
+            result = registry_module.diff(body.footages, registry)
+            log.info(
+                "sync: diff added=%s changed=%s removed=%s unchanged=%s pending=%s",
+                result["added"], result["changed"], result["removed"],
+                result["unchanged"], result["pending"],
             )
-        registry_module.apply_sync(body.footages, result, registry)
-        registry_module.save_registry(registry)
+            from . import entitlements as entitlements_module
+
+            allowed, code, message = entitlements_module.check_new_work(
+                result["added"], result["changed"], result["unchanged"],
+                registry, settings.plan,
+            )
+            if not allowed:
+                log.info("sync: quota deny plan=%s (%s)", settings.plan, message)
+                return JSONResponse(  # type: ignore[return-value]
+                    status_code=403,
+                    content=ErrorEnvelope(
+                        error=ErrorBody(code=code, message=message)
+                    ).model_dump(),
+                )
+            registry_module.apply_sync(body.footages, result, registry)
         # One active job per footage: a second enqueue for a key that already
         # has a live job reuses it (transient stat flips and Retry-spam must
         # never mint duplicate full pipeline runs).
@@ -308,12 +310,8 @@ def create_app() -> FastAPI:
         if live is not None:
             log.info("retry: footage %s already active as %s; reusing", key, live)
             return JobRetryResponse(job_id=live, footage_key=key)
-        registry = registry_module.load_registry()
-        entry = registry.get(key)
-        if entry is not None:
-            entry["state"] = "indexing"
-            entry.pop("error", None)
-            registry_module.save_registry(registry)
+        # state=indexing and the old error dropped in one locked write.
+        registry_module.update(key, state="indexing", clear=("error",))
         new_id = jobs_module.jobs.enqueue(key)
         return JobRetryResponse(job_id=new_id, footage_key=key)
 
@@ -377,8 +375,7 @@ def create_app() -> FastAPI:
                     error=ErrorBody(code="NOT_FOUND", message="unknown footage")
                 ).model_dump(),
             )
-        registry = registry_module.load_registry()
-        if footage_key not in registry:
+        if registry_module.read(footage_key) is None:
             return JSONResponse(
                 status_code=404,
                 content=ErrorEnvelope(
@@ -453,7 +450,8 @@ def create_app() -> FastAPI:
         not_found = _error(404, "NOT_FOUND", "unknown thumbnail")
         if not KEY_RE.fullmatch(footage_key) or shot_id < 0:
             return not_found
-        cid = registry_module.load_registry().get(footage_key, {}).get("content_id")
+        entry = registry_module.read(footage_key)
+        cid = entry.get("content_id") if entry else None
         # content_id comes from registry.json, not from the request — but that
         # file is plain unauthenticated JSON on disk, and registry.thumbs_dir()
         # concatenates it into a path. Validate it here so no future writer (a

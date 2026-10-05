@@ -1,4 +1,8 @@
-"""P2 verification: registry diff/apply/prune (AGENTS.md §3.3)."""
+"""Registry diff/apply/prune (AGENTS.md §3.3) and the locked write interface."""
+
+import threading
+
+import pytest
 
 from tempo_service import registry
 from tempo_service.schemas import FootageItem
@@ -135,3 +139,80 @@ def test_flapping_stats_reset_the_debounce():
     assert reg[key]["pending_fp"] == {"size": 102, "mtime_ns": 1000}
     r3 = registry.diff([v2], reg)
     assert r3["changed"] == [key]
+
+
+# --- the locked write interface ------------------------------------------
+# The job worker thread and /sync both mutate registry.json. Before update() and
+# transaction() the lock did not exist and each call site ran load → get →
+# mutate → save itself, so only the single-worker queue kept them apart.
+
+
+def _root(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry.settings, "artifact_root", tmp_path)
+    return tmp_path
+
+
+def test_update_merges_fields_and_reports_whether_the_key_existed(tmp_path, monkeypatch):
+    _root(tmp_path, monkeypatch)
+    registry.save_registry({"k1": {"state": "indexing", "error": "boom", "content_id": ""}})
+
+    assert registry.update("k1", content_id="abc", state="ready") is True
+    assert registry.read("k1") == {"state": "ready", "error": "boom", "content_id": "abc"}
+
+    assert registry.update("absent", state="ready") is False
+    assert registry.read("absent") is None
+
+
+def test_update_clear_drops_named_keys_and_leaves_the_rest(tmp_path, monkeypatch):
+    # Retry uses this: state back to indexing, the stale error gone.
+    _root(tmp_path, monkeypatch)
+    registry.save_registry({"k1": {"state": "error", "error": "boom", "shot_count": 4}})
+
+    assert registry.update("k1", state="indexing", clear=("error",)) is True
+    assert registry.read("k1") == {"state": "indexing", "shot_count": 4}
+
+
+def test_transaction_persists_a_change_that_spans_entries(tmp_path, monkeypatch):
+    _root(tmp_path, monkeypatch)
+    a, b = _item("C:\\v\\a.mp4"), _item("C:\\v\\b.mp4")
+    with registry.transaction() as reg:
+        registry.apply_sync([a, b], registry.diff([a, b], reg), reg)
+
+    keys = sorted(registry.load_registry())
+    assert keys == sorted([registry.footage_key_for(a.path), registry.footage_key_for(b.path)])
+
+
+def test_a_raising_transaction_body_leaves_the_file_untouched(tmp_path, monkeypatch):
+    # A sync that fails mid-diff must not persist a half-applied registry.
+    _root(tmp_path, monkeypatch)
+    registry.save_registry({"k1": {"state": "ready"}})
+
+    with pytest.raises(RuntimeError):
+        with registry.transaction() as reg:
+            reg["k1"]["state"] = "indexing"
+            raise RuntimeError("quota check blew up")
+
+    assert registry.read("k1") == {"state": "ready"}
+
+
+def test_concurrent_updates_do_not_lose_writes(tmp_path, monkeypatch):
+    # The whole point of the lock: N threads each writing a distinct entry, and
+    # every entry survives. Without it this is a lost-update race that passes
+    # on a fast machine and fails on a loaded one.
+    _root(tmp_path, monkeypatch)
+    keys = [f"k{i}" for i in range(24)]
+    registry.save_registry({k: {"n": 0} for k in keys})
+
+    def writer(key):
+        for _ in range(20):
+            registry.update(key, n=1)
+
+    threads = [threading.Thread(target=writer, args=(k,)) for k in keys]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    stored = registry.load_registry()
+    assert sorted(stored) == sorted(keys)
+    assert all(stored[k]["n"] == 1 for k in keys), "a write was lost"

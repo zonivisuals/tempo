@@ -109,11 +109,9 @@ def _call(job, what: str, fn: Callable[[], Reply]) -> Reply:  # type: ignore[no-
 
 
 def _update_entry(key: str, **fields) -> None:  # type: ignore[no-untyped-def]
-    registry = registry_module.load_registry()
-    entry = registry.get(key)
-    if entry is not None:
-        entry.update(fields)
-        registry_module.save_registry(registry)
+    # A False return means the entry vanished mid-job; the job's own failure
+    # path reports UNKNOWN_FOOTAGE, so there is nothing to do here.
+    registry_module.update(key, **fields)
 
 
 def _upload(job, provider: BackendProvider, path: str, cid: str, offset: int, progress) -> None:  # type: ignore[no-untyped-def]
@@ -245,7 +243,7 @@ def handle(job, progress) -> None:  # type: ignore[no-untyped-def]
         if provider is None:
             raise HandoffError("engine not configured: set TEMPO_BREV_INSTANCE or TEMPO_BACKEND_URL",
                                "NOT_CONFIGURED")
-        entry = registry_module.load_registry().get(job.footage_key)
+        entry = registry_module.read(job.footage_key)
         if entry is None:
             raise HandoffError(f"unknown footage {job.footage_key}", "UNKNOWN_FOOTAGE")
         _handoff(job, progress, provider, entry)

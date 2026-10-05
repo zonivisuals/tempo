@@ -16,6 +16,9 @@ disk.
 import hashlib
 import json
 import logging
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,6 +29,13 @@ log = logging.getLogger("tempo.registry")
 
 REGISTRY_NAME = "registry.json"
 THUMBS_DIR = "thumbs"
+
+# Guards every write. The job worker thread and /sync both mutate the file, and
+# only the single-worker queue kept them apart by accident; `update` and
+# `transaction` are the only ways to write, so the lock cannot be skipped.
+# A plain read needs no lock: writers go through a tmp file and `replace`, which
+# is atomic, so a reader sees the old file or the new one and never a partial.
+_lock = threading.Lock()
 
 
 def footage_key_for(path: str) -> str:
@@ -57,6 +67,11 @@ def load_registry(artifact_root: Path | None = None) -> dict:
 
 
 def save_registry(registry: dict, artifact_root: Path | None = None) -> None:
+    """Write via tmp file + `replace`, so a reader never sees a partial file.
+
+    Takes no lock: `update` and `transaction` are the write interface. Call this
+    directly only when you own the whole file (tests, fixture setup).
+    """
     root = artifact_root or settings.artifact_root
     root.mkdir(parents=True, exist_ok=True)
     path = root / REGISTRY_NAME
@@ -64,6 +79,43 @@ def save_registry(registry: dict, artifact_root: Path | None = None) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(registry, f, indent=2, sort_keys=True)
     tmp.replace(path)
+
+
+def update(key: str, artifact_root: Path | None = None, clear: tuple[str, ...] = (), **fields) -> bool:
+    """Merge `fields` into one entry and drop `clear` from it, under the lock.
+
+    The write path for a single entry. Replaces load → get → mutate → save at
+    every call site, which is where the missing lock used to live. False if the
+    key is unknown.
+    """
+    with _lock:
+        registry = load_registry(artifact_root)
+        entry = registry.get(key)
+        if entry is None:
+            return False
+        entry.update(fields)
+        for name in clear:
+            entry.pop(name, None)
+        save_registry(registry, artifact_root)
+        return True
+
+
+def read(key: str, artifact_root: Path | None = None) -> dict | None:
+    """One entry, or None. No lock needed; see `_lock`."""
+    return load_registry(artifact_root).get(key)
+
+
+@contextmanager
+def transaction(artifact_root: Path | None = None) -> Iterator[dict]:
+    """Yield the registry for mutation, holding the lock until close.
+
+    For a change that spans entries (`/sync`'s diff + apply). Writes on a clean
+    exit; a body that raises leaves the file as it was.
+    """
+    with _lock:
+        registry = load_registry(artifact_root)
+        yield registry
+        save_registry(registry, artifact_root)
 
 
 def now_iso() -> str:
