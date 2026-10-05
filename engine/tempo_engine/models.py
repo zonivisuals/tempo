@@ -12,8 +12,10 @@ Deviations from the notebook:
   - SigLIP image batches report progress through `on_batch(done)`;
   - `ner_batch` lives here (it needs the model) and delegates cleanup to
     `textproc.clean_entities`;
-  - load/unload are logged (AGENTS.md §7.3); `release()` frees stage-only
-    models, the query models (siglip, bge, ner) stay resident.
+  - loads are logged (AGENTS.md §7.3). Only the query models (siglip, bge, ner)
+    are singletons; Whisper, EasyOCR and Florence-2 load inside their stage
+    modules and free themselves with `del` + `free_memory()`, because nothing
+    holds a reference this module could look up.
 """
 
 import gc
@@ -87,10 +89,6 @@ def free_memory() -> None:
         pass
 
 
-def loaded() -> dict[str, bool]:
-    return {name: name in _MODELS for name in QUERY_MODELS}
-
-
 def _get(name: str, factory: Callable[[], object]):  # type: ignore[no-untyped-def]
     if name not in _MODELS:
         with _LOAD_LOCK:
@@ -98,12 +96,6 @@ def _get(name: str, factory: Callable[[], object]):  # type: ignore[no-untyped-d
                 _MODELS[name] = factory()
                 log.info("model loaded: %s", name)
     return _MODELS[name]
-
-
-def release(name: str) -> None:
-    if _MODELS.pop(name, None) is not None:
-        log.info("model released: %s", name)
-    free_memory()
 
 
 def _as_tensor(out):  # type: ignore[no-untyped-def]

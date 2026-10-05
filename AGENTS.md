@@ -430,6 +430,21 @@ Two corrections a previous revision of this file got wrong, both verified in cod
 `HF_HOME=/data/hf`), and EasyOCR writes to `<data_root>/easyocr/`
 (`stages/ocr.py`), a sibling of `hf/`, not a subdirectory of it.
 
+**Every durable write goes through tmp file + `os.replace`,** so a reader sees
+the old file or the new one and never a partial. On the engine that is
+`engine/tempo_engine/atomic.py`, one helper for all four call sites. The
+sidecar has its own inside `registry.py`; there is deliberately no shared
+module, because the two packages deploy separately and §8's ban on duplication
+applies to copies that must stay in sync across artifacts.
+
+**The sidecar registry holds a write lock** (`registry.py`'s `_lock`). The job
+worker thread and `POST /sync` both mutate `registry.json`, and
+`registry.update()` / `registry.read()` / `registry.transaction()` are the only
+paths that do. Do not reintroduce a bare `load_registry()` → mutate →
+`save_registry()` at a call site; use those three, or the worker and a sync can
+lose each other's write. The engine's equivalent is a per-content-id lock in
+`library.py`.
+
 Disk is the only durable state on both sides. Either process must be restartable at any moment and resume purely from disk.
 
 ### 3.7 Configuration
@@ -656,7 +671,7 @@ The bar: if removing an element removes information, it's good. If removing it c
 
 ### 7.3 Python (sidecar + engine)
 - Pinned dependencies (`pyproject.toml`, `requires-python >=3.11`). The sidecar holds no model weights and no ML dependencies. The engine keeps ML dependencies in its `[ml]` extra and imports them inside functions, so its core stays importable and testable on CPU CI.
-- Engine models load lazily through locked singletons. Query models (SigLIP 2, bge, NER) stay resident for search; stage-only models (Whisper, EasyOCR, Florence-2, emotion) load per stage and are freed afterwards. Log load/unload.
+- Engine models load lazily. Query models (SigLIP 2, bge, NER) are locked singletons and stay resident for search; stage-only models (Whisper, EasyOCR, Florence-2, emotion) load inside their stage module and free themselves there, since nothing outside the module holds a reference. Log load/unload.
 - Pure functions for scoring (`engine/tempo_engine/search.py`) — no I/O inside the scoring path; matrices passed in, results passed out. This is what makes golden tests easy.
 - Pydantic schemas for every endpoint; typed, no bare dicts crossing layers.
 - No `print` debugging in committed code; `logging` with levels; log job stage transitions + model load/unload.
@@ -745,7 +760,7 @@ Decisions (with rationale; changes require an ADR in `docs/decisions/`):
 - **D5 Shared entity extractor on both query and shots** — junk entities once poisoned the anchor path ("A" matched everything); single extractor prevents query-side/index-side drift. v4: `first` aggregation + span rebuild + typo-tolerant vocabulary resolution (ADR-0009).
 - **D6 Thumbnails over HTTP** — avoids CEF file-access flags; service already has the files.
 - **D7 Stale-by-default pruning** — re-indexing is expensive; deletion is explicit.
-- **D8 Single-GPU lazy model loading** — revived on the engine: query models stay resident, stage-only models load per stage and are freed afterwards, transitions logged.
+- **D8 Single-GPU lazy model loading** — revived on the engine: query models are locked singletons that stay resident; stage-only models load inside their stage module and free themselves there. Transitions logged.
 - **D9 Colab-hosted pipeline, local service as proxy** — SUPERSEDED by D11 (tunnel deleted; notebook kept as frozen reference — see `docs/decisions/0002-colab-remote-pipeline.md`).
 - **D10 Drive auto-upload on AE import** — deterministic `tempo/<key>/<basename>`, `uploading` + `queued-for-backend` states (see `docs/decisions/0003-drive-auto-upload.md`).
 - **D11 Modal-hosted pipeline behind the backend seam** — SUPERSEDED by D15 (`modal_backend/` deleted; the `backends/` seam and server-config URL + token kept — see `docs/decisions/0004-modal-backend.md`).

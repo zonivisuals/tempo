@@ -174,10 +174,7 @@ describe systems that were never built or have been deleted.
 
 | Path | Why it costs time |
 |---|---|
-| `service/build/` | A 13-file stale copy of the sidecar package. Grepping `tempo_service` matches it. Gitignored (`.gitignore:10`, `build/`) and untracked. |
-| `engine/build/` | The same trap for `tempo_engine`, 22 files. Not listed in `orientation.md`'s hazard table before 2026-10-05. |
-| `service/tempo_service/indexer/` | No `.py` file remains, only `__pycache__` with six stale `.pyc` names from the pre-D15 pipeline (`build_index`, `captions`, `cluster`, `models`, `ner`, `pipeline`). Grepping `indexer` finds them. |
-| `service/tempo_service/storage/` | Same shape, from the deleted providers (D13). One `.pyc` still reads `s3`. |
+| ~~`service/build/`~~, ~~`engine/build/`~~, ~~`service/tempo_service/indexer/`~~, ~~`service/tempo_service/storage/`~~ | All four DELETED 2026-10-05. They were stale package copies and `__pycache__`-only husks from the pre-D15 pipeline and the D13 providers, all untracked and gitignored. `pip install` regenerates `build/`. |
 | `auth/` | Holds `auth/.env` with Better Auth and Postgres values for the system D12 deleted. Gitignored, so no secret risk, but it reads as live config. |
 | `colab/` | `tempo_shim.py`, 269 lines. The D9/D10 shim: ngrok, Drive, `COLAB_URL`. All superseded by D15. Gitignored. |
 | `tempo_pipeline_v4.ipynb` | Untracked **and** gitignored (`.gitignore`, last entry). Never import it. |
@@ -274,14 +271,29 @@ or docs.
 
 | Item | Where | Why it matters |
 |---|---|---|
-| `models.release()` has **no possible caller** | `models.py:103-106` | `_MODELS` is populated only by `_get` (`:94`), whose three callers are `get_siglip` (`:130`), `get_text_embedder` (`:167`), `get_ner` (`:191`). Those are the three `QUERY_MODELS` (`:31`), which D8 says stay resident. Whisper, EasyOCR and Florence-2 load inline in their stage modules and never enter `_MODELS`, so `release("florence")` would pop a missing key and do nothing. The docstring at `:15` and D8 both describe a mechanism that cannot execute. |
-| `models.loaded()` | `models.py:90-91` | No caller at all. |
+| ~~`models.release()` had no possible caller~~ | `models.py` | RESOLVED by deletion, 2026-10-05. `_MODELS` is populated only by `_get`, whose three callers are the three query models D8 says stay resident. Whisper, EasyOCR and Florence-2 load inline in their stage modules and never enter the registry, so `release("florence")` would pop a missing key and do nothing. No possible caller existed. |
+| ~~`models.loaded()`~~ | `models.py` | DELETED 2026-10-05. Zero references anywhere, including any dynamic lookup. |
 | `search.zpos()` | `search.py:38-51` | No production caller. `rank` uses `KeyStats.z` (`:77-85`) instead. Kept as the notebook-exhaustive form its own docstring names, and pinned by `test_search.py:57,59,60,88-90`. |
 | `prune_stale()` and its config knob | `registry.py:225`, `config.py:38` | Called only by `test_registry.py:79`. No route, no reader. Already recorded above; repeated because the knob is separately dead. |
 | `sync_poll_s` | `config.py:30` | **No reader in Python.** The panel hardcodes `SYNC_POLL_MS = 2000` (`panel.js:18`) while its comment at `:15` claims it mirrors this setting. `job_poll_s` next to it *is* read (`proxy.py:170`), which makes the pair look symmetric. |
-| `tunnel.self.spawns` | `tunnel.py:46,79` | Write-only in production. Read only by `test_tunnel.py:51,64`. |
-| `#indexing-label` | `index.html` | The id appears in no `.js` and no `#id` CSS rule. Its text is styled through the `pill-label` class, so only the id is dead. |
 | `POST /jobs/{id}/cancel` | `app.py:338-364` | No `api.js` method reaches it. Already recorded above. |
+
+### Not dead, despite looking it
+
+| Item | Looks dead because | Why it stays |
+|---|---|---|
+| `tunnel.spawns` | Written in `tunnel.py:46,79`, never read in production | It is the only evidence `test_tunnel.py:51` has that a **second** process spawned. The surrounding `state == "up"` assertions would also pass on a restart that reused a dead handle. A test seam, not dead weight. |
+| `search.zpos()` | No production caller | It is the notebook-exhaustive reference form, and `test_search.py` pins Gram-matrix z-stats against it. Deleting it deletes the oracle. |
+| `Job.reused` | Written in one place | Serialized into `GET /jobs/{id}` (`jobs.py:58`), mirrored into the registry (`proxy.py:197`), consumed by the panel's cached-index screen. |
+
+### Already deleted (2026-10-05)
+
+| Item | Was |
+|---|---|
+| `models.release(name)` | Reached for by name, but `_MODELS` holds only the three query models, which D8 says stay resident. Stage models never enter the registry. No possible caller. `models.py` docstring, D8 and §7.3 corrected; the stage modules' `del` + `free_memory()` is now the documented pattern. `free_memory()` survives with four callers. |
+| `#indexing-label` | No CSS rule, no JS lookup, no harness read. Removed from `index.html` **and** `preview.html` in the same change, because `test_contracts.py:150` compares the two `#app` blocks byte for byte. |
+| `service/build/`, `engine/build/` | 13- and 22-file stale package copies. Untracked and gitignored. |
+| `service/tempo_service/indexer/`, `storage/` | Zero `.py` files, stale `__pycache__` only, from the pre-D15 pipeline and the D13 providers. Zero tracked files. |
 
 ## Open: duplication and drift
 

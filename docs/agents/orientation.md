@@ -153,10 +153,8 @@ Not code. Untracked, and a session that greps the tree will land in them.
 
 | Path | What it is | Why it is confusing |
 |---|---|---|
-| `service/build/` | 13-file stale copy of the sidecar package from a `pip install ./service` | Contains `tempo_service/app.py` at an older revision. Grep for `tempo_service` and this matches. Gitignored. |
-| `engine/build/` | 22-file stale copy of the engine package, same origin | Same trap as above, for `tempo_engine`. Not in this table's previous revision. Gitignored. |
-| `service/tempo_service/indexer/` | Empty. `__pycache__` only, from the deleted pre-D15 pipeline | No `.py` file remains. Grep for `indexer` finds six stale `.pyc` names. |
-| `service/tempo_service/storage/` | Empty. `__pycache__` only, from the deleted storage providers (D13) | Same. Mentions `s3`. |
+| ~~`service/build/`, `engine/build/`~~ | Deleted 2026-10-05. `pip install` recreates them. | Were 13- and 22-file stale package copies. Grep for `tempo_service` matched one. |
+| ~~`service/tempo_service/indexer/`, `storage/`~~ | Deleted 2026-10-05. Empty husks. | Were `__pycache__`-only, from the pre-D15 pipeline and the D13 providers. |
 | `auth/` | One file, `auth/.env`, holding Better Auth and Postgres values for the system D12 deleted | Gitignored, so no secret risk. Looks like live auth config. |
 | `colab/` | `tempo_shim.py`, 269 lines, the D9/D10 Colab shim | Gitignored. Mentions ngrok, Drive, COLAB_URL. All superseded by D15. |
 | `tempo_pipeline_v4.ipynb` | The frozen behavioral reference | Untracked **and** gitignored. Never import it; the engine ports it. |
