@@ -152,7 +152,11 @@
     indexing: { footages: ["indexing"], job: "live", err: null, results: 0, captions: true },
     queued: { footages: ["uploading"], job: "queued", err: null, results: 0, captions: true },
     cached: { footages: ["indexing"], job: "cached", err: null, results: 0, captions: true },
-    failed: { footages: ["error"], job: "failed", err: null, results: 0, captions: true },
+    // `active: false` is the point of this fixture. The panel keeps a failed job's
+    // payload but drops it from the active list, so its step list renders from the
+    // failed job rather than from a live one. The harness used to leave the failed
+    // id in the active list, which previewed a step list the panel never renders.
+    failed: { footages: ["error"], job: "failed", active: false, err: null, results: 0, captions: true },
     searching: { footages: ["ready"], job: null, err: null, results: 9, captions: true, search: true },
     results: { footages: ["ready", "ready", "ready"], job: null, err: null, results: 9, captions: true },
     list: { footages: ["ready", "ready", "ready"], job: null, err: null, results: 9, captions: true },
@@ -287,7 +291,7 @@
       errBox.hidden = true;
       store.footages = makeFootage(f.footages);
       store.jobs = f.job ? { "job-fixture": TempoAPI.job().body } : {};
-      store.activeJobs = f.job ? ["job-fixture"] : [];
+      store.activeJobs = f.job && f.active !== false ? ["job-fixture"] : [];
       store.results = makeResults(f.results, captionInput.checked && f.captions !== false);
       store.searching = !!f.search;
       store.inserting = -1;

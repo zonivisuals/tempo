@@ -1046,6 +1046,104 @@ def test_indexing_reserves_the_finished_step_list_height():
     )
 
 
+# A job that failed, as the service reports one: the stages it finished, the stage
+# that raised, and the raw engine text it raised with. The error string is real on
+# purpose — it is the thing no surface is allowed to put on screen.
+_FAILED_JOB = json.dumps({
+    "job_id": "job_1", "footage_key": "k0", "state": "error",
+    "error": "RuntimeError: shots stage needs the source video\n"
+             '  File "/app/engine/tempo_engine/pipeline.py", line 85, in build\n'
+             '    raise RuntimeError("shots stage needs the source video")',
+    "stages": [
+        {"name": "upload", "state": "done", "done": 1, "total": 1},
+        {"name": "shots", "state": "done", "done": 3, "total": 10},
+        {"name": "visual", "state": "error", "done": 0, "total": 0},
+        {"name": "text", "state": "pending", "done": 0, "total": 0},
+    ],
+})
+_FAILED_FOOTAGE = "store.footages = [{ footage_key: 'k0', path: 'C:/s/a.mov', state: 'error' }];"
+_ROWS = ("Object.keys(store.stepNodes)"
+         ".map(k => k + '|' + store.stepNodes[k].row.className + '|'"
+         " + store.stepNodes[k].num.textContent).join(', ')")
+
+
+def test_a_failed_job_keeps_the_step_that_failed_on_screen():
+    """The step list survives the failure that empties the active job list.
+
+    `pollJobs` drops a job from `store.activeJobs` on any terminal state but keeps
+    the payload, and `renderSteps` read `activeJob()` alone — so the poll that
+    reported the failure also cleared the list that named it. The editor was left
+    with a traceback and no rows, which is the one thing the failure screen exists
+    to prevent: the failing step is the only place on screen that says *where* it
+    stopped. The preview hid this by keeping the failed id in `activeJobs`.
+
+    The errored row is asserted with its own state and its own readout, because a
+    row that merely exists has not told the editor anything: `done` rows sit at
+    0.5 opacity with an empty readout, so an unmarked errored row is a finished one.
+    """
+    failed = _FAILED_FOOTAGE + " store.jobs = { job_1: %s };" % _FAILED_JOB
+    rows = _panel_render("renderSteps()", failed + " store.activeJobs = [];", _ROWS)
+    # Order is the one stepOrder has always rendered: finished stages newest first,
+    # then whatever is not ordinary progress — so the failed row sits last, directly
+    # above the message that explains it.
+    assert rows == "shots|step done|, upload|step done|, visual|step error|failed", rows
+
+    # The job is still live: an active job is what it renders from in preference,
+    # and this asserts the fallback did not take over from under it.
+    assert _panel_render("renderSteps()", failed + " store.activeJobs = ['job_1'];", _ROWS) == rows
+
+
+def test_the_failing_step_is_marked_and_the_finished_ones_stay_quiet():
+    """The errored row is full strength on a wash of its own error colour.
+
+    A finished row is 0.5 opacity with an empty readout, so the only things that can
+    mark the failing one are its colour, its background and its readout. The wash is
+    a token rather than a literal because `--error` is a hex in both themes and
+    `color-mix()` is Chromium 111 against this panel's floor of 84 — the same reason
+    `--edge` and `--sweep` are per-theme rgba literals, which is the precedent.
+
+    Each theme's wash is asserted against its own `--error`, so moving one without
+    the other fails here rather than painting an error row in the other theme's red.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    marked = _css_rule(css, ".step.error")
+    assert "color: var(--error);" in marked, marked
+    assert "background: var(--error-wash);" in marked, marked
+    assert "opacity" not in marked, (
+        f"a done row is opacity 0.5; dimming the failed one too is what it was: {marked}"
+    )
+
+    washes = re.findall(r"--error-wash: ([^;]+);", css)
+    assert len(washes) == 2, f"both themes need the wash; got {washes}"
+    for name, block in (("dark", _css_rule(css, ":root")), ("light", _css_rule(css, "html.light"))):
+        error = re.search(r"--error:\s*(#[0-9a-fA-F]{3,6});", block).group(1)
+        red, green, blue = (int(error[i:i + 2], 16) for i in (1, 3, 5))
+        wash = next(w for w in washes if f"{red}, {green}, {blue}" in w)
+        alpha = float(re.search(r"([\d.]+)\)", wash).group(1))
+        assert 0 < alpha <= 0.15, (
+            f"the {name} wash is {wash}: a tint, not a fill. At 0.15 of --error over "
+            "--bg it is a highlight; much past that it is a second surface colour"
+        )
+
+
+def test_the_preview_does_not_fake_a_live_job_on_the_failed_screen():
+    """The preview's failed fixture must not claim its job is active.
+
+    The harness seeds `activeJobs` for every job screen so the panel polls them, and
+    it did so for the failed one too. That is what made `#failed` show a step list
+    the panel never renders: the two screens had drifted and only the fixture
+    disagreed. Pin the fixture, since the bug was in the fixture.
+    """
+    harness = (PREVIEW_HTML.parent / "preview-harness.js").read_text(encoding="utf-8")
+    failed = re.search(r"failed:\s*\{[^}]*\}", harness)
+    assert failed, "the preview has no failed fixture"
+    assert "active: false" in failed.group(0), (
+        "the failed screen's job is not live in the panel; a fixture that says "
+        "otherwise previews a state that does not exist"
+    )
+
+
 def test_indexing_pill_is_sized_by_its_content():
     """The pill fits its label and its indicator, centred in the column.
 

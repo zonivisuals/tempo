@@ -28,6 +28,8 @@ Index of decisions (details in AGENTS.md §12). New decisions get a numbered fil
 - D24 The query value is one text layer with a band over it: the second copy and the accent go, the stop geometry is shadcn's `shimmer` util, the three levels are its own formula landing on `--text-dim`/`--text`, and reduced motion renders the query plainly instead of blanking the field → `0017-query-shimmer-one-layer.md`
 - D25 One state block for every nothing-to-show (frame 01, its variants, no matches, not-searched-yet, and a failure), with `resultsScreen()` as the one question about which of the block or the retained inline row speaks → `0018-failure-state-block.md`
 
+- D26 A failed job keeps its step list, and the errored row is marked: `currentJob()` is the live job or the newest failed one, the errored row carries `--error`, a wash and `failed`, and the preview fixture stops faking a live job -> `0019-failed-step-keeps-its-row.md`
+
 
 Known debt:
 - K1 key-scale calibration — resolved by D17

@@ -402,7 +402,23 @@ readout (`777:702`, "Finalizing... 80%"):
 | running | 12-ray burst (`777:709`) in `--accent` | `--text` | percentage, or the unit count |
 | done | 16 px check | `--text` at 0.5 opacity | hidden |
 | pending | none — the row does not exist yet | — | — |
-| error | 16 px hollow ring, `--error` | `--error` | hidden |
+| error | 16 px hollow ring, `--error`, on a `--error-wash` row | `--error` | `failed` |
+
+**The errored row survives its job.** The list renders from `currentJob()` — the live
+job, or failing that the newest job in state `error`. Polling drops a terminal job
+from the active list and keeps the payload, so reading only the active job made the
+poll that reported a failure also the render that cleared the list naming it: the
+editor was left with a traceback and no rows. The payload is held until reload for
+this reason.
+
+Three marks, because a finished row is 0.5 opacity with an empty readout and an
+unmarked errored row is a finished one with a red label: `--error` on the label and
+icon, a 10%-of-`--error` wash behind the row, and the word `failed` in the readout
+slot. The wash is a per-theme token — `color-mix()` is Chromium 111 against the
+panel's floor of 84 — and each theme's is its own `--error`. No opacity on the row.
+The row keeps `stepOrder`'s existing place (finished stages newest-first, then
+whatever is not ordinary progress), so it lands last, immediately above the message
+that explains it. ADR-0019.
 
 Above the list, while a job is live, the **indexing pill** (`777:698`): the fixed
 label `Processing your videos` in `--accent` plus the same two-arc indicator, on
@@ -776,7 +792,7 @@ is also how the headless checks drive it:
 | `#indexing` | indexing, advancing on the 500 ms poll (frame 02) |
 | `#queued` | the synthetic `queued` row while the tunnel warms |
 | `#cached` | a `reused` job: every stage `done` with `total = 0` — nothing may show a number |
-| `#failed` | engine failure: error state, message, Retry |
+| `#failed` | engine failure: the errored step marked in its list, message, Retry |
 | `#searching` | skeletons, query sweep, submit spinner (frame 03) |
 | `#results` | nine cards, grid (frame 04) |
 | `#nocaption` | transcript shown instead of caption |

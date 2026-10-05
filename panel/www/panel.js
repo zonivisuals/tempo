@@ -232,6 +232,26 @@ function activeJob() {
   return null;
 }
 
+/* The job whose payload the step list renders: the live one while a job runs, and
+ * the one that failed once it stops being live.
+ *
+ * pollJobs drops a job from `activeJobs` on any terminal state but KEEPS the
+ * payload, so reading `activeJob()` alone made the poll that reported a failure
+ * also the render that cleared the list naming it. The failing stage is the only
+ * thing on this screen that says where indexing stopped, and the preview hid the
+ * bug by leaving the failed id in the active list. Object key order is insertion
+ * order (ids are strings), so walking it backwards is newest first. */
+function currentJob() {
+  const live = activeJob();
+  if (live) return live;
+  const ids = Object.keys(store.jobs);
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const j = store.jobs[ids[i]];
+    if (j && j.state === "error") return j;
+  }
+  return null;
+}
+
 function makeStepNode(key) {
   const row = document.createElement("div");
   row.className = "step";
@@ -278,7 +298,7 @@ function flip(box, mutate) {
 
 function renderSteps() {
   const box = $("steps");
-  const job = activeJob();
+  const job = currentJob();
   const wanted = job ? stepOrder(job) : [];
   const keys = new Set(wanted.map((w) => w.key));
 
@@ -300,7 +320,13 @@ function renderSteps() {
       if (row.className !== "step " + w.state) row.className = "step " + w.state;
       const label = stageLabel(w.key);
       if (lab.textContent !== label) lab.textContent = label;
-      const text = w.state === "running" ? stepNumber(w.stage) : "";
+      // The readout slot carries the stage's state where it has one to report. A
+      // finished row says nothing (F4: `total == 0` is unknown, not 0%), and a
+      // failed row says one word — against a done row's 0.5 opacity and an empty
+      // slot, that is the whole difference between "this is where it stopped" and
+      // another finished row.
+      const text = w.state === "running" ? stepNumber(w.stage)
+        : (w.state === "error" ? "failed" : "");
       if (num.textContent !== text) num.textContent = text;
       const icon = w.state === "running" ? ICON.spin : (w.state === "done" ? ICON.done : ICON.idle);
       if (ic.dataset.icon !== icon) { ic.dataset.icon = icon; ic.innerHTML = icon; }

@@ -38,6 +38,12 @@
   --accent: #eb5017;          /* 777:700 "Analyzing your footage", 777:511 */
   --thumb: #eb6060;           /* 777:368 thumbnail layer, Rectangle 5421 */
   --error: #eb6060;
+  /* The failing step's own row tint: this theme's --error at 10%, so the row that
+   * stopped reads as marked rather than as another tinted surface. A token rather
+   * than a literal per use because --error is a hex in both themes and the panel's
+   * floor is Chromium 84, where `color-mix()` (111) does not exist — the same
+   * reason --edge and --sweep are per-theme rgba literals. */
+  --error-wash: rgba(235, 96, 96, 0.1);
   --ok: #7fae74;
   /* The two-arc indicator's track (777:704): white under the accent arc. */
   --spin-track: #fff;
@@ -96,6 +102,9 @@ html.light {
   --accent: #c23c0c;
   --thumb: #b3555a;
   --error: #a32b2b;
+  /* The light theme's own --error, at the same 10%: the wash is a tint, and the
+   * tint has to be this theme's red or the marked row is the wrong red. */
+  --error-wash: rgba(163, 43, 43, 0.1);
   --ok: #3f7a35;
   /* White is the track colour in the design, and it disappears on a light
      surface: the track reads as a light gray here instead. */
@@ -356,7 +365,16 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
    accent is one property: the working colour is the same everywhere. */
 .step.running .ic .spin { color: var(--accent); animation: spin 1s linear infinite; }
 .step.done { opacity: 0.5; }
-.step.error { color: var(--error); }
+/* The row that stopped. Three marks, because a finished row is 0.5 opacity with an
+ * empty readout: the colour, a wash of it behind the row, and the one word the
+ * readout slot carries (panel.js renderSteps). No opacity of its own — dimming the
+ * failing row would dim it exactly as hard as a finished one. The radius is the
+ * buttons' `--r-sm`: the wash spans the row, and a hard-edged band reads as a rule. */
+.step.error {
+  color: var(--error);
+  background: var(--error-wash);
+  border-radius: var(--r-sm);
+}
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Indexing heading pill (777:698): radius 32, #171717, gradient edge, shadow,

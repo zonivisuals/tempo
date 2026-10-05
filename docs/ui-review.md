@@ -65,6 +65,12 @@ flag and reject an element reading as "AI-generated slop".
       check `preview.html#indexing` early in the run: the list must not be a
       column of dim placeholders, and `preview.html#queued` must show the single
       synthetic queued row. No step renders a number when `total` is 0.
+- [ ] The failing step is the one marked row, and it is still on screen after the
+      failure — `preview.html#failed`: the step that gave up keeps its row with
+      `failed` in its readout slot, `--error` on its label and a 10% wash of the
+      same colour behind it, and it is the only row that is not at 0.5 opacity. It
+      must not be dimmed like a finished one, and it must not have vanished with
+      the job that failed (ADR-0019).
 - [ ] Short factual labels (a step row reading "Reading on-screen text 37%"); result cards show
       thumbnail, file name when more than one footage is loaded, timecode range +
       duration, and **one** description line (caption, or transcript when the
