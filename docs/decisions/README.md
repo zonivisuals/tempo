@@ -34,6 +34,9 @@ Index of decisions (details in AGENTS.md §12). New decisions get a numbered fil
 - D29 A failure is reported once: `resultsScreen()` asks `indexingVisible()` rather than
   `activeJob()`, and the frame-01 indexing variants go with the duplicate ->
   `0022-a-failure-is-reported-once.md`
+- D30 The query shimmer runs left to right: the keyframe endpoints are swapped, the loop
+  and geometry untouched, and the skeleton sweep deliberately left running the other way
+  -> `0023-query-shimmer-left-to-right.md`
 
 Known debt:
 - K1 key-scale calibration — resolved by D17

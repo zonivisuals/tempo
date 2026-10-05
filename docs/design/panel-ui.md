@@ -569,8 +569,18 @@ resting colour*, so the dim query is visible and one brighter band travels acros
 The shape is shadcn/ui's `shimmer` utility — its 20° tilt (so the gradient is
 `110deg`), its `calc(3ch + 40px)` spread, and its `calc(200% + spread × 2)` sizing,
 which is what puts the band clear of both ends at the keyframe's extremes so the loop
-never wraps. Direction is right to left, the direction the skeleton sweep already
-runs in, at 1 s.
+never wraps.
+
+**Direction is left to right**, at 1 s (ADR-0023; ADR-0017 shipped it right to left).
+The endpoints are what read as the direction, and they read backwards: a positive
+`background-position` percentage slides a gradient that is *wider* than the field
+leftwards, so `from { 100% 0 }` is the band sitting at the left edge and
+`to { 0 0 }` is it sitting at the right. The skeleton sweep still runs right to left,
+so the two surfaces on the searching frame now travel opposite ways; that is recorded
+rather than reconciled, and the skeleton's own keyframes are not part of this.
+
+The field declares no resting `background-position`, so it defaults to `0 0` — which
+is the keyframe's end state, the same relationship ADR-0016 gave the skeleton's blocks.
 
 It is **not** an accent sweep. ADR-0011 shipped the band in `--accent`, which §6
 fences to selection and active states; a search in flight is neither, and this is

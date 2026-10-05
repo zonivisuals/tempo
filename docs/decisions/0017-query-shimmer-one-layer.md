@@ -80,8 +80,11 @@ The skeleton blocks already do the same thing for the opposite reason — a
   nothing blinks. The `2 *` is not slack: remove it and the far extreme leaves the
   tail of a long query outside the image.
 - **`no-repeat`** is explicit, because the panel had inferred it and had it wrong.
-- **The direction** is right to left, which is what the skeleton sweep already runs
-  (`sweep` goes `150%` → `-50%`, both leftward), so the two shimmer surfaces agree.
+- **The direction** was right to left, which is what the skeleton sweep already runs
+  (`sweep` goes `150%` → `-50%`, both leftward), so the two shimmer surfaces agreed.
+  **Reversed to left to right on the product owner's call — ADR-0023.** The line above
+  is left as it was written; the reversal is recorded there rather than edited in, so
+  the original reasoning and the reversal are both readable.
 
 ### 3. The colours are the utility's formula, run over this panel's tokens
 

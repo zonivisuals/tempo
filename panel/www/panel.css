@@ -241,9 +241,16 @@ html.light #logo { filter: invert(1) hue-rotate(180deg); }
 }
 #searchbox.searching #q { color: transparent; caret-color: var(--text); }
 #searchbox.searching #q-sweep { display: block; }
-/* Right to left, the direction the skeleton sweep already runs in: a positive
-   background-position percentage moves the gradient leftwards. */
-@keyframes qsweep { from { background-position: 0 0; } to { background-position: 100% 0; } }
+/* Left to right (ADR-0023; ADR-0017 shipped it right to left). A positive
+   background-position percentage moves the gradient LEFTWARDS, and the sizing above
+   is wider than the field, so the band's endpoints are the ones that decide the
+   direction: from 100% (the band clear of the left edge) to 0 (clear of the right).
+   Read as geometry rather than as a number, this reads backwards — verified against a
+   headless render, where the arithmetic and the intuition disagree.
+   The field declares no resting position, so it defaults to 0 0, which is now the
+   keyframe's end state: the band is clear of the query at rest, and reduced motion
+   drops the gradient entirely anyway. */
+@keyframes qsweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
 
 /* Submit button (777:314): 60px square, radius 10.67, fill white at 0.10,
  * no border, no shadow, "Arrow up" rotated 90deg, 23px glyph, stroke 4 round. */

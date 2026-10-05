@@ -2377,11 +2377,17 @@ def test_query_shimmer_is_one_text_layer_and_not_the_accent():
         "1s is the cycle this was chosen at; see the ADR's speed trade"
     )
 
-    # Right to left, the direction the skeleton sweep already runs in. A positive
-    # background-position percentage moves the gradient leftwards.
+    # Left to right (ADR-0023). The mechanism is the one a percentage makes
+    # non-obvious: `background-size` here is wider than the element, so a positive
+    # background-position percentage slides the gradient LEFTWARDS and a zero one
+    # parks it to the right. The band therefore travels right-to-left from `0 0` to
+    # `100% 0`, which is what ADR-0017 shipped, and travels left-to-right from
+    # `100% 0` to `0 0` — so the reversed keyframes read as the endpoints being
+    # swapped, not as the values being inverted. Verified against a headless render,
+    # because the arithmetic and the intuition disagree.
     kf = re.search(r"(?m)^@keyframes qsweep\s*\{(.*)\}$", css).group(1)
-    assert "from { background-position: 0 0; }" in kf, f"got {kf!r}"
-    assert "to { background-position: 100% 0; }" in kf, f"got {kf!r}"
+    assert "from { background-position: 100% 0; }" in kf, f"got {kf!r}"
+    assert "to { background-position: 0 0; }" in kf, f"got {kf!r}"
 
     # Reduced motion: the query renders plainly, in the field's own value colour.
     # `animation: none` alone leaves the band at rest off the end of the text, and
