@@ -116,7 +116,7 @@ precedent, and AGENTS.md §8 wants one owner per constant.
 | search field / pill shadow | `DROP_SHADOW 0 8 12 rgba(0,0,0,0.2)` | `0 2px 6px rgba(0,0,0,0.2)` |
 | submit button | 60 px, radius 10.67, `fill #FFF @ 0.10`, no border, no shadow, "Arrow up" rotated 90°, 23 px glyph, stroke 4 round | 24 px, `--r-sm`, `rgba(255,255,255,0.1)`, glyph 16 px, stroke 1.5 |
 | card stroke | 3 px, same colour as the fill | `border: 3px solid var(--surface)`, accent on hover |
-| skeleton fills | `#FFF 0→0.56` (thumb), `#FFF 0→1` (caption), radius 12 | `--sweep-thumb`, `--sweep-cap` on `--r-md` |
+| skeleton fills | `#FFF 0→0.08` on **both** blocks, radius 12 | one `--sweep` token, 0.08 peak, on `--r-md` |
 | indeterminate indicator | two arcs: an accent active arc over a white track, thickness 4 of 44 | the `777:704` two-path export at 16 px, filled from CSS: `.arc` → `--accent`, `.track` → `--spin-track` |
 | running row's indicator | 12-ray burst, `777:709`, accent | the same export at 16 px, `stroke="currentColor"` with `color: var(--accent)` |
 | wordmark | `tempo_logo`, `777:761`: white caps, two accent marks (the E's middle arm, a wedge at the O's shoulder) | `panel/www/logo.png` at `height: 14px`, `width: auto` |
@@ -431,12 +431,51 @@ Everything else renders `NN%`.
 
 - Submit button swaps arrow → spinner.
 - Query value renders the accent sweep (above).
-- Results area renders `min(previous result count, 9)` skeleton cards — one
-  gradient thumb block plus one gradient caption block, radius 2px. Count
+- Results area renders `min(previous result count, 9)` skeleton cards. Count
   matches the previous result count so the list does not reflow on submit; a
   first search renders 9.
 - Skeletons display for at least 200ms (`§5` F3) even on a fast engine.
 - The view pair is present and unchanged from frame 04, on the left as drawn (§1).
+
+**The skeleton is `loading_result` (777:532) and nothing else.** The design draws
+it as a transparent 560 × 399 frame holding two blocks, with no stroke and no
+fill of its own:
+
+| | Design | Shipped |
+|---|---|---|
+| frame | 560 × 399, no fill, no stroke | `.card.skel` drops the card's 3px stroke and `--surface` |
+| `thumb-sk` | 554 × 312 at x=3, radius 12 | inset by the card's own 3px stroke, `--r-md`, `padding-top: 56.25%` |
+| gap | `cap-sk` starts 18 down | `margin-top: 4px` (18/560 is 4.2px on a 132px thumb) |
+| `cap-sk` | 560 × 69, radius 12 | the body box: 44px, inset 3px, `--r-md` |
+| fill | `#FFF 0→0.08`, **both** blocks | one `--sweep` token at 0.08 |
+
+Three of those are re-derivations rather than copies, and each has a reason.
+
+**The thumb's aspect is the design's own.** 312 of 554 is 0.5632, which is 16:9
+to within 0.1%, so `padding-top: 56.25%` is the design's ratio and not a
+convenience. Its 3px inset is the card's stroke width, which is why the block and
+the real thumbnail land on the same edges.
+
+**The cap is the body, not a number.** The design's 69 is its body box at 20px
+caption type; the panel's caption is 11px, so the same box is two lines at the
+inherited 1.45 plus the body's 6px above and below — 44px. Taken literally, 69 of
+560 would be 17px here and **every row would jump ~30px** when results arrive,
+which is the reflow the count rule exists to prevent. With 44 the skeleton is
+122.2px against a real card's 124.2, and the design has the same slack: its
+skeleton fills all 399 while its result card insets 3px.
+
+**The fill is one level, not two.** The design gives both blocks the *same* white
+at 0.08. The panel had two tokens with two invented peaks — 0.56 on the thumb,
+1.0 on the caption — and the caption's was pure white, which on a dark card is
+the brightest pixel on the screen. `--sweep-thumb` and `--sweep-cap` are now one
+`--sweep`, which is what §8's "if a literal appears twice, it's a constant" asks
+for when the design itself says the two are equal. The light theme is the same 8%
+lift in the other direction, the `--spin-track` precedent.
+
+The blocks' resting `background-position` is the keyframe's end state, so
+`prefers-reduced-motion` — which sets `animation: none` and leaves the rest of the
+declaration standing — shows a centred peak rather than a ramp pinned to the left
+edge.
 
 ### 4.2 Frame 04 — results
 

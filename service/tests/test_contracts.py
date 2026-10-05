@@ -1272,6 +1272,135 @@ def test_result_badge_is_the_accent_at_the_thumbs_scale():
     )
 
 
+def test_searching_frame_is_two_blocks_at_the_designs_level():
+    """Frame 03 is the design's `loading_result` (777:532) and nothing else.
+
+    The design draws a skeleton as a transparent 560x399 frame holding two blocks
+    and no chrome of its own:
+
+        loading_result   560 x 399   (no fill, no stroke)
+        thumb-sk         554 x 312   x=3,  y=0,   radius 12, white 0 -> 0.08
+        cap-sk           560 x  69   y=330,       radius 12, white 0 -> 0.08
+
+    Four properties, and each is a silent failure -- the skeleton still renders,
+    it just renders as something the design does not have:
+
+    - **The card's stroke and fill go.** `.card` carries a 3px same-colour stroke
+      and a `--surface` fill, and the skeleton inherited both, so the loading
+      state was a grey card with two dimmer rectangles in it. The design's frame
+      is transparent. This also means the skeleton needs a hover guard: `.card:hover`
+      paints `--accent`, and a `div` still matches `:hover`, so without one a
+      skeleton turns orange under the cursor.
+    - **The sweep's level is 0.08, not 0.56 and 1.** The design gives both blocks
+      the *same* fill -- white at 8% -- so the panel's two tokens with two
+      different peaks (0.56 thumb, 1 caption) were invented, and they were also an
+      order of magnitude too hot. One token now serves both blocks. The light
+      theme is the same 8% lift in the other direction, the `--spin-track`
+      precedent.
+    - **Both blocks take `--r-md`.** The design gives them the same 12 of 560 the
+      card has, which is what `--r-md` is.
+    - **The blocks are inset 3px, and the cap is the body box.** The design's
+      `thumb-sk` sits at x=3 of a 560 frame -- inside the card's 3px stroke -- so
+      the panel's inset is the stroke's width, and the cap takes `.body`'s own
+      horizontal padding so both blocks land exactly where the real thumbnail and
+      the real caption land. The cap's *height* is asserted as a derivation
+      (below), because the design's 69 is its body box at 20px caption type and
+      the panel's caption is 11px: taken literally it would be 17px and every row
+      would jump ~30px when results arrive, which is what §4.1's "count matches
+      the previous result count so the list does not reflow" exists to prevent.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    # The render: two blocks, and no trace of the card they stand in for.
+    searching = _GRID_CARD_SETUP + "store.searching = true;"
+    html = _panel_render("renderResults()", searching, _HTML)
+    assert 'class="sk-thumb"' in html and 'class="sk-cap"' in html, html
+    for absent in ("<img", 'class="thumb"', 'class="body"', 'class="cap"'):
+        assert absent not in html, (
+            f"the design's loading frame is two blocks; {absent!r} is something it "
+            "does not have"
+        )
+
+    # The frame: no stroke, no fill, and the hover guard the removal of the fill
+    # makes necessary.
+    skel = _css_rule(css, ".card.skel")
+    assert "border: 0;" in skel and "background: none;" in skel, (
+        f"the design's loading_result is transparent; got {skel!r}"
+    )
+    assert "background: none;" in _css_rule(css, ".card.skel:hover"), (
+        ".card:hover paints --accent and a div still matches :hover, so a skeleton "
+        "would turn orange under the cursor"
+    )
+
+    # One sweep, at the design's level, in both themes.
+    assert "--sweep-thumb" not in css and "--sweep-cap" not in css, (
+        "the design gives both blocks the same fill, so two tokens were two owners"
+    )
+    sweeps = re.findall(r"--sweep:\s*linear-gradient\(90deg,([^;]+)\);", css)
+    assert len(sweeps) == 2, "both themes must declare --sweep"
+    # The peak is the 50% stop; the two ends are the ramp's own transparent.
+    peaks = {re.search(r"rgba\([^)]*?([\d.]+)\)\s+50%", s).group(1) for s in sweeps}
+    assert peaks == {"0.08"}, (
+        f"the design's fill peaks at white 0.08 on both blocks and in both themes; "
+        f"the panel has {peaks}"
+    )
+
+    # Both blocks, both radii.
+    blocks = _css_rule(css, ".card.skel .sk-thumb, .card.skel .sk-cap")
+    assert "border-radius: var(--r-md);" in blocks, (
+        f"the design rounds both blocks at the card's own 12 of 560; got {blocks!r}"
+    )
+
+    # The thumb's inset is the card's stroke, so it cannot drift from the real
+    # thumbnail it stands in for, and the gap above the cap is the design's 18 of
+    # 560 landed on the 4px rhythm.
+    stroke = int(re.search(r"border:\s*(\d+)px solid", _css_rule(css, ".card")).group(1))
+    inset = re.search(r"margin:\s*0\s+(\d+)px", _css_rule(css, ".card.skel .sk-thumb"))
+    assert inset and int(inset.group(1)) == stroke, (
+        f"the design's thumb-sk is inset by the card's {stroke}px stroke; this one is "
+        f"{inset and inset.group(1)}"
+    )
+    thumb = _css_rule(css, ".card.skel .sk-thumb")
+    assert f"width: calc(100% - {2 * stroke}px);" in thumb, (
+        f"the block is the stroke's width narrower than the frame; got {thumb!r}"
+    )
+    assert "padding-top: 56.25%;" in thumb, (
+        "the design's thumb-sk is 312 of 554 = 0.5632, which is 16:9 to within 0.1%"
+    )
+
+    gap = re.search(r"margin:\s*(\d+)px\s+\d+px\s+0", _css_rule(css, ".card.skel .sk-cap"))
+    cell = 132  # the grid thumb, as in the badge test: 300px dock less #app and the stroke
+    design_gap, design_card = 18, 560
+    assert gap and int(gap.group(1)) == round(cell * design_gap / design_card), (
+        f"the design's cap-sk starts {design_gap} of {design_card} below the thumb, "
+        f"which is {cell * design_gap / design_card:.2f}px here"
+    )
+
+    # The cap's height is the body it stands in for, derived from the body rather
+    # than restated: two lines of the caption's own type at the inherited line
+    # height, plus the body's padding above and below. The design's 69 is the same
+    # box at 20px type, which is why it cannot be copied.
+    cap_h = int(re.search(r"height:\s*(\d+)px", _css_rule(css, ".card.skel .sk-cap")).group(1))
+    cap_fs = int(re.search(r"font-size:\s*(\d+)px", _css_rule(css, ".cap")).group(1))
+    line_height = float(re.search(r"font:\s*12px/([\d.]+)", css).group(1))
+    body_pad = int(re.search(r"padding:\s*(\d+)px", _css_rule(css, ".body")).group(1))
+    assert cap_h == pytest.approx(2 * cap_fs * line_height + 2 * body_pad, abs=1), (
+        f"the cap is the body: 2 x {cap_fs}px at {line_height} plus {body_pad}px of "
+        f"padding is {2 * cap_fs * line_height + 2 * body_pad:.1f}px, not {cap_h}px. A "
+        "cap that is the design's literal 17px makes every row jump on arrival"
+    )
+
+    # The list view shares the rules and has to undo the two that are grid-shaped:
+    # its row already has the 8px gap, and its 72px thumb is a fixed width.
+    list_thumb = _css_rule(css, "#results.list .card.skel .sk-thumb")
+    assert "margin: 0;" in list_thumb, (
+        f"the shared 3px inset would push the list's fixed thumb to 78px; got {list_thumb!r}"
+    )
+    assert "margin: 0;" in _css_rule(css, "#results.list .card.skel .sk-cap"), (
+        "the list row's own 8px gap is the spacing; the grid's 4px cap margin is not"
+    )
+
+
 def test_interactive_api_docs_are_disabled():
     """With no auth wall, /docs, /redoc and /openapi.json hand any process on
     the machine a complete map of every route, parameter and model for free.

@@ -24,6 +24,7 @@ Index of decisions (details in AGENTS.md §12). New decisions get a numbered fil
 - D20 Search field scaled by type (0.406), not frame geometry: spacing re-derived to a 107px field, `--r-field` split from `--r-lg`, `Search for anything` kept, header hairline dropped → `0013-search-field-scale-and-spacing.md`
 - D21 Grid card body is two columns (description left and centred, duration + name right on the bottom edge); the list body keeps the design's single caption + duration row  → `0014-grid-card-body-columns.md`
 - D22 Panel chrome re-derived: the search field 107→82px, the magnifier 21→10px (the one export below §6's 16px floor), the view pair's chips touching, the insert badge is the accent at a share of the thumbnail, the thumbnail takes `--r-md`, and `--edge` is a 180° ramp → `0015-panel-chrome-re-derived.md`
+- D23 The searching frame is `loading_result` and nothing else: no card stroke or fill, both blocks on `--r-md` and inset by that stroke, the sweep's level is the design's 0.08 on both blocks in one token, and the cap is the body box rather than the design's type-driven 69 → `0016-searching-frame-two-blocks.md`
 
 
 Known debt:

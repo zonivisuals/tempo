@@ -20,7 +20,12 @@ flag and reject an element reading as "AI-generated slop".
 - [ ] Progress is the running row's own readout — a percentage, or the real unit
       (MB, audio seconds) — not a bar. `total == 0` renders no readout at all:
       check the `reused`-job screen (`preview.html#cached`) for a stray "0%".
-- [ ] Loading = skeletons that may pulse or sweep.
+- [ ] Loading = skeletons that may pulse or sweep. A skeleton is the design's two
+      blocks and **no card chrome**: check `preview.html#searching` for a grey card
+      with two rectangles in it, for a block that does not line up with where the
+      thumbnail and caption will be, and for a caption block bright enough to be
+      the first thing on the screen. The two blocks are `--r-md` and the sweep is
+      the design's own 8% lift, not a glow.
 - [ ] **No more than two animated surfaces on screen at once.** In practice:
       one running step, or one spinner, or one skeleton field — never two.
 - [ ] Every animation answers "what state is this?". A sweep that decorates

@@ -46,11 +46,11 @@
      it a 180deg gradient whose top is a lighter 0.16 and whose bottom is the
      design's 0.28, so the edge catches light from above the way the field does. */
   --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(23, 23, 23, 0.28));
-  /* skeleton fills: white 0 -> 0.56 (thumb) and white 0 -> 1 (caption) */
-  --sweep-thumb: linear-gradient(90deg,
-      rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.56) 50%, rgba(255, 255, 255, 0) 100%);
-  --sweep-cap: linear-gradient(90deg,
-      rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 50%, rgba(255, 255, 255, 0) 100%);
+  /* The design's skeleton fill (777:532): white 0 -> 0.08, and the SAME fill on
+   * both blocks — so one token serves both, and the peak is the level that comes
+   * off the design's own fills rather than one invented per block. */
+  --sweep: linear-gradient(90deg,
+      rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0) 100%);
 }
 /* Light theme: the same system with surfaces inverted and the accent darkened to
    hold contrast on a light panel. appSkinInfo only selects which one. */
@@ -70,10 +70,10 @@ html.light {
      surface: the track reads as a light gray here instead. */
   --spin-track: #b4b4b4;
   --edge: linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(242, 242, 242, 0.18));
-  --sweep-thumb: linear-gradient(90deg,
-      rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.10) 50%, rgba(0, 0, 0, 0) 100%);
-  --sweep-cap: linear-gradient(90deg,
-      rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.16) 50%, rgba(0, 0, 0, 0) 100%);
+  /* The same 8% lift as the dark theme, in the other direction: white at 0.08 on
+     a light surface is invisible, the way --spin-track's white track is. */
+  --sweep: linear-gradient(90deg,
+      rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.08) 50%, rgba(0, 0, 0, 0) 100%);
 }
 
 * { box-sizing: border-box; }
@@ -447,18 +447,39 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 #results.grid .body .name { grid-column: 2; grid-row: 1; align-self: end; text-align: right; }
 #results.grid .body .dur { grid-column: 2; grid-row: 2; align-self: end; text-align: right; }
 
-/* Skeletons (777:520): radius-12 blocks, white 0->0.56 thumb and white 0->1
-   caption, swept (ADR-0011: this is the one animated surface while searching). */
-.card.skel { cursor: default; border-color: var(--surface); }
+/* Skeletons — the design's loading_result (777:532): a transparent 560x399 frame
+ * holding two blocks and no chrome of its own. thumb-sk is 554x312 at x=3 with
+ * radius 12; cap-sk is 69 tall starting 18 below it; both carry the same fill,
+ * white 0 -> 0.08. Nothing of the card's own stroke or surface survives, because
+ * the design's frame has neither: inheriting both made the loading state a grey
+ * card with two dimmer rectangles in it. ADR-0016; ADR-0011 owns the motion, and
+ * this is the one animated surface while searching. */
+.card.skel { cursor: default; border: 0; background: none; }
+/* .card:hover paints --accent, and a div still matches :hover. */
+.card.skel:hover { background: none; }
 .card.skel .sk-thumb, .card.skel .sk-cap {
-  display: block; background-color: var(--surface-2);
-  background-size: 200% 100%; animation: sweep 1.2s linear infinite;
+  display: block; background-color: var(--surface-2); background-image: var(--sweep);
+  /* The resting position is the keyframe's end state, so `prefers-reduced-motion`
+     leaves a centred peak rather than a left-dark ramp. */
+  background-position: -50% 0; background-size: 200% 100%;
+  border-radius: var(--r-md);
+  animation: sweep 1.2s linear infinite;
 }
-.card.skel .sk-thumb { width: 100%; padding-top: 56.25%; background-image: var(--sweep-thumb); }
-.card.skel .sk-cap { height: 26px; margin: 6px 3px; background-image: var(--sweep-cap); }
+/* The inset is the card's own 3px stroke, so the block lands exactly where the real
+   thumbnail will. 312 of 554 is 0.5632 — 16:9 to within 0.1%. */
+.card.skel .sk-thumb { width: calc(100% - 6px); margin: 0 3px; padding-top: 56.25%; }
+/* The gap is the design's 18 of 560, which is 4.2px on a 132px thumb, on the
+   rhythm. The height is the body this block stands in for: two lines of the
+   caption's own 11px at the inherited 1.45, plus the body's 6px above and below.
+   The design's 69 is that same box at 20px type, so it cannot be copied — at this
+   scale it would be 17px and every row would jump ~30px when results land, which
+   is what §4.1's "the list does not reflow on submit" exists to prevent. */
+.card.skel .sk-cap { height: 44px; margin: 4px 3px 0; }
+/* The list row carries its own 8px gap and a fixed 72px thumb, so the two
+   grid-shaped declarations above are undone there rather than shared. */
 #results.list .card.skel { display: flex; align-items: stretch; gap: 8px; }
-#results.list .card.skel .sk-thumb { width: 72px; flex: none; padding-top: 0; height: 41px; }
-#results.list .card.skel .sk-cap { flex: 1; height: 11px; }
+#results.list .card.skel .sk-thumb { width: 72px; margin: 0; flex: none; padding-top: 0; height: 41px; }
+#results.list .card.skel .sk-cap { flex: 1; height: 11px; margin: 0; }
 @keyframes sweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 
 /* ---------- no-footage state (777:639) ----------
