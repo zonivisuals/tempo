@@ -55,6 +55,9 @@ class JobStatus(BaseModel):
     reused: bool = False
     stages: list[StageStatus] = Field(default_factory=list)
     error: str | None = None
+    # The kind of failure, closed vocabulary (docs/api.md). The panel renders this
+    # and nothing else; `error` stays for the log and the registry entry.
+    reason: str | None = None
 
 
 class FootageInfo(BaseModel):

@@ -62,7 +62,7 @@ Indexing-consistency guards, which make reopening a project safe:
  "stages": [{"name": "upload", "state": "running", "done": 1048576, "total": 3670016},
             {"name": "shots", "state": "pending", "done": 0, "total": 0},
             {"name": "ocr", "state": "running", "done": 37, "total": 157}],
- "error": null}
+ "error": null, "reason": null}
 ```
 - `state`: `queued|uploading|queued-for-backend|running|done|error|cancelled`.
 - Stage `state`: `pending|running|done|error`.
@@ -72,6 +72,31 @@ Indexing-consistency guards, which make reopening a project safe:
 
 Failed jobs keep their stage errors, and the registry entry keeps
 `state: error` plus the message. Auto-sync never re-enqueues; only an explicit retry does.
+
+### `reason` — what kind of failure, in words
+
+`reason` is the only part of a failed job the panel renders. `error` is the raw text
+for the service log and the registry entry (the engine's half of it is up to 2000
+characters of traceback, `known-issues.md` S5); the panel never prints it.
+
+Closed vocabulary, declared once as `REASONS` in `tempo_service/proxy.py`, and raised
+only where the sidecar itself raises — no string is ever sniffed out of a message:
+
+| `reason` | Raised when |
+|---|---|
+| `NOT_CONFIGURED` | no engine is configured to hand off to |
+| `UNKNOWN_FOOTAGE` | the registry entry vanished mid-job |
+| `SOURCE_MISSING` | the local file is gone (moved, deleted, drive offline) |
+| `ENGINE_REJECTED` | the engine answered with an application error (4xx) |
+| `ENGINE_FAILED` | the engine's own pipeline raised |
+| `BACKEND_UNREACHABLE` | no route to the engine, after `backend_poll_miss_retries` |
+| `BACKEND_ASLEEP` | route alive, engine not serving (the job waits instead) |
+| `BACKEND_TIMEOUT` | an engine call exceeded its budget |
+
+The last three are `tempo_service/backends/base.py`'s own codes, reused verbatim so
+one failure has one name across `/search` and `/jobs`. `reason` is `null` for a job
+that has not failed, and for a failure that was not one of these (any exception raised
+outside `proxy.handle`).
 
 ## Authentication: none
 

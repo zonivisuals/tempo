@@ -341,25 +341,6 @@ function renderSteps() {
 
 /* ---------- indexing failure ---------- */
 
-/* What the failure screen says. Two states, because the panel knows two different
- * amounts: with a failed job it knows a step stopped, and the step's own row above
- * names it, so this does not repeat it; with nothing but a registry entry it cannot
- * name anything and must not imply that it can.
- *
- * `reason` (what kind of failure it was) is added by ADR-0020; until the service
- * names it, this is the most the panel can honestly say. §7.3: no instance name,
- * plan limit, port or path is written here. */
-const FAIL_COPY = {
-  failed: {
-    pill: "Indexing Failed",
-    hint: "Tempo stopped on this step. Try it again — the finished steps are kept.",
-  },
-  stranded: {
-    pill: "Indexing Stopped",
-    hint: "Tempo lost track of the step this stopped on. Try again — indexing resumes from the last finished step.",
-  },
-};
-
 /* A registry entry the panel has no job for: stranded mid-index after a service
  * restart or a panel reload, or left in `error`. An entry a live job already covers
  * is not stranded — that job is its retry. */
@@ -393,7 +374,13 @@ function renderIndexFailure() {
   if (!failed && !stranded) { box.hidden = true; box.textContent = ""; return; }
 
   const key = failed ? failed.footage_key : stranded.footage_key;
-  const copy = failed ? FAIL_COPY.failed : FAIL_COPY.stranded;
+  // A reason the panel has a sentence for is printed, and it goes on the detail line
+  // because F2 requires the service's code on screen. A reason it has none for is
+  // not: the vocabulary is closed and pinned across the sidecar, this table and
+  // docs/api.md, so an unrecognised one is drift rather than a state an editor will
+  // ever meet, and printing a code nothing can explain helps nobody report it.
+  const known = failed && failed.reason && FAIL_COPY[failed.reason];
+  const copy = failed ? (known || FAIL_COPY.failed) : FAIL_COPY.stranded;
   // The other failures are counted rather than listed: a block per failed footage is
   // the row list this screen just lost, and one failure reported silently is not
   // honest either. The count is read off the footage list, so it is data and not a
@@ -405,7 +392,7 @@ function renderIndexFailure() {
     ? `<button type="button" class="fail-retry" data-retry-job="${esc(failed.job_id)}">Retry step</button>`
     : `<button type="button" class="fail-retry" data-retry-footage="${esc(stranded.footage_key)}">Retry step</button>`;
   box.hidden = false;
-  box.innerHTML = stateBlock(copy.pill, hint, "", action);
+  box.innerHTML = stateBlock(copy.pill, hint, known ? failed.reason : "", action);
 
   const target = failed ? "[data-retry-job]" : "[data-retry-footage]";
   box.querySelector(target).addEventListener("click", (e) => {
@@ -593,6 +580,64 @@ const ERROR_COPY = {
     pill: "Limit Reached",
     hint: "This project is over your plan's limit. Footage already indexed stays searchable.",
     withMessage: true,
+  },
+};
+
+/* What the failure screen says, keyed by the reason the service reported
+ * (docs/api.md § GET /jobs/{id}; the vocabulary is `REASONS` in the sidecar's
+ * proxy.py and both sides are pinned against each other by test). The heading is a
+ * status pill because that is what every other failure gets, and the instruction is
+ * the part the editor can take.
+ *
+ * `pill` is read from ERROR_COPY for the three transport codes rather than restated,
+ * so the same code cannot describe one failure two ways across search and indexing.
+ * The hints are written for the action this screen offers — retry the step — and so
+ * differ from ERROR_COPY's "search again" on purpose.
+ *
+ * §7.3: no instance name, plan limit, port or path is written here. Two states are
+ * not keyed by a reason because they are not failures the service named: `failed` is
+ * the fallback for a reason nobody has written a sentence for yet (including a job
+ * from before the field existed), and `stranded` is an entry with no job at all. */
+const FAIL_COPY = {
+  BACKEND_UNREACHABLE: {
+    pill: ERROR_COPY.BACKEND_UNREACHABLE.pill,
+    hint: "Tempo could not reach the GPU engine. Start the instance, then try the step again.",
+  },
+  BACKEND_ASLEEP: {
+    pill: ERROR_COPY.BACKEND_ASLEEP.pill,
+    hint: "The GPU engine is not running. Start the instance, then try the step again.",
+  },
+  BACKEND_TIMEOUT: {
+    pill: "Engine Timed Out",
+    hint: "The engine stopped answering. Try the step again.",
+  },
+  NOT_CONFIGURED: {
+    pill: "No Engine Set Up",
+    hint: "Tempo has no engine to index on. Point it at one, then try the step again.",
+  },
+  SOURCE_MISSING: {
+    pill: "Footage Unreadable",
+    hint: "Tempo could not read the file from disk. Put it back where the project expects it, then try again.",
+  },
+  UNKNOWN_FOOTAGE: {
+    pill: "Footage Missing",
+    hint: "Tempo lost track of this file. Press Sync now, then try the step again.",
+  },
+  ENGINE_REJECTED: {
+    pill: "Engine Refused",
+    hint: "The engine would not take this footage. Check the file, then try the step again.",
+  },
+  ENGINE_FAILED: {
+    pill: "Indexing Failed",
+    hint: "Tempo's engine stopped on this step. Try it again — the finished steps are kept.",
+  },
+  failed: {
+    pill: "Indexing Failed",
+    hint: "Tempo stopped on this step. Try it again — the finished steps are kept.",
+  },
+  stranded: {
+    pill: "Indexing Stopped",
+    hint: "Tempo lost track of the step this stopped on. Try again — indexing resumes from the last finished step.",
   },
 };
 
@@ -913,7 +958,6 @@ function setView(view) {
 }
 
 /* ---------- boot ---------- */
-
 
 async function ensureHost() {
   // Loader fallback: some environments load the panel UI but skip manifest

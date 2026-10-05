@@ -487,6 +487,14 @@ with no payload. That is now the same button, aimed at `/footage/{key}/retry` in
 `/jobs/{id}/retry`. Nothing else remains on this screen but the pill, the step list and
 this block — which is what §4.4 already said the section contains.
 
+**The sentence is chosen from the job's `reason`.** The sidecar names each failure it
+raises from a closed vocabulary (`REASONS`, `docs/api.md`), so the block can say what to
+do next rather than only that something stopped — and the code rides the `.detail` line,
+which is F2's requirement. The three transport codes take their heading from `ERROR_COPY`,
+so search and indexing cannot describe one code two ways; a reason with no sentence yet
+falls back to the generic wording and prints no code. The vocabulary is pinned across the
+service, the panel's table and `docs/api.md` by one test. ADR-0021.
+
 **The other failures are counted, not listed.** Queues are single-worker but a failure
 does not stop them, so a dead engine fails every queued footage in turn. One block
 reports one and the sentence ends with the count; a block each is the row list this

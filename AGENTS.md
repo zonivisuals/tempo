@@ -352,7 +352,16 @@ Implementation notes:
   hostile engine; it is asserted by `test_backends.py`. Embeddings stay on the
   engine.
 - **Job and footage state vocabulary** lives in `docs/api.md:115` and
-  `schemas.py`, not here. Job: `queued | uploading | running |
+  `schemas.py`, not here.
+- **Job failure has two fields, and the panel reads only one.** `error` is the raw
+  text — the engine's half is up to 2000 characters of traceback
+  (`known-issues.md` S5) — and it goes to the log and the registry entry.
+  `reason` is the kind of failure, from a closed vocabulary declared once as
+  `REASONS` in `proxy.py` and raised only where the sidecar itself raises
+  (`NOT_CONFIGURED`, `UNKNOWN_FOOTAGE`, `SOURCE_MISSING`, `ENGINE_REJECTED`,
+  `ENGINE_FAILED`, plus the seam's three `BACKEND_*`). No string is sniffed out of
+  a message. The panel renders `reason` and its own sentence for each; the raw text
+  never reaches it. Job: `queued | uploading | running |
   queued-for-backend | done | error | cancelled`. Footage: `uploading |
   indexing | ready | stale | error`.
 
@@ -541,7 +550,7 @@ MVP = F1–F5 core. F6 ships minimal (no slop) in MVP; full polish later.
 **F4 — Step-based indexing progress**
 - Each indexing job renders its stage list (§3.2). A stage becomes a row when it starts running and keeps its place until it is done; the states are running → done, plus error for a stage that failed. **A stage that has not started draws no row**: the list is the running stage plus what is already finished, so a docked panel shows real progress instead of nine claims about work that has not happened, and from enqueue until the first stage reports the status pill is the only thing on screen (the space the list will fill is held, so the pill does not move when rows arrive).
 - **A failed job keeps its list.** The step list renders from `currentJob()` — the live job, or failing that the newest job in state `error`, whose payload the panel holds until reload. Polling drops a terminal job from the active list, so reading only the active job made the poll that reported the failure also clear the list naming it. The errored row is the one marked row: `--error`, a `--error-wash` row tint at 10% of that theme's `--error`, and `failed` in its readout slot (a finished row is 0.5 opacity with an empty slot). The row carries no opacity of its own.
-- **A failure is one sentence and one button.** `renderIndexFailure()` replaces the error row and the footage rows with `stateBlock()` — the shape ADR-0018 gave every other failure — plus a single **Retry step** button, which resumes through the engine's stage cache. **Nothing engine-internal is rendered**: no traceback, container path, line number, socket errno or file name; the raw `error` stays in the payload and the service log. The button posts to `/jobs/{id}/retry` when the job is known and to `/footage/{key}/retry` when the panel holds only a registry entry (a service restart or panel reload loses the job id), so the stranded case keeps its recovery. The other failed footage are counted in the sentence, not listed.
+- **A failure is one sentence and one button.** `renderIndexFailure()` replaces the error row and the footage rows with `stateBlock()` — the shape ADR-0018 gave every other failure — plus a single **Retry step** button, which resumes through the engine's stage cache. **Nothing engine-internal is rendered**: no traceback, container path, line number, socket errno or file name; the raw `error` stays in the payload and the service log. The button posts to `/jobs/{id}/retry` when the job is known and to `/footage/{key}/retry` when the panel holds only a registry entry (a service restart or panel reload loses the job id), so the stranded case keeps its recovery. The other failed footage are counted in the sentence, not listed. The sentence itself is chosen from the job's `reason` (`FAIL_COPY` in `panel.js`), so a failure says what to do next - start the instance, put the file back, try again - and the code rides the block's detail line as F2 requires. A reason the panel has no sentence for falls back to the generic wording and prints no code.
 - Progress is the running row's own readout in real units (bytes sent; frames, audio seconds, keyframes, reps) — there is no bar. Acceptance: progress updates derive from job status payloads only — no estimated/fake progress.
 - Nine steps exist: the eight engine stages with editorial labels, plus one synthetic row bound to job `state === "queued"`, so a job the engine has not picked up is never a blank screen. Newest step at the top; a completing step slides down into place. Progress renders **no readout at all** where `total == 0` (cache-served stages, and every stage of a `reused` job) and a time count rather than a percentage for `transcribe`. Detail: `docs/design/panel-ui.md` §3.
 

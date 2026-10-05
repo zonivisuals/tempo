@@ -37,6 +37,10 @@ class Job:
     stage_names: list[str] = field(default_factory=lambda: [UPLOAD_STAGE])
     stages: dict[str, dict] = field(default_factory=dict)  # insertion order = display order
     error: str | None = None
+    # The kind of failure, in the panel's vocabulary (proxy.REASONS). Read off the
+    # exception rather than imported: proxy imports this module. None when whatever
+    # raised was not a handoff failure, which the panel renders as its fallback.
+    reason: str | None = None
     reused: bool = False  # engine already held a ready index for this content
 
     def __post_init__(self) -> None:
@@ -54,6 +58,7 @@ class Job:
             "reused": self.reused,
             "stages": [dict(st) for st in self.stages.values()],
             "error": self.error,
+            "reason": self.reason,
         }
 
 
@@ -181,6 +186,9 @@ class JobManager:
                                 st["state"] = "error"
                         job.state = "error"
                         job.error = str(exc)
+                        # An unnamed exception (not a HandoffError) leaves this None,
+                        # which is the honest answer: we know it failed, not why.
+                        job.reason = getattr(exc, "reason", None)
             finally:
                 self._queue.task_done()
 

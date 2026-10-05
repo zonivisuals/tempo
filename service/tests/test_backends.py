@@ -412,8 +412,11 @@ def test_engine_job_error_marks_entry_and_retry_recovers(tmp_path, monkeypatch):
 
     seed_footage(tmp_path)
     engine = FakeEngine(state="missing", job_state_seq=["running", "error"])
-    with pytest.raises(RuntimeError, match="decoder exploded"):
+    with pytest.raises(RuntimeError, match="decoder exploded") as caught:
         run_handle(engine, monkeypatch)
+    # The engine raised its own exception, so the handoff can only say what kind of
+    # failure it was (ADR-0021) — never what the exception said.
+    assert caught.value.reason == "ENGINE_FAILED"
     entry = reg.load_registry()["k1"]
     assert entry["state"] == "error" and "decoder exploded" in entry["error"]
     jobs_module.jobs._set("job_k1", state="error")
@@ -440,16 +443,94 @@ def test_unreachable_engine_fails_after_retries(tmp_path, monkeypatch):
     seed_footage(tmp_path)
     engine = FakeEngine()
     engine.library_replies = [Reply(False, 502, code=UNREACHABLE, message="refused")] * 10
-    with pytest.raises(RuntimeError, match="BACKEND_UNREACHABLE"):
+    with pytest.raises(RuntimeError, match="BACKEND_UNREACHABLE") as caught:
         run_handle(engine, monkeypatch)
+    # The seam's own code is the reason verbatim: the panel already has copy for
+    # these three (backends/base.py is the shared vocabulary), so re-inventing a
+    # sidecar code for the same thing would give one failure two names.
+    assert caught.value.reason == UNREACHABLE
     assert len(engine.library_replies) == 10 - proxy_module.settings.backend_poll_miss_retries
     assert reg.load_registry()["k1"]["state"] == "error"
 
 
 def test_missing_source_file_is_an_honest_error(tmp_path, monkeypatch):
     seed_footage(tmp_path).unlink()
-    with pytest.raises(RuntimeError, match="not found on disk"):
+    with pytest.raises(RuntimeError, match="not found on disk") as caught:
         run_handle(FakeEngine(), monkeypatch)
+    assert caught.value.reason == "SOURCE_MISSING"
+
+
+def test_every_handoff_failure_carries_a_reason_the_panel_can_name(tmp_path, monkeypatch):
+    """Each raise site names its own failure, and the vocabulary is closed.
+
+    The reason is the only thing the panel may print, so a raise site without one
+    would fall back to "Tempo stopped on this step" — true, and useless. These four
+    paths had no test of their own; they are the ones a new call site is most likely
+    to copy.
+    """
+    # No engine configured at all.
+    monkeypatch.setattr(proxy_module, "get_provider", lambda s: None)
+    with pytest.raises(RuntimeError) as unconfigured:
+        proxy_module.handle(jobs_module.Job(job_id="job_x", footage_key="k1"), lambda *a: None)
+    assert unconfigured.value.reason == "NOT_CONFIGURED"
+
+    # A registry entry that is not there (the project dropped the file mid-job).
+    monkeypatch.setattr(proxy_module, "get_provider", lambda s: FakeEngine())
+    reg.save_registry({})
+    with pytest.raises(RuntimeError) as unknown:
+        proxy_module.handle(jobs_module.Job(job_id="job_y", footage_key="k1"), lambda *a: None)
+    assert unknown.value.reason == "UNKNOWN_FOOTAGE"
+
+    # The engine refusing an application request is neither a transport failure nor
+    # the engine's own crash, and the two must not collapse into one another.
+    seed_footage(tmp_path)
+    engine = FakeEngine(state="missing")
+    engine.library_replies = [Reply(False, 409, code="SOURCE_MISSING", message="upload first")]
+    with pytest.raises(RuntimeError) as rejected:
+        run_handle(engine, monkeypatch)
+    assert rejected.value.reason == "ENGINE_REJECTED"
+
+    produced = {unconfigured.value.reason, unknown.value.reason, rejected.value.reason,
+                "ENGINE_FAILED", "SOURCE_MISSING", UNREACHABLE, TIMEOUT, ASLEEP}
+    assert produced <= proxy_module.REASONS, (
+        f"a raise site invented a reason outside the vocabulary: {sorted(produced - proxy_module.REASONS)}"
+    )
+
+
+def test_a_failed_job_carries_the_reason_to_the_status_route():
+    """The reason reaches `GET /jobs/{id}`, which is the panel's only source.
+
+    `jobs._run` is the only place a failed job is finalised, and it reads the reason
+    off the exception rather than importing `proxy` (which imports `jobs`). Driven
+    through a real manager and a real queue so the plumbing is what is tested, not a
+    hand-set field.
+    """
+    from tempo_service.schemas import JobStatus
+
+    def failing(reason):
+        mgr = jobs_module.JobManager()
+        err = RuntimeError("engine exploded") if reason is None else proxy_module.HandoffError(
+            "engine exploded", reason)
+        mgr.register_handler(lambda job, progress: (_ for _ in ()).throw(err))
+        job_id = mgr.enqueue("k9")
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            job = mgr.get(job_id)
+            if job and job.state == "error":
+                return job
+            time.sleep(0.01)
+        pytest.fail("the job never reached error")
+
+    status = JobStatus(**failing("ENGINE_FAILED").to_status())
+    assert status.state == "error" and status.reason == "ENGINE_FAILED"
+    assert status.error == "engine exploded", "the raw text stays for the log and the registry"
+
+    # An exception that is not a handoff failure has no reason, and the panel's
+    # fallback wording is the honest thing to print for it.
+    assert failing(None).to_status()["reason"] is None
+
+    # A job that has not failed carries none either.
+    assert JobStatus(job_id="job_1", footage_key="k7", state="queued").reason is None
 
 
 def test_thumb_sync_rejects_hostile_names(tmp_path):

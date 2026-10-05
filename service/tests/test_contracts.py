@@ -1059,6 +1059,70 @@ _STRANDED = (
 )
 
 
+def test_the_panel_names_every_failure_the_service_can_report():
+    """The service's reason vocabulary and the panel's copy table are one list.
+
+    A reason the panel has no sentence for falls back to "Tempo stopped on this
+    step", which is true and tells the editor nothing they can act on — the panel
+    cannot classify the failure itself, so a gap here is a permanently vague screen
+    rather than a bug that shows up anywhere. Three copies of the vocabulary exist
+    and all three are checked: the service raises them (`proxy.REASONS`), the panel
+    writes them (`FAIL_COPY`), and `docs/api.md` is the contract of record.
+
+    The three transport codes are the seam's own (`backends/base.py`) and are reused
+    rather than renamed, so the search-failure copy and the indexing copy cannot
+    describe one code two ways.
+    """
+    from tempo_service.proxy import REASONS
+
+    have = set(json.loads(_panel_eval("Object.keys(FAIL_COPY)")))
+    assert have >= REASONS, f"the panel has no sentence for {sorted(REASONS - have)}"
+    for code in ("BACKEND_UNREACHABLE", "BACKEND_ASLEEP"):
+        shared = json.loads(_panel_eval(f"[FAIL_COPY.{code}.pill, ERROR_COPY.{code}.pill]"))
+        assert shared[0] == shared[1], (
+            f"{code} describes one failure in two vocabularies: {shared[0]!r} and {shared[1]!r}"
+        )
+
+    doc = (Path(__file__).resolve().parents[2] / "docs" / "api.md").read_text(encoding="utf-8")
+    for reason in sorted(REASONS):
+        assert reason in doc, f"{reason} is raised and rendered but docs/api.md does not list it"
+
+    # Every entry has a heading and an instruction. A failure that names itself
+    # without saying what to do is a label, which is what F2 calls a code.
+    for entry in json.loads(_panel_eval("Object.values(FAIL_COPY)")):
+        assert entry["pill"] and entry["hint"], entry
+
+
+def test_the_failure_names_the_cause_the_service_reported():
+    """A known reason gets its own sentence and the code stays on screen.
+
+    The step list says *where* it stopped; this says *what* was wrong, which the
+    panel cannot know from the step alone. F2 requires the service's code on screen
+    and §3.1b puts it on the block's detail line — the reason is a closed vocabulary,
+    so it is the one code that can be printed there without leaking internals.
+
+    An unknown or absent reason falls back to ADR-0020's wording rather than to
+    nothing: an unnamed new code is the case where the fallback matters most.
+    """
+    def block(reason):
+        job = json.loads(_FAILED_JOB)
+        job["reason"] = reason
+        setup = _FAILED_FOOTAGE + " store.jobs = { job_1: %s };" % json.dumps(job)
+        return _panel_render("renderIndexing()", setup + " store.activeJobs = [];", _FAIL_HTML)
+
+    html = block("BACKEND_UNREACHABLE")
+    assert "Engine Unreachable" in html, html
+    assert "Start the instance" in html, html
+    assert "BACKEND_UNREACHABLE" in html, f"the code stays on the detail line: {html}"
+
+    assert "Indexing Failed" in block("ENGINE_FAILED"), block("ENGINE_FAILED")
+    # A reason nobody has named yet, and a job from before the field existed.
+    for unknown in ("SOMETHING_NEW", None):
+        html = block(unknown)
+        assert "Tempo stopped on this step" in html, html
+        assert "SOMETHING_NEW" not in html and 'class="detail"' not in html, html
+
+
 def test_the_failure_reports_one_sentence_and_never_the_engine_text():
     """The failure screen is a sentence and a button, not a traceback.
 

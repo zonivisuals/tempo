@@ -32,7 +32,7 @@ from collections.abc import Callable
 from . import fingerprint
 from . import jobs as jobs_module
 from . import registry as registry_module
-from .backends import ASLEEP, TRANSPORT_CODES, BackendProvider, Reply, get_provider
+from .backends import ASLEEP, TIMEOUT, TRANSPORT_CODES, UNREACHABLE, BackendProvider, Reply, get_provider
 from .config import settings
 
 log = logging.getLogger("tempo.proxy")
@@ -41,9 +41,37 @@ UPLOAD = jobs_module.UPLOAD_STAGE
 MB = 1024 * 1024
 THUMB_NAME = re.compile(r"\d{1,7}\.jpg")
 
+# Every reason this handoff can fail with, and the only thing the panel is allowed to
+# print (ADR-0021). Closed on purpose: the panel cannot classify a failure itself, so
+# a code outside this set would reach it as a fallback sentence that names nothing. The
+# three transport codes are `backends/base.py`'s own, reused verbatim so one failure
+# has one name across search and indexing. `docs/api.md` lists them; the panel has a
+# sentence for each (`FAIL_COPY`), and tests/test_contracts.py checks all three copies
+# against each other.
+REASONS = frozenset({
+    "NOT_CONFIGURED",    # no engine to hand off to
+    "UNKNOWN_FOOTAGE",   # the registry entry vanished mid-job
+    "SOURCE_MISSING",    # the local file is gone (moved, deleted, drive offline)
+    "ENGINE_REJECTED",   # the engine answered, with an application error
+    "ENGINE_FAILED",     # the engine's own pipeline raised
+    UNREACHABLE,
+    ASLEEP,
+    TIMEOUT,
+})
+
 
 class HandoffError(RuntimeError):
-    pass
+    """A failure to hand a footage to the engine, named.
+
+    `reason` is the panel's vocabulary; the message is for the service log and the
+    registry entry, and is never rendered. Anything raised that is not a
+    HandoffError has no reason, and the panel says its fallback sentence.
+    """
+
+    def __init__(self, message: str, reason: str | None = None) -> None:
+        super().__init__(message)
+        assert reason is None or reason in REASONS, f"undeclared reason: {reason}"
+        self.reason = reason
 
 
 def _set_state(job, state: str) -> None:  # type: ignore[no-untyped-def]
@@ -69,7 +97,9 @@ def _call(job, what: str, fn: Callable[[], Reply]) -> Reply:  # type: ignore[no-
             log.info("job %s: %s miss %d/%d (%s)", job.job_id, what, misses,
                      settings.backend_poll_miss_retries, reply.code)
             if misses >= settings.backend_poll_miss_retries:
-                raise HandoffError(f"{what} failed: {reply.code} {reply.message}".strip())
+                # The seam's own code is the reason verbatim; the message keeps the
+                # engine's words for the log.
+                raise HandoffError(f"{what} failed: {reply.code} {reply.message}".strip(), reply.code)
         time.sleep(settings.backend_asleep_wait_s)
 
 
@@ -96,7 +126,7 @@ def _upload(job, provider: BackendProvider, path: str, cid: str, offset: int, pr
                 offset = int(json.loads(reply.message)["received"])  # resume where the engine is
                 log.info("job %s: upload resumes at %d", job.job_id, offset)
             elif not reply.ok:
-                raise HandoffError(f"upload rejected: {reply.code} {reply.message}".strip())
+                raise HandoffError(f"upload rejected: {reply.code} {reply.message}".strip(), "ENGINE_REJECTED")
             else:
                 offset = int(reply.body["received"])
             progress(UPLOAD, offset, size)
@@ -109,7 +139,7 @@ def _submit(job, provider: BackendProvider, path: str, cid: str, progress) -> di
         _upload(job, provider, path, cid, 0, progress)
         reply = _call(job, "index", lambda: provider.submit_index(cid))
     if not reply.ok:
-        raise HandoffError(f"index request rejected: {reply.code} {reply.message}".strip())
+        raise HandoffError(f"index request rejected: {reply.code} {reply.message}".strip(), "ENGINE_REJECTED")
     return reply.body
 
 
@@ -118,7 +148,7 @@ def _poll(job, provider: BackendProvider, engine_job: str, progress) -> dict:  #
     while True:
         reply = _call(job, "poll", lambda: provider.job_status(engine_job))
         if not reply.ok:
-            raise HandoffError(f"engine job {engine_job}: {reply.code} {reply.message}".strip())
+            raise HandoffError(f"engine job {engine_job}: {reply.code} {reply.message}".strip(), "ENGINE_REJECTED")
         body = reply.body
         for st in body.get("stages", []):
             name, state = st.get("name", ""), st.get("state")
@@ -129,7 +159,9 @@ def _poll(job, provider: BackendProvider, engine_job: str, progress) -> dict:  #
         if body.get("state") == "done":
             return body
         if body.get("state") == "error":
-            raise HandoffError(body.get("error") or "engine job failed")
+            # The engine raised something of its own. Its text names a model, a path
+            # or a line number, so it stays here: the panel is told the kind.
+            raise HandoffError(body.get("error") or "engine job failed", "ENGINE_FAILED")
         time.sleep(settings.job_poll_s)
 
 
@@ -169,14 +201,14 @@ def _finish(job, provider: BackendProvider, cid: str, stats: dict, reused: bool)
 def _handoff(job, progress, provider: BackendProvider, entry: dict) -> None:  # type: ignore[no-untyped-def]
     path = entry.get("path", "")
     if not path or not os.path.isfile(path):
-        raise HandoffError(f"source file not found on disk: {path}")
+        raise HandoffError(f"source file not found on disk: {path}", "SOURCE_MISSING")
     cid = fingerprint.content_id(path)
     _update_entry(job.footage_key, content_id=cid)
     log.info("job %s: %s -> content %s", job.job_id, job.footage_key, cid)
 
     lib = _call(job, "library", lambda: provider.library(cid))
     if not lib.ok:
-        raise HandoffError(f"library lookup failed: {lib.code} {lib.message}".strip())
+        raise HandoffError(f"library lookup failed: {lib.code} {lib.message}".strip(), "ENGINE_REJECTED")
     info = lib.body
     if info["state"] == "ready":
         jobs_module.jobs._mark_stage(job.job_id, UPLOAD, "done")
@@ -206,10 +238,11 @@ def handle(job, progress) -> None:  # type: ignore[no-untyped-def]
     provider = get_provider(settings)
     try:
         if provider is None:
-            raise HandoffError("engine not configured: set TEMPO_BREV_INSTANCE or TEMPO_BACKEND_URL")
+            raise HandoffError("engine not configured: set TEMPO_BREV_INSTANCE or TEMPO_BACKEND_URL",
+                               "NOT_CONFIGURED")
         entry = registry_module.load_registry().get(job.footage_key)
         if entry is None:
-            raise HandoffError(f"unknown footage {job.footage_key}")
+            raise HandoffError(f"unknown footage {job.footage_key}", "UNKNOWN_FOOTAGE")
         _handoff(job, progress, provider, entry)
     except Exception as exc:
         # Honest terminal state for Retry: the entry keeps the message, the job keeps its

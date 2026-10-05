@@ -63,6 +63,11 @@ flag and reject an element reading as "AI-generated slop".
       instruction, and a single **Retry step** button (two Retry buttons for one
       fault is what this replaced). Press it: indexing resumes from the failed
       step and the finished steps stay finished. ADR-0020.
+- [ ] The sentence names the cause, not just the stopping — check `preview.html#failed`:
+      an unreachable engine says so and tells the editor to start the instance, and the
+      service's code (`BACKEND_UNREACHABLE`) is on the block's quiet detail line. A cause
+      the panel has no sentence for must fall back to the generic wording rather than
+      print a code nothing explains. ADR-0021.
 - [ ] Step list: the running stage at the top with its readout, finished stages
       dimmed below it with a check. **A stage that has not started draws no row** —
       check `preview.html#indexing` early in the run: the list must not be a
