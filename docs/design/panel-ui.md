@@ -419,24 +419,65 @@ Everything else renders `NN%`.
 | Motion | Value | Where |
 |---|---|---|
 | shimmer sweep | 1.2 s linear infinite | skeleton blocks |
+| query shimmer | 1 s linear infinite | search value while searching |
 | step slide | 240 ms `cubic-bezier(.2,0,0,1)` | a completing row moving to its resting place |
 | spinner rotation | 1 s linear infinite | running step, submit button, indexing pill |
-| query text sweep | 1.6 s linear infinite | search value while searching |
+
+The two shimmers are deliberately not the same speed. The query's band travels
+`W + 2 × spread` per cycle, where `W` is the mirror's shrink-to-fit **text** width —
+so its speed depends on how long the query is, roughly 150 px/s on a three-character
+query and 320 px/s at a full 200 px field, against the skeleton sweep's fixed
+~220 px/s (ADR-0017).
 
 `prefers-reduced-motion: reduce` disables all four (a no-op on CEF < 74 — see
-`known-issues.md`).
+`known-issues.md`), and the query additionally **gives the gradient up and takes its
+own text colour back** — see §4.1.
 
 ## 4. Scenarios (search)
 
 ### 4.1 Frame 03 — searching
 
 - Submit button swaps arrow → spinner.
-- Query value renders the accent sweep (above).
+- Query value renders the shimmer (below).
 - Results area renders `min(previous result count, 9)` skeleton cards. Count
   matches the previous result count so the list does not reflow on submit; a
   first search renders 9.
 - Skeletons display for at least 200ms (`§5` F3) even on a fast engine.
 - The view pair is present and unchanged from frame 04, on the left as drawn (§1).
+
+**The query shimmer is one text layer.** `#q-sweep` paints the query by itself: the
+band is a gradient clipped to the glyphs, and that gradient's *outer stops are the
+resting colour*, so the dim query is visible and one brighter band travels across it.
+The shape is shadcn/ui's `shimmer` utility — its 20° tilt (so the gradient is
+`110deg`), its `calc(3ch + 40px)` spread, and its `calc(200% + spread × 2)` sizing,
+which is what puts the band clear of both ends at the keyframe's extremes so the loop
+never wraps. Direction is right to left, the direction the skeleton sweep already
+runs in, at 1 s.
+
+It is **not** an accent sweep. ADR-0011 shipped the band in `--accent`, which §6
+fences to selection and active states; a search in flight is neither, and this is
+greyscale.
+
+| | level | token |
+|---|---|---|
+| resting | 0.40 dark / 0.45 light | `--text-dim` — the level of the `Search for anything` label above it |
+| mid | 0.60 / 0.66 | `--qsweep-mid`, the half-mix of the two ends |
+| peak | 0.80 / 0.88 | `--text` — the level a value normally reads at |
+
+Those are not chosen numbers. The utility derives its highlight from `currentColor`
+(lightness +0.4, alpha +0.4 in dark), and over `--text-dim`'s 0.4 that lands exactly
+on `--text`'s 0.8. The utility reaches that through `oklch(from currentColor …)` and
+`color-mix()`, far above this panel's Chromium 84 floor — but the two levels it lands
+on are tokens the panel already has, so the base and the peak are written as
+`var(--text-dim)` and `var(--text)` and only the half-mix is a literal. One `--qsweep`
+shape for both themes; the light theme overrides `--qsweep-mid` and nothing else
+(ADR-0017 §2–§3).
+
+**Under `prefers-reduced-motion: reduce` the query renders plainly**, in
+`--text`. This is not tidiness: the layer's text is transparent by construction, so
+`animation: none` alone parks the band clear of the string and leaves the field
+**blank** mid-search. The skeletons keep ADR-0016's resting-position answer instead,
+because their resting state is a shape rather than text.
 
 **The skeleton is `loading_result` (777:532) and nothing else.** The design draws
 it as a transparent 560 × 399 frame holding two blocks, with no stroke and no

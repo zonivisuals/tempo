@@ -415,13 +415,10 @@ function renderSearch() {
 
 function syncQueryMirror() {
   const q = $("q");
-  $("q-base").textContent = q.value;
   $("q-sweep").textContent = q.value;
-  // Mirrors are absolutely positioned over the input's text; keep them in step
+  // The mirror is absolutely positioned over the input's text; keep it in step
   // with its scroll offset so a long query lines up.
-  const off = q.scrollLeft;
-  $("q-base").style.left = -off + "px";
-  $("q-sweep").style.left = -off + "px";
+  $("q-sweep").style.left = -q.scrollLeft + "px";
 }
 
 function renderFilter() {

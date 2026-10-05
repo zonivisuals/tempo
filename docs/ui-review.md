@@ -28,8 +28,19 @@ flag and reject an element reading as "AI-generated slop".
       thumbnail and caption will be, and for a caption block bright enough to be
       the first thing on the screen. The two blocks are `--r-md` and the sweep is
       the design's own 8% lift, not a glow.
+- [ ] The query shimmer is one band over dim text, and nothing under it: on
+      `preview.html#searching` the value reads as the label's own dim level with a
+      brighter band crossing it, never a full-strength query with a second edge
+      through it, and **no accent anywhere in the band** — the monochrome rule above
+      is where a coloured band would have been caught. The band's ends must not
+      repeat along the text. Emulate `prefers-reduced-motion` and the value has to
+      stay legible: it renders plainly, and before ADR-0017 it went blank.
 - [ ] **No more than two animated surfaces on screen at once.** In practice:
-      one running step, or one spinner, or one skeleton field — never two.
+      one running step, or one spinner, or one skeleton field — never two. The one
+      recorded exception is the searching frame, which spends three (submit arc,
+      query shimmer, skeleton field) because all three answer the same question with
+      the same answer; see ADR-0017, where it is named as a deviation and not as a
+      clearance.
 - [ ] Every animation answers "what state is this?". A sweep that decorates
       rather than informs is rejected here exactly as a spinner over a skeleton
       would be.

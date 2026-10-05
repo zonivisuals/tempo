@@ -5,7 +5,7 @@
 <title>Tempo</title>
 <!-- ?v= cache buster: CEF caches panel assets aggressively across AE
      restarts; bump on any www/ change so the installed panel reloads. -->
-<link rel="stylesheet" href="panel.css?v=0.9.0">
+<link rel="stylesheet" href="panel.css?v=0.9.1">
 </head>
 <body>
 <div id="app">
@@ -51,10 +51,11 @@
     </div>
     <div class="sb-row">
       <div class="sb-val">
-        <!-- Two stacked copies of the value: the base stays legible, the sweep
-             overlays it clipped to an accent gradient (777:512). #q's own colour
-             goes transparent while searching so the caret survives. -->
-        <span id="q-base" aria-hidden="true"></span>
+        <!-- One copy of the value, and it paints the query by itself: the shimmer
+             gradient's own outer stops are the resting colour, so a legible copy
+             underneath it would be a second edge crossing the band. (ADR-0017; the
+             old pair was a base layer plus an accent band over it.) #q's own
+             colour goes transparent while searching so the caret survives. -->
         <span id="q-sweep" aria-hidden="true"></span>
         <input id="q" type="text" autocomplete="off" spellcheck="false">
       </div>
@@ -121,6 +122,6 @@
 </div>
 <script src="../CSXS/CSInterface.js"></script>
 <script src="api.js?v=0.6.1"></script>
-<script src="panel.js?v=0.7.1"></script>
+<script src="panel.js?v=0.7.2"></script>
 </body>
 </html>

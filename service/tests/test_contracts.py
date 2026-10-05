@@ -1518,6 +1518,134 @@ def test_searching_frame_is_two_blocks_at_the_designs_level():
     )
 
 
+def test_query_shimmer_is_one_text_layer_and_not_the_accent():
+    """The searching field paints the query once, with a band travelling across it.
+
+    It used to paint it twice: a legible copy in the field's own text colour with a
+    band drawn over the top of it, on a gradient that repeated off both ends of the
+    text. What the editor saw was a full-strength query with a second edge crossing
+    it, which is the noise the shimmer existed to remove — so the removal is pinned
+    by mechanism, the same way the navbar's own removals are.
+
+    The band is also greyscale, which is not a taste call. AGENTS.md 6 allows one
+    accent and only for selection and active states, and a search in flight is
+    neither.
+
+    The three alphas are not invented either. shadcn's `shimmer` utility derives its
+    highlight from `currentColor` — lightness +0.4 and alpha +0.4 in its dark
+    variant — and run over this panel's own dim level that lands exactly on the
+    field's value level: 0.4 + 0.4 = 0.8. The mid stop is the half-mix of the two
+    ends, so it is derived rather than chosen (0.45 and 0.88 average to 0.665,
+    taken down to the rhythm at 0.66).
+
+    The utility's own colour maths — `oklch(from currentColor ...)`, `color-mix()`
+    — are far above this panel's Chromium floor, so the stops are literal here. That
+    is the reason the token exists at all: two themes, one shape, one owner.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    js = PANEL_JS.read_text(encoding="utf-8")
+
+    # One text layer. The band IS the resting colour's carrier, so a copy of the
+    # query underneath it is not a fallback, it is the second edge.
+    for text, name in ((html, "index.html"), (js, "panel.js"), (css, "panel.css")):
+        assert "q-base" not in text, (
+            f"{name} reintroduced the second copy of the query; the shimmer's own "
+            "outer stops are the resting colour, so a base layer is the noise"
+        )
+    assert 'id="q-sweep"' in html, "the shimmer still needs its mirror over the input"
+
+    # One gradient, declared once, in the dark theme's block: the base and the peak
+    # are the tokens themselves rather than literals of their values, so the shape
+    # does not repeat per theme -- the tokens flip. Only the half-mix is a literal,
+    # because nothing derives it.
+    dark = _css_rule(css, ":root")
+    light = _css_rule(css, "html.light")
+    assert "--qsweep:" in dark and "--qsweep:" not in light, (
+        "one owner for the gradient's shape; the themes differ by --qsweep-mid alone"
+    )
+    shape = re.search(r"--qsweep:\s*linear-gradient\(([^;]+)\);", dark).group(1)
+    assert not re.search(r"rgba\(235|rgba\(194|235, 81, 23|194, 60, 12", shape), (
+        f"AGENTS.md 6 allows the accent for selection and active states only, and a "
+        f"search-in-flight band is neither: {shape!r}"
+    )
+    # The ported geometry: the util's 20deg tilt on top of 90deg, its
+    # `3ch + 40px` spread, and the half-spread offsets that soften the band. A
+    # regression to 90deg or to fixed stops still renders, and is still not the port.
+    assert shape.strip().startswith("110deg"), f"the util's tilt is 90 + 20; got {shape!r}"
+    assert "calc(50% - var(--qsweep-spread))" in shape, shape
+    assert "calc(50% + var(--qsweep-spread))" in shape, shape
+    assert "calc(50% - var(--qsweep-spread) * 0.5)" in shape, shape
+    assert "calc(50% + var(--qsweep-spread) * 0.5)" in shape, shape
+    assert shape.count("var(--text-dim)") == 2, f"the base stop, at both ends: {shape!r}"
+    assert shape.count("var(--text)") == 1, f"the peak stop, at the centre: {shape!r}"
+    assert len(re.findall(r"--qsweep-spread:", css)) == 1, "one owner for the band width"
+
+    # And the one literal is derived, not chosen: each theme's half-mix is the mean
+    # of its own two text alphas. Quoted numbers would go stale silently the moment
+    # a text token's alpha moved, which is the trap NARROW_DOCK_PX's derivation
+    # exists to avoid.
+    for name, block in (("dark", dark), ("light", light)):
+        dim = float(re.search(r"--text-dim:\s*rgba\([^)]*?([\d.]+)\)", block).group(1))
+        text_level = float(re.search(r"--text:\s*rgba\([^)]*?([\d.]+)\)", block).group(1))
+        mid = re.search(r"--qsweep-mid:\s*rgba\([^)]*?([\d.]+)\)", block)
+        assert mid, f"the {name} theme needs its own half-mix; got {block!r}"
+        expected = round((dim + text_level) / 2, 3)
+        held = round(float(mid.group(1)), 3)
+        # Half of the last digit kept, plus an epsilon so binary float noise on
+        # 0.665 does not read as a breach.
+        assert abs(held - expected) <= 0.005 + 1e-9, (
+            f"the {name} half-mix is the mean of --text-dim ({dim}) and --text "
+            f"({text_level}) = {expected}, held to two decimals; the file has "
+            f"{mid.group(1)}"
+        )
+
+    # The element consumes the token and adds the three things the token cannot
+    # carry: the clip that paints the text at all, the no-repeat that keeps the band
+    # from growing a second edge along the string, and the sizing whose `2 *` is what
+    # keeps the band clear of both ends so the loop never wraps.
+    rule = _css_rule(css, "#q-sweep")
+    assert "background-image: var(--qsweep);" in rule, (
+        f"the gradient belongs to the token, not to the rule; got {rule!r}"
+    )
+    assert "linear-gradient" not in rule, "a second owner for the gradient"
+    assert "background-repeat: no-repeat;" in rule, (
+        "a repeating gradient gives the band a second edge along the text, which is "
+        "half of what this change removes"
+    )
+    assert "calc(200% + var(--qsweep-spread) * 2) 100%" in rule, (
+        "the seamless loop needs the band clear of both ends at the keyframe extremes"
+    )
+    assert "-webkit-background-clip: text;" in rule and "background-clip: text;" in rule, (
+        "the -webkit- prefix is the declared CEP 9 floor"
+    )
+    assert "color: transparent;" in rule, "the text is painted by the gradient, not by colour"
+    assert "animation: qsweep 1s linear infinite;" in rule, (
+        "1s is the cycle this was chosen at; see the ADR's speed trade"
+    )
+
+    # Right to left, the direction the skeleton sweep already runs in. A positive
+    # background-position percentage moves the gradient leftwards.
+    kf = re.search(r"(?m)^@keyframes qsweep\s*\{(.*)\}$", css).group(1)
+    assert "from { background-position: 0 0; }" in kf, f"got {kf!r}"
+    assert "to { background-position: 100% 0; }" in kf, f"got {kf!r}"
+
+    # Reduced motion: the query renders plainly, in the field's own value colour.
+    # `animation: none` alone leaves the band at rest off the end of the text, and
+    # the text layer is transparent — so the field went blank mid-search.
+    motion = re.search(r"@media \(prefers-reduced-motion: reduce\) \{(.*)", css, re.S).group(1)
+    assert "#q-sweep," not in motion, (
+        "the query needs its own reduced-motion rule; sharing the animation-only "
+        "one is what leaves it invisible"
+    )
+    still = re.search(r"(?m)^\s*#q-sweep\s*\{([^}]*)\}", motion).group(1)
+    assert "animation: none;" in still, f"got {still!r}"
+    assert "background-image: none;" in still and "color: var(--text);" in still, (
+        "with the gradient gone the text needs its own colour back, or the query "
+        f"stays transparent; got {still!r}"
+    )
+
+
 def test_interactive_api_docs_are_disabled():
     """With no auth wall, /docs, /redoc and /openapi.json hand any process on
     the machine a complete map of every route, parameter and model for free.

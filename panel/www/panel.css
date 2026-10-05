@@ -52,6 +52,25 @@
    * off the design's own fills rather than one invented per block. */
   --sweep: linear-gradient(90deg,
       rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0) 100%);
+  /* The query shimmer, one text layer: the band is painted by the gradient itself,
+     whose outer stops ARE the resting colour, so nothing legible sits underneath it
+     to band over. Shape, tilt (20deg off vertical, so 110deg), spread and sizing are
+     shadcn's `shimmer` util, ported verbatim. The colours are its own dark-mode
+     formula run over this panel's text levels — base lightness +0.4 and alpha +0.4
+     off --text-dim's 0.4 lands on --text's 0.8 — and it computes them in
+     oklch(from currentColor ...) and color-mix(), both far above this panel's
+     Chromium 84 floor. So the base and the peak are the tokens themselves rather
+     than literals, and only the half-mix between them is one: --qsweep-mid. One
+     shape for both themes, because the tokens already flip and the light theme
+     overrides the mid stop and nothing else. ADR-0017. */
+  --qsweep-spread: calc(3ch + 40px);
+  --qsweep-mid: rgba(255, 255, 255, 0.6);
+  --qsweep: linear-gradient(110deg,
+      var(--text-dim) calc(50% - var(--qsweep-spread)),
+      var(--qsweep-mid) calc(50% - var(--qsweep-spread) * 0.5),
+      var(--text) 50%,
+      var(--qsweep-mid) calc(50% + var(--qsweep-spread) * 0.5),
+      var(--text-dim) calc(50% + var(--qsweep-spread)));
 }
 /* Light theme: the same system with surfaces inverted and the accent darkened to
    hold contrast on a light panel. appSkinInfo only selects which one. */
@@ -75,6 +94,10 @@ html.light {
      a light surface is invisible, the way --spin-track's white track is. */
   --sweep: linear-gradient(90deg,
       rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.08) 50%, rgba(0, 0, 0, 0) 100%);
+  /* Only the half-mix is ours: (0.45 + 0.88) / 2 = 0.665, held to the two decimals
+     the text tokens themselves carry. The base and the peak are --text-dim and
+     --text, which flip with the theme, so --qsweep does not repeat here. */
+  --qsweep-mid: rgba(0, 0, 0, 0.66);
 }
 
 * { box-sizing: border-box; }
@@ -167,36 +190,40 @@ html.light #logo { filter: invert(1) hue-rotate(180deg); }
 .sb-head svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .sb-row { display: flex; align-items: center; gap: 8px; }
 
-/* The two mirrors sit over the input's text box. #q's colour goes transparent
-   while searching so the caret survives and the accent band can sweep. */
+/* One mirror sits over the input's text box, and it paints the query by itself.
+   There was a second copy underneath it, legible, with the band drawn over the top:
+   two text layers and a repeating gradient, which is what made the sweep noisy.
+   #q's colour goes transparent while searching so the caret survives. ADR-0017. */
 .sb-val { position: relative; flex: 1; min-width: 0; height: 20px; }
 .sb-row input {
   width: 100%; background: transparent; color: var(--text);
   border: 0; font: inherit; font-size: 13px; padding: 0; height: 20px;
 }
 #q:focus { outline: none; }
-#q-base, #q-sweep {
+#q-sweep {
   position: absolute; left: 0; top: 0; height: 20px; line-height: 20px;
   font-size: 13px; white-space: pre; overflow: hidden; pointer-events: none;
   max-width: 100%;
-}
-#q-base { color: var(--text); display: none; }
-#q-sweep { display: none; }
-#searchbox.searching #q { color: transparent; caret-color: var(--text); }
-#searchbox.searching #q-base, #searchbox.searching #q-sweep { display: block; }
-#q-sweep {
+  display: none;
   color: transparent;
-  background-image: linear-gradient(90deg,
-      rgba(235, 81, 23, 0) 0%, rgba(235, 81, 23, 1) 50%, rgba(235, 81, 23, 0) 100%);
-  background-size: 240% 100%;
+  background-image: var(--qsweep);
+  /* no-repeat is load-bearing, not tidiness: a repeating gradient gives the band a
+     second edge along the text. The sizing is the util's own — 200% plus the band on
+     either side — which is what keeps the band clear of the text at both keyframe
+     extremes (its near edge sits a fraction past the field's right edge at one and a
+     fraction past the left edge at the other, the tilt accounting for the fraction) so
+     the loop never wraps, and what keeps the base stop covering the whole string at
+     every position between them, so the query never goes invisible. */
+  background-repeat: no-repeat;
+  background-size: calc(200% + var(--qsweep-spread) * 2) 100%;
   -webkit-background-clip: text; background-clip: text;
-  animation: qsweep 1.6s linear infinite;
+  animation: qsweep 1s linear infinite;
 }
-html.light #q-sweep {
-  background-image: linear-gradient(90deg,
-      rgba(194, 60, 12, 0) 0%, rgba(194, 60, 12, 1) 50%, rgba(194, 60, 12, 0) 100%);
-}
-@keyframes qsweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+#searchbox.searching #q { color: transparent; caret-color: var(--text); }
+#searchbox.searching #q-sweep { display: block; }
+/* Right to left, the direction the skeleton sweep already runs in: a positive
+   background-position percentage moves the gradient leftwards. */
+@keyframes qsweep { from { background-position: 0 0; } to { background-position: 100% 0; } }
 
 /* Submit button (777:314): 60px square, radius 10.67, fill white at 0.10,
  * no border, no shadow, "Arrow up" rotated 90deg, 23px glyph, stroke 4 round. */
@@ -519,6 +546,11 @@ button:focus-visible, select:focus-visible, #submit:focus-visible {
    declared CEP 9 floor (Chromium 61) still includes. See known-issues.md. */
 @media (prefers-reduced-motion: reduce) {
   .step, .plus { transition: none; }
-  #q-sweep, .pill .spin, #submit .spin,
+  .pill .spin, #submit .spin,
   .step .ic .spin, .card.skel .sk-thumb, .card.skel .sk-cap { animation: none; }
+  /* The query gives the gradient up and takes its own colour back, which is the
+     util's answer too. `animation: none` on its own was not enough and left the
+     field blank mid-search: the band rests clear of the text and the layer that
+     carries the text is transparent. */
+  #q-sweep { animation: none; background-image: none; color: var(--text); }
 }

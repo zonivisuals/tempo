@@ -97,10 +97,11 @@
     </div>
     <div class="sb-row">
       <div class="sb-val">
-        <!-- Two stacked copies of the value: the base stays legible, the sweep
-             overlays it clipped to an accent gradient (777:512). #q's own colour
-             goes transparent while searching so the caret survives. -->
-        <span id="q-base" aria-hidden="true"></span>
+        <!-- One copy of the value, and it paints the query by itself: the shimmer
+             gradient's own outer stops are the resting colour, so a legible copy
+             underneath it would be a second edge crossing the band. (ADR-0017; the
+             old pair was a base layer plus an accent band over it.) #q's own
+             colour goes transparent while searching so the caret survives. -->
         <span id="q-sweep" aria-hidden="true"></span>
         <input id="q" type="text" autocomplete="off" spellcheck="false">
       </div>
