@@ -653,7 +653,7 @@ const FAIL_COPY = {
   },
   failed: {
     pill: "Indexing Failed",
-    hint: "Tempo stopped on this step. Try it again — the finished steps are kept.",
+    hint: "Tempo stopped. Try it again, the finished steps are kept.",
   },
   stranded: {
     pill: "Indexing Stopped",
