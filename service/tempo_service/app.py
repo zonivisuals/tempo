@@ -36,6 +36,7 @@ from .schemas import (
     SyncResponse,
 )
 from .tunnel import Tunnel
+from .vocabulary import FOOTAGE_ERROR, FOOTAGE_INDEXING, FOOTAGE_READY, JOB_CANCELLED
 
 log = logging.getLogger("tempo")
 logging.basicConfig(level=settings.log_level)
@@ -309,7 +310,7 @@ def create_app() -> FastAPI:
             log.info("retry: footage %s already active as %s; reusing", key, live)
             return JobRetryResponse(job_id=live, footage_key=key)
         # state=indexing and the old error dropped in one locked write.
-        registry_module.update(key, state="indexing", clear=("error",))
+        registry_module.update(key, state=FOOTAGE_INDEXING, clear=(FOOTAGE_ERROR,))
         new_id = jobs_module.jobs.enqueue(key)
         return JobRetryResponse(job_id=new_id, footage_key=key)
 
@@ -345,7 +346,7 @@ def create_app() -> FastAPI:
                     error=ErrorBody(code="NOT_FOUND", message="unknown job")
                 ).model_dump(),
             )
-        if outcome != "cancelled":
+        if outcome != JOB_CANCELLED:
             return JSONResponse(  # type: ignore[return-value]
                 status_code=409,
                 content=ErrorEnvelope(
@@ -399,7 +400,7 @@ def create_app() -> FastAPI:
                 shot_count=entry.get("shot_count", 0),
                 duration_s=entry.get("duration_s", 0.0),
                 indexed_at=entry.get("indexed_at"),
-                state=entry.get("state", "indexing"),
+                state=entry.get("state", FOOTAGE_INDEXING),
                 reused=bool(entry.get("reused", False)),
             )
             for key, entry in registry.items()
@@ -419,7 +420,7 @@ def create_app() -> FastAPI:
         owners: dict[str, tuple[str, str]] = {}
         for key, entry in registry.items():
             cid = entry.get("content_id")
-            if entry.get("state") == "ready" and cid and (wanted is None or key in wanted):
+            if entry.get("state") == FOOTAGE_READY and cid and (wanted is None or key in wanted):
                 owners.setdefault(cid, (key, entry.get("path", "")))
         log.info("search: q=%r top_k=%d footage_keys=%r contents=%d", q, top_k, footage_keys, len(owners))
         if not owners:

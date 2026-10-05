@@ -8,6 +8,7 @@ shape in docs/api.md (cross-runtime pin without shared imports).
 import json
 import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -1090,6 +1091,39 @@ def test_the_panel_names_every_failure_the_service_can_report():
     # without saying what to do is a label, which is what F2 calls a code.
     for entry in json.loads(_panel_eval("Object.values(FAIL_COPY)")):
         assert entry["pill"] and entry["hint"], entry
+
+
+def test_the_state_vocabularies_are_declared_in_one_place():
+    """The service declares its states; the panel and the docs must agree.
+
+    Before `vocabulary.py`, six write sites spelled the footage states as bare
+    literals while `schemas.py` declared the same values as a `Literal` and
+    nothing connected them. The import-time asserts in `vocabulary` catch a
+    Literal drifting from its tuple; this catches the other two copies drifting.
+    """
+    from tempo_service import vocabulary
+
+    panel = json.loads(_panel_eval("LIVE_JOB_STATES"))
+    assert set(panel) == set(vocabulary.JOB_ACTIVE_STATES), (
+        f"the panel's live set is the service's JOB_ACTIVE_STATES: "
+        f"{sorted(set(panel) ^ set(vocabulary.JOB_ACTIVE_STATES))} differ"
+    )
+
+    doc = (Path(__file__).resolve().parents[2] / "docs" / "api.md").read_text(encoding="utf-8")
+    for state in vocabulary.JOB_STATES + vocabulary.FOOTAGE_STATES + vocabulary.STAGE_STATES:
+        assert state in doc, f"{state!r} is declared and served but docs/api.md omits it"
+
+    # A value outside a closed set would reach the panel as a state it has no
+    # branch for, so every literal the schemas allow must be declared.
+    from tempo_service import schemas
+
+    for model, declared in (
+        (schemas.JobStatus, vocabulary.JOB_STATES),
+        (schemas.FootageInfo, vocabulary.FOOTAGE_STATES),
+        (schemas.StageStatus, vocabulary.STAGE_STATES),
+    ):
+        allowed = set(get_args(model.model_fields["state"].annotation))
+        assert allowed == set(declared), f"{model.__name__} and vocabulary.py disagree: {allowed ^ set(declared)}"
 
 
 def test_the_failure_names_the_cause_the_service_reported():

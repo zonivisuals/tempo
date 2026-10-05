@@ -128,6 +128,7 @@ tempo/
 │   │   ├── registry.py        # footage registry, fingerprinting, diff (+content_id)
 │   │   ├── fingerprint.py     # content_id (cross-checked against the engine copy)
 │   │   ├── jobs.py            # single-worker handoff queue
+│   │   ├── vocabulary.py      # the closed job/footage/stage/library state sets
 │   │   ├── proxy.py           # handoff: library hit | upload → index → poll → thumbs
 │   │   ├── tunnel.py          # brev port-forward supervisor
 │   │   ├── entitlements.py    # plan/footage/duration quotas enforced at /sync (D14)
@@ -143,7 +144,7 @@ tempo/
 │   │   ├── models.py          # lazy locked singletons, device probe
 │   │   ├── cache.py           # per-stage cache (notebook Cache)
 │   │   ├── fingerprint.py     # content_id
-│   │   ├── textproc.py        # tokenizer, NER cleanup, windows, query entities
+│   │   ├── textproc.py      # tokenizer, NER cleanup, windows, query entities
 │   │   ├── stages/            # shots, visual, speech, ocr, captions, text
 │   │   ├── pipeline.py        # STAGES + build() orchestration
 │   │   ├── index.py           # TempoIndex save/load + display thumbs
@@ -151,6 +152,8 @@ tempo/
 │   │   ├── corpus.py          # merged corpus LRU (FAISS, BM25, Gram stats)
 │   │   ├── library.py         # content-addressed store + resumable uploads
 │   │   ├── jobs.py            # single GPU worker, durable envelopes
+│   │   ├── atomic.py          # tmp + replace for every durable write
+│   │   ├── vocabulary.py      # the closed job/stage/library state sets
 │   │   └── prefetch.py        # weights → HF_HOME on the data volume
 │   └── tests/                 # golden, parity, textproc, library, contract tests
 ├── panel/                     # CEP extension root (this folder is installed)
@@ -351,8 +354,16 @@ Implementation notes:
   filter is `\d{1,7}\.jpg` (`proxy.py`) and is the only defense against a
   hostile engine; it is asserted by `test_backends.py`. Embeddings stay on the
   engine.
-- **Job and footage state vocabulary** lives in `docs/api.md:115` and
-  `schemas.py`, not here.
+- **State vocabularies are declared, not spelled.** Every job, footage, stage
+  and library state lives in `service/tempo_service/vocabulary.py` or
+  `engine/tempo_engine/vocabulary.py`, one per package. Schemas take their
+  `Literal` from there; write sites import the constant. Each module asserts at
+  import that its `Literal` matches its tuple, and tests check the panel's copy
+  and `docs/api.md` against the service's. The engine's 4-value job vocabulary
+  is deliberately smaller than the sidecar's 7: an engine job covers indexing
+  only, so it has no `uploading`, no `queued-for-backend` and no `cancelled`.
+  This is ADR-0021's closed-vocabulary rule extended from failure reasons to
+  every state.
 - **Job failure has two fields, and the panel reads only one.** `error` is the raw
   text — the engine's half is up to 2000 characters of traceback
   (`known-issues.md` S5) — and it goes to the log and the registry entry.

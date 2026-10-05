@@ -20,11 +20,22 @@ from pathlib import Path
 
 from . import atomic
 from .pipeline import Reporter
+from .vocabulary import (
+    JOB_DONE,
+    JOB_ERROR,
+    JOB_LIVE_STATES,
+    JOB_QUEUED,
+    JOB_RUNNING,
+    STAGE_DONE,
+    STAGE_ERROR,
+    STAGE_PENDING,
+    STAGE_RUNNING,
+)
 
 log = logging.getLogger("tempo.engine.jobs")
 
 JOBS_DIR = "jobs"
-LIVE = ("queued", "running")
+LIVE = JOB_LIVE_STATES
 ERROR_TAIL = 1200
 ERROR_MAX = 2000
 
@@ -64,10 +75,10 @@ class EngineJobs:
             for job in sorted(loaded, key=lambda j: j.get("created_at", 0)):
                 self._jobs[job["job_id"]] = job
                 if job.get("state") in LIVE:
-                    job["state"] = "queued"
+                    job["state"] = JOB_QUEUED
                     for s in job["stages"]:
-                        if s["state"] == "running":
-                            s["state"] = "pending"
+                        if s["state"] == STAGE_RUNNING:
+                            s["state"] = STAGE_PENDING
                     self._save(job)
                     self._queue.put(job["job_id"])
                     resumed += 1
@@ -103,8 +114,8 @@ class EngineJobs:
             live = self._latest_for(cid, LIVE)
             if live:
                 return self._snapshot(live)
-            job = {"job_id": "ejob_" + uuid.uuid4().hex[:8], "content_id": cid, "state": "queued",
-                   "stages": [{"name": n, "state": "pending", "done": 0, "total": 0} for n in self.stages],
+            job = {"job_id": "ejob_" + uuid.uuid4().hex[:8], "content_id": cid, "state": JOB_QUEUED,
+                   "stages": [{"name": n, "state": STAGE_PENDING, "done": 0, "total": 0} for n in self.stages],
                    "error": None, "shot_count": 0, "duration_s": 0.0, "fps": 0.0,
                    "created_at": time.time()}
             self._jobs[job["job_id"]] = job
@@ -127,7 +138,7 @@ class EngineJobs:
             job = self._jobs[job_id]
             st = self._stage(job, name)
             if st is not None:
-                st.update(state="running", done=int(done), total=int(total))
+                st.update(state=STAGE_RUNNING, done=int(done), total=int(total))
                 self._save(job)
 
     def _done(self, job_id: str, name: str) -> None:
@@ -135,7 +146,7 @@ class EngineJobs:
             job = self._jobs[job_id]
             st = self._stage(job, name)
             if st is not None:
-                st["state"] = "done"
+                st["state"] = STAGE_DONE
                 if st["total"] and st["done"] < st["total"]:
                     st["done"] = st["total"]
                 self._save(job)
@@ -149,7 +160,7 @@ class EngineJobs:
                     job = self._jobs.get(job_id)
                     if job is None or job["state"] not in LIVE:
                         continue
-                    job["state"] = "running"
+                    job["state"] = JOB_RUNNING
                     self._save(job)
                     cid = job["content_id"]
                 log.info("job %s started (%s)", job_id, cid)
@@ -158,8 +169,8 @@ class EngineJobs:
                 summary = self.runner(cid, report)
                 with self._lock:
                     for s in job["stages"]:
-                        s["state"] = "done"
-                    job.update(state="done", shot_count=int(summary.get("shot_count", 0)),
+                        s["state"] = STAGE_DONE
+                    job.update(state=JOB_DONE, shot_count=int(summary.get("shot_count", 0)),
                                duration_s=float(summary.get("duration_s", 0.0)),
                                fps=float(summary.get("fps", 0.0)))
                     self._save(job)
@@ -171,9 +182,9 @@ class EngineJobs:
                     job = self._jobs.get(job_id)
                     if job is not None:
                         for s in job["stages"]:
-                            if s["state"] == "running":
-                                s["state"] = "error"
-                        job.update(state="error", error=f"{exc}\n{tail}"[:ERROR_MAX])
+                            if s["state"] == STAGE_RUNNING:
+                                s["state"] = STAGE_ERROR
+                        job.update(state=JOB_ERROR, error=f"{exc}\n{tail}"[:ERROR_MAX])
                         self._save(job)
             finally:
                 self._queue.task_done()

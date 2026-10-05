@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .vocabulary import LibraryState, JobState, QueryModelState, StageState
+
 
 class ErrorBody(BaseModel):
     code: str
@@ -20,12 +22,12 @@ class Health(BaseModel):
     device: str
     signature: str
     stages: list[str]
-    query_models: Literal["loading", "ready", "error"]
+    query_models: QueryModelState
 
 
 class LibraryEntry(BaseModel):
     content_id: str
-    state: Literal["missing", "partial", "uploaded", "indexing", "ready", "stale", "error"]
+    state: LibraryState
     needs_upload: bool
     received: int = 0
     size: int = 0
@@ -49,12 +51,12 @@ class IndexRequest(BaseModel):
 
 class IndexResponse(BaseModel):
     job_id: str | None
-    state: Literal["queued", "running", "done"]
+    state: JobState
 
 
 class Stage(BaseModel):
     name: str
-    state: Literal["pending", "running", "done", "error"]
+    state: StageState
     done: int = 0
     total: int = 0
 
@@ -62,7 +64,7 @@ class Stage(BaseModel):
 class Job(BaseModel):
     job_id: str
     content_id: str
-    state: Literal["queued", "running", "done", "error"]
+    state: JobState
     stages: list[Stage]
     error: str | None = None
     shot_count: int = 0

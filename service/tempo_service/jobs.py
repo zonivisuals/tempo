@@ -19,6 +19,20 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from .vocabulary import (
+    JOB_ACTIVE_STATES,
+    JOB_CANCELLED,
+    JOB_DONE,
+    JOB_ERROR,
+    JOB_QUEUED,
+    JOB_RUNNING,
+    JOB_TERMINAL_STATES,
+    STAGE_DONE,
+    STAGE_ERROR,
+    STAGE_PENDING,
+    STAGE_RUNNING,
+)
+
 log = logging.getLogger("tempo.jobs")
 
 UPLOAD_STAGE = "upload"  # stage 0 (§3.2): bytes sent to the engine, before its own stages
@@ -32,8 +46,8 @@ Handler = Callable[["Job", Callable[[str, int, int], None]], None]
 class Job:
     job_id: str
     footage_key: str
-    # queued|uploading|queued-for-backend|running|done|error|cancelled
-    state: str = "queued"
+    # The 7 values of vocabulary.JOB_STATES
+    state: str = JOB_QUEUED
     stage_names: list[str] = field(default_factory=lambda: [UPLOAD_STAGE])
     stages: dict[str, dict] = field(default_factory=dict)  # insertion order = display order
     error: str | None = None
@@ -48,7 +62,7 @@ class Job:
             self.ensure_stage(name)
 
     def ensure_stage(self, name: str) -> dict:
-        return self.stages.setdefault(name, {"name": name, "state": "pending", "done": 0, "total": 0})
+        return self.stages.setdefault(name, {"name": name, "state": STAGE_PENDING, "done": 0, "total": 0})
 
     def to_status(self) -> dict:
         return {
@@ -91,7 +105,7 @@ class JobManager:
 
     # States holding a claim on a footage key: a second enqueue for the same
     # key must reuse the live job, never mint a duplicate full pipeline run.
-    ACTIVE_STATES = ("queued", "uploading", "running", "queued-for-backend")
+    ACTIVE_STATES = JOB_ACTIVE_STATES
 
     def active_job_for(self, footage_key: str) -> str | None:
         """Newest non-terminal job id for the key, or None. Guards the sync
@@ -115,13 +129,13 @@ class JobManager:
             job = self._jobs.get(job_id)
             if job is None:
                 return "missing"
-            if job.state in ("done", "error", "cancelled"):
+            if job.state in JOB_TERMINAL_STATES:
                 return "terminal"
-            if job.state != "queued":
-                return "running"
-            job.state = "cancelled"
+            if job.state != JOB_QUEUED:
+                return JOB_RUNNING
+            job.state = JOB_CANCELLED
             job.error = "cancelled by user"
-            return "cancelled"
+            return JOB_CANCELLED
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
@@ -132,7 +146,7 @@ class JobManager:
             job = self._jobs.get(job_id)
             if job is None:
                 return
-            job.ensure_stage(stage).update(state="running", done=int(done), total=int(total))
+            job.ensure_stage(stage).update(state=STAGE_RUNNING, done=int(done), total=int(total))
 
     def _set(self, job_id: str, **fields) -> None:  # type: ignore[no-untyped-def]
         with self._lock:
@@ -149,7 +163,7 @@ class JobManager:
                 return
             entry = job.ensure_stage(stage)
             entry["state"] = state
-            if state == "done" and entry["total"] and not entry["done"]:
+            if state == STAGE_DONE and entry["total"] and not entry["done"]:
                 entry["done"] = entry["total"]
 
     def _run(self) -> None:
@@ -162,10 +176,10 @@ class JobManager:
                     job = self._jobs.get(job_id)
                 if job is None:
                     continue
-                if job.state == "cancelled":
+                if job.state == JOB_CANCELLED:
                     log.info("job %s cancelled before start; skipping", job_id)
                     continue
-                self._set(job_id, state="running")
+                self._set(job_id, state=JOB_RUNNING)
                 log.info("job %s started (footage %s)", job_id, job.footage_key)
 
                 def progress(stage: str, done: int, total: int) -> None:
@@ -173,8 +187,8 @@ class JobManager:
 
                 self._handler(job, progress)
                 for name in list(job.stages):
-                    self._mark_stage(job_id, name, "done")
-                self._set(job_id, state="done")
+                    self._mark_stage(job_id, name, STAGE_DONE)
+                self._set(job_id, state=JOB_DONE)
                 log.info("job %s done", job_id)
             except Exception as exc:  # runner failures are job errors, not crashes
                 log.exception("job %s failed: %s", job_id, exc)
@@ -182,9 +196,9 @@ class JobManager:
                     job = self._jobs.get(job_id)
                     if job is not None:
                         for st in job.stages.values():
-                            if st["state"] == "running":
-                                st["state"] = "error"
-                        job.state = "error"
+                            if st["state"] == STAGE_RUNNING:
+                                st["state"] = STAGE_ERROR
+                        job.state = JOB_ERROR
                         job.error = str(exc)
                         # An unnamed exception (not a HandoffError) leaves this None,
                         # which is the honest answer: we know it failed, not why.

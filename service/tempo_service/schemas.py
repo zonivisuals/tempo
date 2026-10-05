@@ -4,6 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .vocabulary import (
+    FOOTAGE_INDEXING,
+    JOB_QUEUED,
+    STAGE_PENDING,
+    FootageState,
+    JobState,
+    StageState,
+)
+
 
 class ErrorBody(BaseModel):
     code: str
@@ -41,7 +50,7 @@ class SyncResponse(BaseModel):
 
 class StageStatus(BaseModel):
     name: str
-    state: Literal["pending", "running", "done", "error"] = "pending"
+    state: StageState = STAGE_PENDING
     done: int = 0
     total: int = 0
 
@@ -49,9 +58,7 @@ class StageStatus(BaseModel):
 class JobStatus(BaseModel):
     job_id: str
     footage_key: str
-    state: Literal["queued", "uploading", "queued-for-backend", "running", "done", "error", "cancelled"] = (
-        "queued"
-    )
+    state: JobState = JOB_QUEUED
     reused: bool = False
     stages: list[StageStatus] = Field(default_factory=list)
     error: str | None = None
@@ -67,7 +74,7 @@ class FootageInfo(BaseModel):
     shot_count: int = 0
     duration_s: float = 0.0
     indexed_at: str | None = None
-    state: Literal["uploading", "indexing", "ready", "stale", "error"] = "indexing"
+    state: FootageState = FOOTAGE_INDEXING
     reused: bool = False
 
 

@@ -11,6 +11,8 @@ are 403 QUOTA_EXCEEDED with the limit named (the panel's failure block quotes
 that message verbatim, so the numbers stay the service's and not the panel's).
 """
 
+from .vocabulary import FOOTAGE_READY
+
 PLANS = {
     "free": {"footage": 3, "minutes": 120},
     "pro": {"footage": 50, "minutes": 600},
@@ -39,7 +41,7 @@ def check_new_work(added, changed, unchanged, registry, plan="free"):
     ready_minutes = sum(
         float(registry.get(k, {}).get("duration_s", 0.0) or 0.0)
         for k in active
-        if registry.get(k, {}).get("state") == "ready"
+        if registry.get(k, {}).get("state") == FOOTAGE_READY
     ) / 60.0
     if ready_minutes > limit["minutes"]:
         return (

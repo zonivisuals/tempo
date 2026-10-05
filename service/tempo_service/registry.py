@@ -24,6 +24,7 @@ from pathlib import Path
 
 from .config import settings
 from .schemas import FootageItem
+from .vocabulary import FOOTAGE_INDEXING, FOOTAGE_STALE
 
 log = logging.getLogger("tempo.registry")
 
@@ -166,7 +167,7 @@ def diff(
         if entry is None:
             (added if _readable(item) else pending).append(key)
             continue
-        if entry.get("state") == "stale":
+        if entry.get("state") == FOOTAGE_STALE:
             # Fingerprint matches but the entry was left for dead while the
             # footage was out of the project → revive as added (fresh
             # fingerprint written + job enqueued by apply_sync).
@@ -197,7 +198,7 @@ def diff(
     removed = [
         key
         for key, entry in registry.items()
-        if key not in seen and entry.get("state") != "stale"
+        if key not in seen and entry.get("state") != FOOTAGE_STALE
     ]
     return {
         "added": added,
@@ -237,7 +238,7 @@ def apply_sync(
             "item_id": item.item_id,
             "frame_rate": item.frame_rate,
             "format_version": fmt,
-            "state": "indexing",
+            "state": FOOTAGE_INDEXING,
             "shot_count": 0,
             "duration_s": 0.0,
             "indexed_at": None,
@@ -262,7 +263,7 @@ def apply_sync(
             entry["pending_hits"] = 1
     for key in result["removed"]:
         if key in registry:
-            registry[key]["state"] = "stale"
+            registry[key]["state"] = FOOTAGE_STALE
             registry[key].pop("pending_fp", None)
             registry[key].pop("pending_hits", None)
     for key in result["unchanged"]:
@@ -280,7 +281,7 @@ def prune_stale(registry: dict) -> list[str]:
     Explicit only (panel button or `prune_stale` config) — never called
     automatically by /sync.
     """
-    pruned = [key for key, e in registry.items() if e.get("state") == "stale"]
+    pruned = [key for key, e in registry.items() if e.get("state") == FOOTAGE_STALE]
     for key in pruned:
         del registry[key]
     return pruned

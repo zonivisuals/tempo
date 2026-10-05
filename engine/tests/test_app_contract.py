@@ -336,3 +336,34 @@ def test_interactive_api_docs_are_disabled():
     assert "/docs" not in paths
     assert "/redoc" not in paths
     assert "/openapi.json" not in paths
+
+def test_the_state_vocabularies_agree_with_the_schema_literals():
+    """`vocabulary.py` is the one place an engine state is declared.
+
+    The module asserts its own Literals against its tuples at import, so this
+    only has to check the other direction: that no schema field narrowed or
+    widened the set, and that every declared state is served.
+    """
+    from typing import get_args
+
+    from tempo_engine import schemas, vocabulary
+
+    fields = (
+        (schemas.Job, "state", vocabulary.JOB_STATES),
+        (schemas.Stage, "state", vocabulary.STAGE_STATES),
+        (schemas.LibraryEntry, "state", vocabulary.LIB_STATES),
+        (schemas.IndexResponse, "state", vocabulary.JOB_STATES),
+        (schemas.Health, "query_models", vocabulary.QUERY_MODEL_STATES),
+    )
+    for model, field, declared in fields:
+        allowed = set(get_args(model.model_fields[field].annotation))
+        assert allowed == set(declared), (
+            f"{model.__name__}.{field} and vocabulary.py disagree: {allowed ^ set(declared)}"
+        )
+
+    # The sidecar's proxy branches on three engine library spellings by name, and
+    # on a job's own state separately. Both sides declare those names, so a
+    # rename on either is a missing import rather than a silent always-upload.
+    for name in ("LIB_READY", "LIB_INDEXING", "LIB_PARTIAL"):
+        assert name in dir(vocabulary), name
+    assert set(vocabulary.STAGE_STATES) & {"running", "done", "error"} == {"running", "done", "error"}

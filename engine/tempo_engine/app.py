@@ -29,6 +29,21 @@ from .config import EngineSettings, Profile, settings, weights
 from .corpus import CorpusCache
 from .jobs import EngineJobs, Runner
 from .library import ContentMismatch, Library, OffsetMismatch
+from .vocabulary import (
+    JOB_DONE,
+    JOB_ERROR,
+    JOB_QUEUED,
+    LIB_ERROR,
+    LIB_INDEXING,
+    LIB_MISSING,
+    LIB_PARTIAL,
+    LIB_READY,
+    LIB_STALE,
+    LIB_UPLOADED,
+    QM_ERROR,
+    QM_LOADING,
+    QM_READY,
+)
 from .schemas import (
     ErrorBody,
     ErrorEnvelope,
@@ -95,16 +110,16 @@ def create_app(cfg: EngineSettings | None = None, runner: Runner | None = None,
     jobs = EngineJobs(cfg.data_root, pipeline.STAGES, run_job)
     injected = encoders is not None
     enc = encoders or default_encoders()
-    warm = {"state": "loading" if (cfg.preload_query_models and not injected) else "ready"}
+    warm = {"state": QM_LOADING if (cfg.preload_query_models and not injected) else QM_READY}
 
     def preload() -> None:
         try:
             t0 = time.time()
             models.preload_query_models()
-            warm["state"] = "ready"
+            warm["state"] = QM_READY
             log.info("query models warm in %.1fs", time.time() - t0)
         except Exception as exc:
-            warm["state"] = "error"
+            warm["state"] = QM_ERROR
             log.exception("query model warm-up failed: %s", exc)
 
     @asynccontextmanager
@@ -112,7 +127,7 @@ def create_app(cfg: EngineSettings | None = None, runner: Runner | None = None,
         log.info("engine startup: data_root=%s device=%s signature=%s", cfg.data_root, models.device(), signature)
         jobs.recover()
         jobs.start()
-        if warm["state"] == "loading":
+        if warm["state"] == QM_LOADING:
             threading.Thread(target=preload, daemon=True, name="tempo-engine-warmup").start()
         yield
         log.info("engine shutdown")
@@ -168,21 +183,21 @@ def create_app(cfg: EngineSettings | None = None, runner: Runner | None = None,
         base = dict(content_id=cid, needs_upload=needs_upload(cid), received=up["received"], size=up["size"])
         live = jobs.live_for(cid)
         if live:
-            return LibraryEntry(state="indexing", job_id=live, **base)
+            return LibraryEntry(state=LIB_INDEXING, job_id=live, **base)
         index_state = library.index_state(cid, signature)
-        if index_state == "ready":
+        if index_state == LIB_READY:
             meta = library.index_meta(cid)
-            return LibraryEntry(state="ready", shot_count=int(meta.get("n_shots", 0)),
+            return LibraryEntry(state=LIB_READY, shot_count=int(meta.get("n_shots", 0)),
                                 duration_s=float(meta.get("duration", 0.0)), fps=float(meta.get("fps", 0.0)),
                                 **base)
         last = jobs.last_for(cid)
-        if last and last["state"] == "error":
-            return LibraryEntry(state="error", job_id=last["job_id"], error=last["error"], **base)
-        if index_state == "stale":
-            return LibraryEntry(state="stale", **base)
+        if last and last["state"] == JOB_ERROR:
+            return LibraryEntry(state=LIB_ERROR, job_id=last["job_id"], error=last["error"], **base)
+        if index_state == LIB_STALE:
+            return LibraryEntry(state=LIB_STALE, **base)
         if up["complete"]:
-            return LibraryEntry(state="uploaded", **base)
-        return LibraryEntry(state="partial" if up["received"] else "missing", **base)
+            return LibraryEntry(state=LIB_UPLOADED, **base)
+        return LibraryEntry(state=LIB_PARTIAL if up["received"] else LIB_MISSING, **base)
 
     @v1.get("/uploads/{cid}", response_model=UploadState)
     def upload_state(cid: str) -> UploadState:
@@ -213,9 +228,9 @@ def create_app(cfg: EngineSettings | None = None, runner: Runner | None = None,
         live = jobs.live_for(cid)
         if live:
             job = jobs.get(live)
-            return IndexResponse(job_id=live, state=job["state"] if job else "queued")
-        if library.index_state(cid, signature) == "ready":
-            return IndexResponse(job_id=None, state="done")
+            return IndexResponse(job_id=live, state=job["state"] if job else JOB_QUEUED)
+        if library.index_state(cid, signature) == LIB_READY:
+            return IndexResponse(job_id=None, state=JOB_DONE)
         if needs_upload(cid):
             raise ApiError(409, "SOURCE_MISSING", "upload the footage before indexing")
         job = jobs.submit(cid)
@@ -232,12 +247,12 @@ def create_app(cfg: EngineSettings | None = None, runner: Runner | None = None,
     def do_search(q: str = Query(min_length=1), top_k: int = Query(default=8, ge=1, le=50),
                   content_ids: str | None = Query(default=None)) -> SearchResponse:
         t0 = time.perf_counter()
-        if warm["state"] == "loading":
+        if warm["state"] == QM_LOADING:
             raise ApiError(503, "MODEL_WARMING", "query models are loading")
-        if warm["state"] == "error":
+        if warm["state"] == QM_ERROR:
             raise ApiError(503, "MODEL_NOT_LOADED", "query models failed to load")
         wanted = [c for c in content_ids.split(",") if c] if content_ids else library.ready_ids(signature)
-        ready = [c for c in wanted if fingerprint.valid(c) and library.index_state(c, signature) == "ready"]
+        ready = [c for c in wanted if fingerprint.valid(c) and library.index_state(c, signature) == LIB_READY]
         if not ready:
             return SearchResponse(query=q, took_ms=int((time.perf_counter() - t0) * 1000))
         corpus = corpora.get([library.entry_dir(c) for c in ready])
@@ -273,7 +288,7 @@ def create_app(cfg: EngineSettings | None = None, runner: Runner | None = None,
 
     @v1.get("/library/{cid}/thumbs.tar")
     def thumbs_tar(cid: str):  # type: ignore[no-untyped-def]
-        if library.index_state(check_cid(cid), signature) != "ready":
+        if library.index_state(check_cid(cid), signature) != LIB_READY:
             raise ApiError(404, "NOT_FOUND", "content not indexed")
         return FileResponse(library.thumbs_tar(cid), media_type="application/x-tar")
 

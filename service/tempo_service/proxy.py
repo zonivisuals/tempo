@@ -34,6 +34,19 @@ from . import jobs as jobs_module
 from . import registry as registry_module
 from .backends import ASLEEP, TIMEOUT, TRANSPORT_CODES, UNREACHABLE, BackendProvider, Reply, get_provider
 from .config import settings
+from .vocabulary import (
+    FOOTAGE_ERROR,
+    FOOTAGE_READY,
+    JOB_QUEUED_FOR_BACKEND,
+    JOB_RUNNING,
+    JOB_UPLOADING,
+    LIB_INDEXING,
+    LIB_PARTIAL,
+    LIB_READY,
+    STAGE_DONE,
+    STAGE_ERROR,
+    STAGE_RUNNING,
+)
 
 log = logging.getLogger("tempo.proxy")
 
@@ -92,11 +105,11 @@ def _call(job, what: str, fn: Callable[[], Reply]) -> Reply:  # type: ignore[no-
     while True:
         reply = fn()
         if reply.ok or reply.code not in TRANSPORT_CODES:
-            if job.state == "queued-for-backend" and prior != "queued-for-backend":
+            if job.state == JOB_QUEUED_FOR_BACKEND and prior != JOB_QUEUED_FOR_BACKEND:
                 _set_state(job, prior)
             return reply
         if reply.code == ASLEEP:
-            _set_state(job, "queued-for-backend")
+            _set_state(job, JOB_QUEUED_FOR_BACKEND)
         else:
             misses += 1
             log.info("job %s: %s miss %d/%d (%s)", job.job_id, what, misses,
@@ -118,7 +131,7 @@ def _upload(job, provider: BackendProvider, path: str, cid: str, offset: int, pr
     size = os.path.getsize(path)
     name = os.path.basename(path)
     chunk = settings.upload_chunk_mb * MB
-    _set_state(job, "uploading")
+    _set_state(job, JOB_UPLOADING)
     progress(UPLOAD, offset, size)
     with open(path, "rb") as f:
         while offset < size:
@@ -147,7 +160,7 @@ def _submit(job, provider: BackendProvider, path: str, cid: str, progress) -> di
 
 
 def _poll(job, provider: BackendProvider, engine_job: str, progress) -> dict:  # type: ignore[no-untyped-def]
-    _set_state(job, "running")
+    _set_state(job, JOB_RUNNING)
     while True:
         reply = _call(job, "poll", lambda: provider.job_status(engine_job))
         if not reply.ok:
@@ -155,13 +168,13 @@ def _poll(job, provider: BackendProvider, engine_job: str, progress) -> dict:  #
         body = reply.body
         for st in body.get("stages", []):
             name, state = st.get("name", ""), st.get("state")
-            if state == "running":
+            if state == STAGE_RUNNING:
                 progress(name, int(st.get("done", 0)), int(st.get("total", 0)))
-            elif state in ("done", "error"):
+            elif state in (STAGE_DONE, STAGE_ERROR):
                 jobs_module.jobs._mark_stage(job.job_id, name, state)
-        if body.get("state") == "done":
+        if body.get("state") == STAGE_DONE:
             return body
-        if body.get("state") == "error":
+        if body.get("state") == STAGE_ERROR:
             # The engine raised something of its own. Its text names a model, a path
             # or a line number, so it stays here: the panel is told the kind.
             raise HandoffError(body.get("error") or "engine job failed", "ENGINE_FAILED")
@@ -194,7 +207,7 @@ def sync_thumbs(provider: BackendProvider, cid: str, force: bool = False) -> int
 def _finish(job, provider: BackendProvider, cid: str, stats: dict, reused: bool) -> None:  # type: ignore[no-untyped-def]
     sync_thumbs(provider, cid, force=not reused)
     job.reused = reused
-    _update_entry(job.footage_key, state="ready", content_id=cid, reused=reused,
+    _update_entry(job.footage_key, state=FOOTAGE_READY, content_id=cid, reused=reused,
                   shot_count=int(stats.get("shot_count", 0)),
                   duration_s=float(stats.get("duration_s", 0.0)),
                   indexed_at=registry_module.now_iso())
@@ -213,25 +226,25 @@ def _handoff(job, progress, provider: BackendProvider, entry: dict) -> None:  # 
     if not lib.ok:
         raise HandoffError(f"library lookup failed: {lib.code} {lib.message}".strip(), "ENGINE_REJECTED")
     info = lib.body
-    if info["state"] == "ready":
-        jobs_module.jobs._mark_stage(job.job_id, UPLOAD, "done")
+    if info["state"] == LIB_READY:
+        jobs_module.jobs._mark_stage(job.job_id, UPLOAD, STAGE_DONE)
         _finish(job, provider, cid, info, reused=True)
         return
 
-    engine_job = info.get("job_id") if info["state"] == "indexing" else None
+    engine_job = info.get("job_id") if info["state"] == LIB_INDEXING else None
     if engine_job is None:
         if info.get("needs_upload"):
-            resume = int(info.get("received", 0)) if info["state"] == "partial" else 0
+            resume = int(info.get("received", 0)) if info["state"] == LIB_PARTIAL else 0
             _upload(job, provider, path, cid, resume, progress)
-        jobs_module.jobs._mark_stage(job.job_id, UPLOAD, "done")
+        jobs_module.jobs._mark_stage(job.job_id, UPLOAD, STAGE_DONE)
         submitted = _submit(job, provider, path, cid, progress)
-        if submitted.get("state") == "done":
+        if submitted.get("state") == STAGE_DONE:
             ready = _call(job, "library", lambda: provider.library(cid))
             _finish(job, provider, cid, ready.body if ready.ok else {}, reused=True)
             return
         engine_job = submitted["job_id"]
     else:
-        jobs_module.jobs._mark_stage(job.job_id, UPLOAD, "done")
+        jobs_module.jobs._mark_stage(job.job_id, UPLOAD, STAGE_DONE)
     log.info("job %s: engine job %s", job.job_id, engine_job)
     done = _poll(job, provider, engine_job, progress)
     _finish(job, provider, cid, done, reused=False)
@@ -250,7 +263,7 @@ def handle(job, progress) -> None:  # type: ignore[no-untyped-def]
     except Exception as exc:
         # Honest terminal state for Retry: the entry keeps the message, the job keeps its
         # failed stages (jobs._run marks them). Re-raised so the job lands in `error`.
-        _update_entry(job.footage_key, state="error", error=str(exc)[:500])
+        _update_entry(job.footage_key, state=FOOTAGE_ERROR, error=str(exc)[:500])
         raise
 
 

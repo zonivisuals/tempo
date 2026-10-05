@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import atomic, fingerprint
 from .index import INDEX_JSON, THUMBS_DIR, TempoIndex
+from .vocabulary import LIB_READY, LIB_STALE
 
 log = logging.getLogger("tempo.engine.library")
 
@@ -150,7 +151,7 @@ class Library:
             meta = TempoIndex.read_meta(d)
         except (OSError, ValueError, KeyError):
             return None
-        return "ready" if meta.get("signature") == signature else "stale"
+        return LIB_READY if meta.get("signature") == signature else LIB_STALE
 
     def index_meta(self, cid: str) -> dict:
         return TempoIndex.read_meta(self.root / LIBRARY / cid)
@@ -158,7 +159,7 @@ class Library:
     def ready_ids(self, signature: str) -> list[str]:
         base = self.root / LIBRARY
         return sorted(d.name for d in base.iterdir()
-                      if d.is_dir() and fingerprint.valid(d.name) and self.index_state(d.name, signature) == "ready")
+                      if d.is_dir() and fingerprint.valid(d.name) and self.index_state(d.name, signature) == LIB_READY)
 
     def thumb(self, cid: str, shot_id: int) -> Path:
         return self.root / LIBRARY / cid / THUMBS_DIR / f"{int(shot_id)}.jpg"
