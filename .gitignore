@@ -40,3 +40,7 @@ Thumbs.db
 tempo_pipeline_v3.ipynb
 tempo_pipeline_v4.ipynb
 colab/
+
+# Agent tooling, installed with: npx skills add <owner/repo> --skill <name>
+.agents/
+skills-lock.json
