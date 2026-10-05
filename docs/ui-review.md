@@ -74,13 +74,19 @@ flag and reject an element reading as "AI-generated slop".
       same 18% of the thumbnail in both views and never under 16px — check the grid
       and `#list` at both ends of the width slider. It carries no pill and no white
       ring.
-- [ ] Errors are compact inline rows under the search field with the service
-      error code — no modals, no toasts.
+- [ ] A failure is one thing on screen, never two: the centred state block when
+      nothing else is on screen, otherwise the compact inline row under the search
+      field. Either way the service's error code is on screen, on the block's detail
+      line or in the row — no modals, no toasts. Check `preview.html#offline` with
+      results loaded behind it.
 - [ ] Offline service renders a usable degraded state, never a blank panel.
-- [ ] The no-footage block (frame 01 and its three variants) is centred in the
-      panel on both axes, like the indexing screen — check `preview.html#empty`.
+- [ ] The no-footage block (frame 01 and its three variants), the no-matches block
+      and a failure block are all centred in the panel on both axes, like the indexing
+      screen — check `preview.html#empty`, `#emptyresults` and `#quota`.
       It is a status pill sized by its own label (`role="status"`), not a button —
       a disabled control that cannot be pressed is a dead affordance.
+- [ ] The block's instruction is louder than its detail line on both themes — the
+      detail line is quotation and must not outrank the action.
 
 ## Review it without After Effects
 

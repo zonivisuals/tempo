@@ -27,6 +27,13 @@
   --border: #2e2e2e;
   --text: rgba(255, 255, 255, 0.8);   /* step labels, card text: 777:702, 777:345 */
   --text-dim: rgba(255, 255, 255, 0.4); /* search label: 777:516, 0.4 alpha */
+/* One step below --text-dim, for text that is quoted rather than instruction. It is
+   * a token and not --dim because --dim is not quieter than the hint on either theme:
+   * over #232323 the hint lands at rgb(123) and --dim (#8a8a8a) at rgb(138), so the
+   * quotation would be LOUDER than the instruction, and on the light theme #5c5c5c
+   * (92) is quieter than the hint's 118 — the relationship inverts between themes.
+   * Here, quieter than 0.4 white is 0.28; the light theme's own value is below. */
+  --text-faint: rgba(255, 255, 255, 0.28);
   --dim: #8a8a8a;
   --accent: #eb5017;          /* 777:700 "Analyzing your footage", 777:511 */
   --thumb: #eb6060;           /* 777:368 thumbnail layer, Rectangle 5421 */
@@ -81,6 +88,10 @@ html.light {
   --border: #c4c4c4;
   --text: rgba(0, 0, 0, 0.88);
   --text-dim: rgba(0, 0, 0, 0.45);
+  /* Quieter than 0.45 black on #d6d6d6 means darker, not lighter: over a light
+   * surface the quiet end is the dark one, which is why this is 0.62 and not the
+   * dark theme's 0.28. See --text-faint above for the measurement. */
+  --text-faint: rgba(0, 0, 0, 0.62);
   --dim: #5c5c5c;
   --accent: #c23c0c;
   --thumb: #b3555a;
@@ -542,8 +553,8 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
   overflow-wrap: anywhere; }
 /* The service's own line, verbatim, under the instruction — the code a failure
    reports itself with, or the message behind it. It is quotation, not instruction,
-   so it sits below the 11px dimmer level the hint already uses. */
-.empty-state .detail { color: var(--dim); font-size: 11px; max-width: 44ch; margin: 0;
+   so it sits one step quieter than the hint (--text-faint, not --dim: see the token). */
+.empty-state .detail { color: var(--text-faint); font-size: 11px; max-width: 44ch; margin: 0;
   overflow-wrap: anywhere; }
 
 button:focus-visible, select:focus-visible, #submit:focus-visible {

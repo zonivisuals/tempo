@@ -322,7 +322,7 @@ function renderJobError() {
   // Job error strings can be 2000 chars of engine traceback (engine/jobs.py:179).
   // Never routed into a one-row area — truncated here, Retry stays.
   const msg = String(failed.error || "indexing failed");
-  box.innerHTML = `<div>${esc(msg.length > 300 ? msg.slice(0, 300) + "…" : msg)}</div>` +
+  box.innerHTML = `<div>${esc(clamp(msg, 300))}</div>` +
     `<button type="button" data-retry="${esc(failed.job_id)}">Retry</button>`;
   box.querySelector("[data-retry]").addEventListener("click", (e) => {
     e.stopPropagation(); retryJob(failed.job_id);
@@ -398,7 +398,7 @@ function renderError() {
   if (!store.error) { el.hidden = true; el.textContent = ""; return; }
   // The block under the header carries the code too, so when it owns the panel the
   // row stands down: one fault, one report. The row is the fallback for an error
-  // that arrives over results, which the cascade above calls `results`.
+  // that arrives over results, which is what `resultsScreen()` calls `results`.
   el.hidden = resultsScreen() === "error";
   el.textContent = store.error.code + (store.error.message ? " · " + store.error.message : "");
 }
@@ -531,10 +531,12 @@ const ERROR_COPY = {
     hint: "The engine took too long to answer. Search again.",
   },
   // The one state that quotes the service's own sentence: the numbers are the useful
-  // part, and §7.3 keeps them out of the panel, so they arrive as text.
+  // part, and §7.3 keeps them out of the panel, so they arrive as text. The wording
+  // says "your plan's limit" and not "the footage limit", because the service raises
+  // this same code for footage-minutes as well (entitlements.check_new_work).
   QUOTA_EXCEEDED: {
     pill: "Limit Reached",
-    hint: "This project is over your plan's footage limit. Footage already indexed stays searchable.",
+    hint: "This project is over your plan's limit. Footage already indexed stays searchable.",
     withMessage: true,
   },
 };
@@ -543,9 +545,9 @@ const ERROR_COPY = {
  * (engine/jobs.py:179), and a block that tall is not a message; the ellipsis says it
  * was cut, the way the indexing error row's does. */
 const BLOCK_TEXT_MAX = 160;
-function clamp(s) {
+function clamp(s, max) {
   const t = String(s == null ? "" : s);
-  return t.length > BLOCK_TEXT_MAX ? t.slice(0, BLOCK_TEXT_MAX).trimEnd() + "…" : t;
+  return t.length > max ? t.slice(0, max).trimEnd() + "…" : t;
 }
 
 /* A failure with nothing else on screen. The heading and the instruction come from
@@ -557,10 +559,10 @@ function errorStateHTML() {
   const e = store.error || {};
   const copy = ERROR_COPY[e.code];
   if (!copy) {
-    return stateBlock("Request Failed", clamp(e.message) || "The service returned an error.", e.code);
+    return stateBlock("Request Failed", clamp(e.message, BLOCK_TEXT_MAX) || "The service returned an error.", e.code);
   }
-  const detail = copy.withMessage && e.message ? `${e.code} · ${clamp(e.message)}` : e.code;
-  return stateBlock(copy.pill, clamp(copy.hint), detail);
+  const detail = copy.withMessage && e.message ? `${e.code} · ${clamp(e.message, BLOCK_TEXT_MAX)}` : e.code;
+  return stateBlock(copy.pill, copy.hint, detail);
 }
 
 function emptyStateHTML() {
@@ -633,7 +635,7 @@ function renderResults() {
 
 function renderCards() {
   const many = store.footages.length > 1;
-  const html = store.results.map((r, i) => {
+  return store.results.map((r, i) => {
     const dur = Math.max(0, r.end_s - r.start_s).toFixed(1);
     const busy = store.inserting === i;
     // One description line: the caption when the engine produced one, otherwise
@@ -655,9 +657,7 @@ function renderCards() {
       `<span class="plus" aria-hidden="true">${ICON.badge}</span></span>` +
       `<span class="body">${name}${desc ? row : ""}${tc}</span></button>`;
   }).join("");
-  return html;
 }
-
 
 function render() {
   renderStatus();
@@ -670,9 +670,30 @@ function render() {
 
 /* ---------- actions ---------- */
 
-function showError(code, message) {
-  store.error = code ? { code, message } : null;
+function showError(code, message, scope) {
+  // Both surfaces at once: the error decides which of the block and the row speaks
+  // (resultsScreen), so a caller that only refreshed the row would leave the other
+  // one stale — which is how a retry failure went unreported until the next poll.
+  store.error = code ? { code, message, scope } : null;
   renderError();
+  renderResults();
+}
+
+/* Only the action that raised an error clears it. The project sync runs every 2s, and
+ * a sync that succeeds does not repair a search that timed out: clearing it left the
+ * panel asserting that nothing matched a search that never returned. */
+function clearError(scope) {
+  if (store.error && store.error.scope !== scope) return;
+  store.error = null;
+}
+
+/* A failed call's own answer, or the panel's fallback for a transport that never
+ * reached the service. The envelope wins because it is the service speaking: the
+ * quota denial's code and its limit are the whole point of that block, and throwing
+ * them away for "status 403" is how the panel used to report one. */
+function callError(res, fallbackCode, fallbackMessage) {
+  const e = res.body && res.body.error;
+  return e ? { code: e.code, message: e.message } : { code: fallbackCode, message: fallbackMessage };
 }
 
 async function refreshCompFps() {
@@ -704,11 +725,12 @@ async function syncNow() {
   if (res.ok) await refreshHealth();
   else renderStatus();
   if (!res.ok) {
-    showError(res.offline ? "SERVICE_OFFLINE" : "SYNC_FAILED", res.offline ? "service offline" : "status " + res.status);
-    renderResults();
+    const err = callError(res, res.offline ? "SERVICE_OFFLINE" : "SYNC_FAILED",
+      res.offline ? "service offline" : "status " + res.status);
+    showError(err.code, err.message, "sync");
     return;
   }
-  showError(null);
+  clearError("sync");
   for (const id of res.body.jobs) trackJob(id);
   const fl = await TempoAPI.footage();
   if (fl.ok) {
@@ -745,8 +767,13 @@ async function pollJobs() {
 
 async function retryJob(id) {
   const res = await TempoAPI.retry(id);
-  if (!res.ok) { showError(res.offline ? "SERVICE_OFFLINE" : "RETRY_FAILED", res.offline ? "service offline" : "status " + res.status); return; }
-  showError(null);
+  if (!res.ok) {
+    const err = callError(res, res.offline ? "SERVICE_OFFLINE" : "RETRY_FAILED",
+      res.offline ? "service offline" : "status " + res.status);
+    showError(err.code, err.message, "action");
+    return;
+  }
+  clearError("action");
   delete store.jobs[id];
   trackJob(res.body.job_id, undefined);
   render();
@@ -754,8 +781,13 @@ async function retryJob(id) {
 
 async function footageRetry(key) {
   const res = await TempoAPI.retryFootage(key);
-  if (!res.ok) { showError(res.offline ? "SERVICE_OFFLINE" : "RETRY_FAILED", res.offline ? "service offline" : "status " + res.status); return; }
-  showError(null);
+  if (!res.ok) {
+    const err = callError(res, res.offline ? "SERVICE_OFFLINE" : "RETRY_FAILED",
+      res.offline ? "service offline" : "status " + res.status);
+    showError(err.code, err.message, "action");
+    return;
+  }
+  clearError("action");
   trackJob(res.body.job_id, key);
   render();
 }
@@ -765,7 +797,7 @@ async function doSearch() {
   if (!q) return;
   store.searching = true;
   store.lastQuery = q;
-  showError(null);
+  clearError("search");
   render();
   const t0 = Date.now();
   await refreshCompFps();
@@ -775,12 +807,12 @@ async function doSearch() {
   if (elapsed < 200) await new Promise((r) => setTimeout(r, 200 - elapsed));
   store.searching = false;
   if (!res.ok) {
-    const code = (res.body && res.body.error && res.body.error.code) ||
-      (res.offline ? "SERVICE_OFFLINE" : "SEARCH_FAILED");
-    showError(code, res.offline ? "service offline" : "status " + res.status);
+    const err = callError(res, res.offline ? "SERVICE_OFFLINE" : "SEARCH_FAILED",
+      res.offline ? "service offline" : "status " + res.status);
+    showError(err.code, err.message, "search");
     store.results = [];
   } else {
-    showError(null);
+    clearError("search");
     store.results = res.body.results || [];
   }
   render();
@@ -805,10 +837,10 @@ async function insertResult(r, idx) {
     const raw = await evalScript(expr);
     try {
       const out = JSON.parse(raw);
-      if (!out || !out.ok) { showError("INSERT_FAILED", out && out.error); }
-      else { showError(null); }
+      if (!out || !out.ok) { showError("INSERT_FAILED", out && out.error, "action"); }
+      else { clearError("action"); }
     } catch (e) {
-      showError("INSERT_FAILED", "bad host response");
+      showError("INSERT_FAILED", "bad host response", "action");
     }
   } finally {
     store.inserting = -1;

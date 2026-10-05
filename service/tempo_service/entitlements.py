@@ -7,7 +7,8 @@ once billing lands (P3+), without changing this module's checks.
 Enforced only when a sync introduces NEW work (added/changed non-empty):
 pure unchanged syncs always pass so an over-quota project never bricks the
 panel — the user just can't enqueue more until back under quota. Denials
-are 403 QUOTA_EXCEEDED with the limit named (panel renders it inline).
+are 403 QUOTA_EXCEEDED with the limit named (the panel's failure block quotes
+that message verbatim, so the numbers stay the service's and not the panel's).
 """
 
 PLANS = {

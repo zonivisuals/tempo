@@ -920,8 +920,13 @@ CSInterface.prototype.getHostEnvironment = function () { return '{}'; };
 TempoAPI = {};
 vm.runInThisContext(fs.readFileSync(process.argv[2], 'utf8'),
                     { filename: process.argv[2] });
-const out = (() => { /*SETUP*/ /*CALL*/; return /*EXPR*/; })();
-console.log(JSON.stringify(out));
+/* async, and the call is awaited: syncNow/pollJobs/doSearch are promise-returning, so
+ * without this a test could only reach the render calls that run before their first
+ * await — which is nothing at all for the code that decides an error's code. */
+(async () => {
+  const out = await (async () => { /*SETUP*/ await Promise.resolve(/*CALL*/); return /*EXPR*/; })();
+  console.log(JSON.stringify(await out));
+})();
 """
 
 
@@ -961,6 +966,21 @@ _RUNNING_JOB = json.dumps({
         {"name": "shots", "state": "running", "done": 3, "total": 10},
     ],
 })
+
+# Store states the panel tests below drive the render from. One spelling each: these
+# were inline literals in four different tests and had already drifted.
+_READY = "store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'ready', shot_count: 9 }];"
+_READY_AND_QUERY = _READY + " store.lastQuery = 'zzz';"
+_LIVE_JOB = "store.activeJobs = ['job_1']; store.jobs = { job_1: %s };" % _RUNNING_JOB
+_RESULT = (
+    # Rendering cards calls thumbUrl, so the stub belongs to the fixture: results on
+    # screen is a state that can be rendered, not just a length.
+    "TempoAPI.thumbUrl = () => 't.jpg';"
+    "store.results = [{ footage_key: 'k0', source_path: 'a.mov', shot_id: '0',"
+    " start_s: 1, end_s: 3.25, caption: 'a dog runs' }];"
+)
+_SCREEN = "resultsScreen()"
+_HTML = "document.getElementById('results').innerHTML"
 
 
 def test_indexing_section_is_live_exactly_while_a_job_runs():
@@ -1074,6 +1094,70 @@ def _block_for(footage: str) -> str:
     return _panel_render("renderResults()", "store.footages = " + footage + ";", _HTML)
 
 
+def test_a_quota_denial_keeps_the_service_code_and_the_limit_it_reported():
+    """The block for a quota denial has to be reachable from a real denial.
+
+    `syncNow` used to answer every failed `/sync` with its own `SYNC_FAILED` and
+    `"status 403"`, so the service's envelope — `QUOTA_EXCEEDED` and the sentence
+    naming the plan, its limit and the project's count — was thrown away and the block
+    could only ever be seen from a preview fixture. That was the honest-error gap
+    docs/design/panel-ui.md §6 recorded; this is its close, for the one code whose
+    whole point is the numbers.
+
+    The panel's own code is still the fallback, for a transport that never reached the
+    service and therefore has no envelope to keep.
+    """
+    denied = (
+        "TempoAPI.sync = async () => ({ ok: false, status: 403, body: { error: "
+        "{ code: 'QUOTA_EXCEEDED', message: \"plan 'free' allows 3 footage; project holds 4\" } } });"
+        "TempoAPI.health = async () => ({ ok: false });"
+    )
+    html = _panel_render("syncNow()", _READY + denied, _HTML)
+    assert "Limit Reached" in html, html
+    assert "allows 3 footage; project holds 4" in html, html
+    assert "QUOTA_EXCEEDED" in html, html
+
+    # No envelope at all — the service was never reached — keeps the panel's wording.
+    html = _panel_render(
+        "syncNow()", _READY + "TempoAPI.sync = async () => ({ ok: false, status: 0, offline: true });", _HTML
+    )
+    assert "Service Offline" in html, html
+    assert "SERVICE_OFFLINE" in html, html
+
+
+def test_a_search_failure_survives_the_next_sync():
+    """A sync that succeeds two seconds later does not repair a search that timed out.
+
+    `syncNow` clears the error on every successful poll, and the project sync runs every
+    2s. So a timed-out search used to lose its block within one poll interval and fall
+    through to the no-matches block — which asserts that nothing matched a search that
+    never returned. Before this change that was an 11px line quietly disappearing; now
+    it is the panel's whole report of the failure, centred, making a claim it cannot
+    support.
+
+    Only the action that raised an error clears it.
+    """
+    syncs = (
+        "TempoAPI.sync = async () => ({ ok: true, body: { jobs: [], uploads: [] } });"
+        "TempoAPI.footage = async () => ({ ok: true, body: [{ footage_key: 'k0',"
+        " path: 'a.mov', state: 'ready', shot_count: 9 }] });"
+        "TempoAPI.health = async () => ({ ok: true, body: { backend:"
+        " { reachable: true, gpu: true, tunnel: 'up' } } });"
+        "store.lastQuery = 'zzz';"
+        "store.error = { code: 'BACKEND_TIMEOUT', message: 'engine search failed', scope: 'search' };"
+    )
+    html = _panel_render("syncNow()", syncs, _HTML)
+    assert "Search Timed Out" in html, f"a clean poll must not erase the failure: {html}"
+
+    # A failure of the sync's own is cleared by the next good one: that repair is real.
+    html = _panel_render(
+        "syncNow()",
+        syncs.replace("scope: 'search'", "scope: 'sync'"),
+        _HTML,
+    )
+    assert "Search Timed Out" not in html, html
+
+
 def test_quota_denial_names_the_limit_the_service_reported():
     """The numbers are the useful part, and they belong to the service.
 
@@ -1163,6 +1247,9 @@ def test_each_failure_names_itself_and_says_what_to_do():
         assert said in html, f"{code} must say what to do: {html}"
         assert code in html, f"{code} must stay on screen: {html}"
         assert 'class="detail"' in html, f"{code} carries the code on the detail line: {html}"
+        assert "engine search failed" not in html, (
+            f"{code}: a message that only restates the heading must not be quoted: {html}"
+        )
 
 
 def test_a_failure_with_no_wording_of_its_own_still_renders_a_block():
@@ -1180,11 +1267,13 @@ def test_a_failure_with_no_wording_of_its_own_still_renders_a_block():
     assert "cuda oom" in html, f"the service's message is the instruction it lacks: {html}"
     assert "ENGINE_MELTED" in html, html
 
-    # No message either: the block still renders rather than falling back to nothing.
+    # No message either: the block still renders rather than falling back to nothing,
+    # and it says something rather than showing an empty instruction.
     html = _panel_render(
         "renderResults()", _READY + " store.error = { code: 'ENGINE_MELTED' };", _HTML
     )
     assert 'class="pill edge warn warn-muted"' in html, html
+    assert "The service returned an error." in html, html
 
 
 def test_the_frame_01_variants_each_keep_their_own_wording():
@@ -1226,7 +1315,12 @@ def test_the_state_block_hint_wraps_and_the_detail_line_is_a_token():
     assert "overflow-wrap: anywhere;" in hint, hint
 
     detail = _css_rule(css, ".empty-state .detail")
-    assert "var(--" in detail, f"the detail line needs a colour token, not a literal: {detail}"
+    assert "var(--text-faint)" in detail, (
+        f"the detail line is quotation and must sit below the hint, not on --dim: {detail}"
+    )
+    assert len(re.findall(r"--text-faint:", css)) == 2, (
+        "both themes need the token; the quiet end is white on one and black on the other"
+    )
     assert "font-size: 11px;" in detail, detail
 
     assert not re.search(r"^\.empty \{", css, re.M), (
@@ -1303,22 +1397,6 @@ _NO_DESCRIPTION = (
     "store.results = [{ footage_key: 'k0', source_path: 'C:/s/a.mov', shot_id: '0',"
     " start_s: 1, end_s: 3.25 }];"
 )
-_HTML = "document.getElementById('results').innerHTML"
-
-_READY_AND_QUERY = (
-    "store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'ready', shot_count: 9 }];"
-    "store.lastQuery = 'zzz';"
-)
-_READY = "store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'ready', shot_count: 9 }];"
-_RESULT = (
-    # Rendering cards calls thumbUrl, so the stub belongs to the fixture: results on
-    # screen is a state that can be rendered, not just a length.
-    "TempoAPI.thumbUrl = () => 't.jpg';"
-    "store.results = [{ footage_key: 'k0', source_path: 'a.mov', shot_id: '0',"
-    " start_s: 1, end_s: 3.25, caption: 'a dog runs' }];"
-)
-_LIVE_JOB = "store.activeJobs = ['job_1']; store.jobs = { job_1: %s };" % _RUNNING_JOB
-_SCREEN = "resultsScreen()"
 
 
 def test_results_screen_cascade_names_every_state_the_area_can_hold():

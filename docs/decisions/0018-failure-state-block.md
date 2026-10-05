@@ -87,20 +87,51 @@ are the useful part. The panel's wording says a limit was reached, and the servi
 sentence carries which plan, what it allows and what the project holds. That is §7.3
 made concrete — a plan limit written into the panel would be wrong the moment the limit
 moves, so raising the limit on the server changes this line with no panel change. Its
-instruction also says what is still true, because a denial on `/sync` gates new work
-only and an editor who read "limit reached" as "nothing works" would be wrong.
+wording says "your plan's limit" and not "the footage limit", because the service raises
+this one code for footage-minutes too (`entitlements.check_new_work`). Its instruction
+also says what is still true, because a denial on `/sync` gates new work only and an
+editor who read "limit reached" as "nothing works" would be wrong.
 
-The code goes on the new third line, `.detail`, in `--dim`: F2 requires the code on
-screen, and a failure the editor cannot name is one they cannot report. A code the
-table has no copy for falls back to a generic heading with the service's message as
-the instruction and the code on the detail line, so a new backend error cannot leave
-the panel blank.
+The code goes on the new third line, `.detail`, in a new `--text-faint` token: F2
+requires the code on screen, and a failure the editor cannot name is one they cannot
+report. `--dim` was the obvious candidate and is wrong — over `#232323` the hint lands at
+`rgb(123)` and `--dim` (`#8a8a8a`) at `rgb(138)`, so the quotation would be *louder* than
+the instruction it is supposed to sit under, and on the light theme the relationship
+inverts (`#5c5c5c` at 92 against the hint's 118). Quieter than 0.4 white is 0.28 white;
+quieter than 0.45 black on a light surface is 0.62 black. Both are declared.
+
+A code the table has no copy for falls back to a generic heading with the service's
+message as the instruction and the code on the detail line, so a new backend error cannot
+leave the panel blank.
 
 Both routes into the block are clamped. A job error is 2000 characters of engine
 traceback, and a block that tall is not a message; the cut is marked with an ellipsis,
-the way the indexing error row's already was.
+the way the indexing error row's already was — and `clamp` is now the one owner of that
+truncation, shared with that row.
 
-### 4. The pill is the accent, not the error colour
+### 4. The service's envelope is kept, and an error belongs to its action
+
+Two things had to be true for any of this to be reachable rather than merely drawn.
+
+**The envelope wins.** A failed call reports the code and message the service sent. The
+panel's own code (`SERVICE_OFFLINE`, `SYNC_FAILED`, `RETRY_FAILED`, `SEARCH_FAILED`) is
+the fallback for a transport that never reached the service and so has no envelope to
+keep. Before this, every failed `/sync` was reported as `SYNC_FAILED · status 403` — which
+is how the quota block could only ever be seen from a preview fixture, and it is the
+honest-error gap this file's own spec section had recorded as outstanding.
+
+**Only the action that raised an error clears it.** `store.error` carries the scope that
+raised it (`sync`, `search`, `action`) and only that scope's success clears it. The
+project sync runs every 2s; a sync that succeeds does not repair a search that timed out.
+Without this the failure block lasted at most one poll interval and then fell through to
+the no-matches block, which asserts that nothing matched a search that never returned —
+a false claim, and a centred one.
+
+`showError` renders both surfaces itself. The error decides which of the block and the
+row speaks, so a caller that refreshed only the row left the other stale; that is how a
+failed retry went unreported until the next poll.
+
+### 5. The pill is the accent, not the error colour
 
 The failure block is the frame-01 block, so it is `--accent`. `--error` stays where
 the state is already carried: the header dot (ADR-0012) and the retained inline row. A
@@ -127,7 +158,7 @@ kind of screen from the one it is.
   screens would still be named by codes alone.
 - **A toast.** §6 bans them, and a toast over a panel that is already showing nothing
   is worse than the nothing.
-- **Tint the failure pill `--error`.** Rejected for the reason in §4 above.
+- **Tint the failure pill `--error`.** Rejected for the reason in §5 above.
 
 ## Not decided here
 

@@ -297,7 +297,7 @@ now, and so is the screen before any search has run:
 
 | Condition | Heading | Hint |
 |---|---|---|
-| a search returned nothing | `No shots found` | `Nothing in this project matches "<query>". Try a word from the dialogue or captions.` |
+| a search returned nothing | `No shots found` | `Nothing in this project matches “<query>”. Try a word from the dialogue or captions.` |
 | ready footage, no search yet | `Ready to search` | `Type a few words to find shots across your footage.` |
 
 The query is quoted back because the editor needs to see what was actually
@@ -705,8 +705,9 @@ high-water state to keep: progress is the running row's text (§3.3).
 
 ## 6. Errors
 
-One inline row directly under the search box, `#error`. `CODE` in `--error`
+An inline row directly under the search box, `#error`. `CODE` in `--error`
 plus the message, 11px, 1px border, radius 2px. No modal, no toast, no spinner.
+It is the fallback for a failure that arrives *over* content.
 
 A failure with **nothing else on screen** is not that row: it is the §3.1 block,
 centred, and the row stands down so the same fault is never printed twice. Which
@@ -717,8 +718,8 @@ of the two speaks is one decision — `resultsScreen()` — read by both:
 | `job` | nothing (a live job owns the panel) | speaks |
 | `searching` | skeleton list | speaks |
 | `error` | the failure block | **stands down** |
-| `empty` | frame 01 | speaks |
-| `nomatch` | the no-matches block | speaks |
+| `empty` | frame 01 | silent — `error` outranks it, so this only happens with no error |
+| `nomatch` | the no-matches block | silent, same reason |
 | `results` | cards | speaks |
 
 `error` sits above `empty` deliberately: with the service down and no footage
@@ -732,10 +733,19 @@ the service's code goes on the third line (§3.1b). The row keeps its own
 `CODE · message` format and its `--error` colour for the errors that arrive over
 content.
 
-**This work is layout-only.** The panel still discards the server's error code
-and message on four of five actions (`SYNC_FAILED · status 403` for a quota
-denial) — fixing that is a separate ticket, and the row is sized for it. Two
-related bugs are also separate tickets, not UI patches:
+**An error belongs to the action that raised it.** The project sync runs every 2s,
+and a sync that succeeds does not repair a search that timed out — so `store.error`
+carries the scope that raised it and only that scope's success clears it. Without
+this the failure block survived at most one poll interval and then fell through to
+the no-matches block, which asserts that nothing matched a search that never
+returned.
+
+**The service's envelope is kept.** A failed call reports the code and message the
+service sent; the panel's own code (`SERVICE_OFFLINE`, `SYNC_FAILED`,
+`RETRY_FAILED`, `SEARCH_FAILED`) is the fallback for a transport that never reached
+the service and therefore has no envelope. Before this, every failed `/sync` was
+reported as `SYNC_FAILED · status 403`, which threw away the quota denial's code and
+the limit it named. Two related bugs are still separate tickets, not UI patches:
 
 - `ensureHost()` fails silently (`panel.js:457`) and its downstream effect is
   that every footage entry is marked `stale` with no error at all
@@ -773,7 +783,7 @@ is also how the headless checks drive it:
 | `#list` | list view |
 | `#emptyresults` | no matches — the §3.1a block |
 | `#idle` | ready to search — the same block, no query yet |
-| `#offline` / `#asleep` / `#quota` | the three inline error rows |
+| `#offline` / `#asleep` / `#quota` | the three failure blocks (§3.1b) |
 
 Any uncaught error — from the harness, from `panel.js`, or from a click handler —
 is printed into the red box on the left. A silently broken preview is worse than a
