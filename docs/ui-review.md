@@ -94,9 +94,13 @@ flag and reject an element reading as "AI-generated slop".
       line or in the row — no modals, no toasts. Check `preview.html#offline` with
       results loaded behind it.
 - [ ] Offline service renders a usable degraded state, never a blank panel.
-- [ ] The no-footage block (frame 01 and its three variants), the no-matches block
-      and a failure block are all centred in the panel on both axes, like the indexing
-      screen — check `preview.html#empty`, `#emptyresults` and `#quota`.
+- [ ] The no-footage block (frame 01 and its one remaining variant), the no-matches
+      block and a failure block are all centred in the panel on both axes, like the
+      indexing screen — check `preview.html#empty`, `#emptyresults` and `#quota`.
+- [ ] A failure is on screen once. Check `preview.html#failed`: the indexing section
+      carries the sentence and the button, and the results area below it is **empty** —
+      no second block naming the file or telling the editor to open the detail they are
+      already looking at. With other footage ready, their results must survive. ADR-0022.
       It is a status pill sized by its own label (`role="status"`), not a button —
       a disabled control that cannot be pressed is a dead affordance.
 - [ ] The block's instruction is louder than its detail line on both themes — the

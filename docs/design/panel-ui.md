@@ -279,12 +279,19 @@ centred skeleton list would float below a search field that is already above it.
   its own content, like the indexing pill.
 - **Hint** `Get started by importing your videos to the project`
 
-Two more variants of the same block, same components:
+One more variant of the same block, same components:
 
 | Condition | Heading | Hint |
 |---|---|---|
-| footage present, none `ready`, none indexing | `No searchable footage` | `Every file in this project is stale or failed indexing.` |
-| any footage `error` | `Indexing failed` | `<footage name> could not be indexed.` + Retry lives in the indexing detail |
+| footage present, none `ready`, none indexing, none failed | `No searchable footage` | `Every file in this project is stale. Re-import it, or delete it from the project.` |
+
+There were two indexing variants here — `Indexing failed` and `Indexing stalled` —
+naming a file and pointing the editor at the indexing detail. Both moved to the
+section that reports them (§3.2), along with the sentence and the button that retry,
+because a second report of the same fault is a second thing to read and, being
+below the detail it points at, the worst-placed one. `resultsScreen()` sends a
+panel with no searchable footage to the indexing section whenever the section is
+showing anything (ADR-0022); this area keeps the one claim only it can make.
 
 The design's `Get started by importing your videos to the project` is kept in
 substance; the exact AE menu path is named so the instruction is actionable.

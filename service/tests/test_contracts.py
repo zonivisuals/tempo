@@ -1585,22 +1585,59 @@ def test_a_failure_with_no_wording_of_its_own_still_renders_a_block():
     assert "The service returned an error." in html, html
 
 
+def test_a_failed_indexing_run_is_reported_once():
+    """One fault, one screen: the indexing section, and nothing in the results area.
+
+    Two failures for the same cause was the state before ADR-0022. `resultsScreen()`
+    sent a panel with no searchable footage to the frame-01 block, which had its own
+    "Indexing Failed / <file> could not be indexed / Open the indexing detail to
+    retry" — a second report, naming a file the screen above had just stopped naming,
+    and pointing at a detail that was already on screen and above it.
+
+    Both variants are gone rather than reworded: the sentence that says what to do next
+    and the button that does it are in the indexing section (ADR-0020), so a second
+    block could only ever repeat them.
+
+    The three states are pinned because each was reachable: a failed job, an entry
+    stranded with no payload (service restart or panel reload), and a live job, which
+    already owned the panel.
+    """
+    failed = _FAILED_STORE + " store.activeJobs = [];"
+    for setup in (failed, _STRANDED, _LIVE_JOB):
+        assert _panel_render("renderResults()", setup, _SCREEN) == "job", setup
+        assert _panel_render("renderResults()", setup, _HTML) == "", setup
+        # And the section that does the reporting is on screen.
+        assert _panel_render("renderIndexing()", setup,
+                             "document.getElementById('indexing').hidden") is False
+
+    # With searchable footage the results are not wiped: the failure belongs to the
+    # section above them, and the editor is still reading the cards they searched for.
+    mixed = _READY + _RESULT + " store.jobs = { job_1: %s }; store.activeJobs = [];" % _FAILED_JOB
+    assert _panel_render("renderResults()", mixed, _SCREEN) == "results"
+    assert "class=\"card" in _panel_render("renderResults()", mixed, _HTML)
+
+    # Neither of the two retired wordings is reachable from any state.
+    for setup in (failed, _STRANDED, "store.footages = [];"):
+        html = _panel_render("renderResults()", setup, _HTML)
+        assert "Open the indexing detail" not in html, html
+    assert "Indexing Stalled" not in _panel_render(
+        "renderResults()", "store.footages = [{ footage_key: 'k0', path: 'c.mov', state: 'indexing' }];", _HTML
+    ), "the stalled variant was retired with the failed one: the section reports both"
+
+
 def test_the_frame_01_variants_each_keep_their_own_wording():
-    """Four states, four sentences, one block.
+    """Two states, two sentences, one block.
 
     They shared a shape long before they shared a builder, and the shape is the cheap
     half: what distinguishes these screens is which file the editor has to go and look
     at, so the wording is the behaviour. Nothing else pins these strings.
+
+    There were four. The two indexing variants moved to the indexing section with the
+    failure report they were duplicating (ADR-0022), and
+    `test_a_failed_indexing_run_is_reported_once` covers their replacements.
     """
     html = _block_for("[]")
     assert "No Footage Found" in html and "importing your videos" in html, html
-
-    html = _block_for("[{ footage_key: 'k0', path: 'C:/s/b.mov', state: 'error' }]")
-    assert "Indexing Failed" in html and "b.mov" in html, html
-
-    # Stranded mid-index: the job id was lost, so Resume is the action, not a retry.
-    html = _block_for("[{ footage_key: 'k0', path: 'C:/s/c.mov', state: 'indexing' }]")
-    assert "Indexing Stalled" in html and "resume it" in html, html
 
     html = _block_for("[{ footage_key: 'k0', path: 'C:/s/d.mov', state: 'stale' }]")
     assert "No Searchable Footage" in html and "stale" in html, html

@@ -522,10 +522,16 @@ function skeletonHTML() {
  * reported by the row while the block stayed away, or by both. One cascade, one
  * answer. Ordered most-specific first: a live job outranks everything, and an error
  * outranks the no-footage claim, which is a claim about the project the panel cannot
- * make while the service is down. */
+ * make while the service is down.
+ *
+ * `indexingVisible()` is the whole gate rather than `activeJob()`, so a *failed* run
+ * or a stranded entry also owns the panel: the indexing section is reporting it, and
+ * a frame-01 block saying "Indexing Failed, open the indexing detail" under a detail
+ * that is already on screen was the same fault reported twice (ADR-0022). It is
+ * qualified on `!ready`, so searchable footage keeps its results. */
 function resultsScreen() {
   const ready = readyFootage().length > 0;
-  if (!ready && activeJob()) return "job";
+  if (!ready && indexingVisible()) return "job";
   if (store.searching) return "searching";
   if (store.error && !store.results.length) return "error";
   if (!ready) return "empty";
@@ -668,24 +674,15 @@ function errorStateHTML() {
   return stateBlock(copy.pill, copy.hint, detail);
 }
 
+/* Frame 01 and the one variant left in this area. The indexing variants — a failed
+ * footage and one stranded mid-index — moved to the section that reports them, along
+ * with the sentence and the button that retry (ADR-0020, ADR-0022); reaching here
+ * with either means `resultsScreen()` sent this panel somewhere else. */
 function emptyStateHTML() {
   const fs = store.footages;
   if (!fs.length) {
     return stateBlock("No Footage Found",
       "Get started by importing your videos to the project");
-  }
-  const bad = fs.find((f) => f.state === "error");
-  if (bad) {
-    return stateBlock("Indexing Failed",
-      `${baseName(bad.path)} could not be indexed. Open the indexing detail to retry.`);
-  }
-  // Footage stuck in indexing/uploading with no live job: the job id was lost
-  // (service restart) or the engine never picked it up. Resume lives in the
-  // indexing detail, so point there rather than claiming the files are stale.
-  const stuck = fs.find((f) => f.state === "indexing" || f.state === "uploading");
-  if (stuck) {
-    return stateBlock("Indexing Stalled",
-      `${baseName(stuck.path)} has not started. Open the indexing detail to resume it.`);
   }
   return stateBlock("No Searchable Footage",
     "Every file in this project is stale. Re-import it, or delete it from the project.");
