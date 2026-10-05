@@ -890,8 +890,9 @@ window = global;
 const mk = () => {
   const classes = new Set();
   const el = {
-    hidden: false, className: '', textContent: '', innerHTML: '',
-    dataset: {}, style: {}, parentNode: null, children: [],
+hidden: false, className: '', textContent: '', innerHTML: '',
+  dataset: {}, style: {}, parentNode: null, children: [], handlers: {},
+
     classList: {
       add: (c) => classes.add(c),
       remove: (c) => classes.delete(c),
@@ -901,14 +902,18 @@ const mk = () => {
   };
   el.appendChild = (c) => { c.parentNode = el; el.children.push(c); return c; };
   el.removeChild = (c) => { el.children = el.children.filter((x) => x !== c); c.parentNode = null; };
-  el.addEventListener = () => {};
+  el.addEventListener = (t, fn) => { (el.handlers[t] = el.handlers[t] || []).push(fn); };
   el.setAttribute = () => {};
   el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 0, height: 0 });
-  el.querySelector = () => mk();
+  el.querySelector = (sel) => ((el.q = el.q || {})[sel] || (el.q[sel] = mk()));
   el.querySelectorAll = () => [];
   return el;
 };
 const nodes = {};
+/* querySelector returns the same node per selector (memoized in `q`) and
+ * addEventListener records its handlers, so a test can press a button the panel
+ * built from innerHTML and observe what it called. Without both, every retry
+ * affordance can only be checked by grepping the source for the route name. */
 document = {
   addEventListener() {},
   createElement: () => mk(),
@@ -1019,6 +1024,166 @@ def test_indexing_section_is_live_exactly_while_a_job_runs():
     assert re.search(r'\$?\("indexing"\)\.classList\.toggle\("live", live\);', src)
 
 
+# A job that failed, as the service reports one: the stages it finished, the stage
+# that raised, and the raw engine text it raised with. The error string is real on
+# purpose — it is the thing no surface is allowed to put on screen.
+_FAILED_JOB = json.dumps({
+    "job_id": "job_1", "footage_key": "k0", "state": "error",
+    "error": "RuntimeError: shots stage needs the source video\n"
+             '  File "/app/engine/tempo_engine/pipeline.py", line 85, in build\n'
+             '    raise RuntimeError("shots stage needs the source video")',
+    "stages": [
+        {"name": "upload", "state": "done", "done": 1, "total": 1},
+        {"name": "shots", "state": "done", "done": 3, "total": 10},
+        {"name": "visual", "state": "error", "done": 0, "total": 0},
+        {"name": "text", "state": "pending", "done": 0, "total": 0},
+    ],
+})
+_FAILED_FOOTAGE = "store.footages = [{ footage_key: 'k0', path: 'C:/s/a.mov', state: 'error' }];"
+_ROWS = ("Object.keys(store.stepNodes)"
+         ".map(k => k + '|' + store.stepNodes[k].row.className + '|'"
+         " + store.stepNodes[k].num.textContent).join(', ')")
+
+_FAILED_STORE = _FAILED_FOOTAGE + " store.jobs = { job_1: %s };" % _FAILED_JOB
+_FAIL_HTML = "document.getElementById('index-fail').innerHTML"
+# The two routes a failure can be retried through, recorded by stubbing each, and
+# the one line that presses whatever button the panel rendered.
+_RECORD_ROUTES = (
+    "TempoAPI.retry = async (id) => { store.route = 'job:' + id; return { ok: true, body: { job_id: 'job_2' } } };"
+    "TempoAPI.retryFootage = async (k) => { store.route = 'footage:' + k; return { ok: true, body: { job_id: 'job_3' } } };"
+    "const press = (sel) => nodes['index-fail'].q[sel].handlers.click[0]({ stopPropagation() {} });"
+)
+_STRANDED = (
+    "store.footages = [{ footage_key: 'k0', path: 'C:/s/a.mov', state: 'indexing' }];"
+    " store.jobs = {}; store.activeJobs = [];"
+)
+
+
+def test_the_failure_reports_one_sentence_and_never_the_engine_text():
+    """The failure screen is a sentence and a button, not a traceback.
+
+    `engine/tempo_engine/jobs.py` stores `f"{exc}\\n{traceback tail}"` in the job
+    error, and the panel used to print up to 300 characters of it: a container
+    path, a line number and the `raise` that stopped it, inside a 1px red border.
+    None of it is anything an editor can act on, and the failing step's own row now
+    says where it stopped.
+
+    Every distinctive fragment of the real error string is asserted absent rather
+    than the whole string, because the panel escapes and truncates what it prints:
+    a whole-string check would pass on a substring that had been cut in half.
+    """
+    html = _panel_render("renderIndexing()", _FAILED_STORE + " store.activeJobs = [];", _FAIL_HTML)
+
+    assert "Indexing Failed" in html, html
+    assert "the finished steps are kept" in html, html
+    assert "Retry step" in html, html
+    for leaked in ("pipeline.py", "line 85", "RuntimeError", "/app/engine", "Traceback"):
+        assert leaked not in html, f"{leaked!r} is engine internals, not a message: {html}"
+
+
+def test_the_failure_button_retries_the_step_that_failed():
+    """One fault, one button, aimed at the job that failed.
+
+    There were two Retry buttons for one failure — one in the error box, one in the
+    footage row — and a retry re-runs the pipeline through the stage cache, so
+    whichever one the editor pressed the answer was the same. The button is now the
+    only one, and it addresses the job by id.
+
+    Asserted by pressing the rendered button, not by grepping panel.js for the route
+    name: the markup and the handler could disagree, and a grep would pass on a
+    handler wired to nothing.
+    """
+    route = _panel_render(
+        "(renderIndexing(), press('[data-retry-job]'))",
+        _FAILED_STORE + " store.activeJobs = []; " + _RECORD_ROUTES,
+        "store.route",
+    )
+    assert route == "job:job_1", route
+
+    # Exactly one button, and it is a button rather than a control that cannot be
+    # pressed (AGENTS.md §8): a disabled affordance is not one.
+    html = _panel_render("renderIndexing()", _FAILED_STORE + " store.activeJobs = [];", _FAIL_HTML)
+    assert html.count("<button") == 1, html
+    assert "disabled" not in html, html
+
+
+def test_a_footage_stranded_with_no_job_still_has_one_way_back():
+    """A registry entry the panel has no job for is still recoverable.
+
+    `store.jobs` is in-memory: a service restart or a panel reload leaves the entry
+    at `indexing`/`uploading`/`error` with no payload and no job id, and the footage
+    row that offered Resume was its only button. The single failure button keeps
+    that route — `POST /footage/{key}/retry`, which the service documents as the
+    same operation addressed by key.
+
+    Both are asserted, because the payload case is the one a test would reach for
+    first and the stranded one is the one that silently rots.
+    """
+    html = _panel_render("renderIndexing()", _STRANDED, _FAIL_HTML)
+    assert "Indexing Stopped" in html, html
+    assert "data-retry-footage" in html, html
+
+    route = _panel_render(
+        "(renderIndexing(), press('[data-retry-footage]'))", _STRANDED + " " + _RECORD_ROUTES,
+        "store.route",
+    )
+    assert route == "footage:k0", route
+
+    # And nothing else on screen claims to be retryable.
+    assert _panel_render("renderIndexing()", _STRANDED, _FAIL_HTML).count("<button") == 1
+
+
+def test_the_failure_counts_the_other_footage_it_cannot_show():
+    """One failure is reported; the rest are counted, not listed.
+
+    Queues are single-worker but a failure does not stop the queue, so a dead engine
+    fails every queued footage in turn and `store.jobs` accumulates them. One block
+    can only report one — and a block per failed footage is the dense list of rows
+    this screen just lost. The honest middle is the count, read off the footage list
+    the panel already holds: §7.3 keeps a *plan limit* out of the panel, and this is
+    not one.
+    """
+    one = _panel_render("renderIndexing()", _FAILED_STORE + " store.activeJobs = [];", _FAIL_HTML)
+    assert "other file" not in one, f"one failure, no count: {one}"
+
+    two_more = (
+        " store.footages = store.footages.concat("
+        "[{ footage_key: 'k1', path: 'b.mov', state: 'error' },"
+        " { footage_key: 'k2', path: 'c.mov', state: 'error' }]);"
+    )
+    html = _panel_render(
+        "renderIndexing()", _FAILED_STORE + " store.activeJobs = [];" + two_more, _FAIL_HTML
+    )
+    assert "2 other files also failed to index." in html, html
+    # And the count is not a second report: still one button, one sentence.
+    assert html.count("<button") == 1, html
+
+
+def test_the_indexing_section_no_longer_names_a_file():
+    """Nothing on the indexing screen prints a file name.
+
+    The footage rows were the last place it appeared (`Indexing · <file> · <stage>`
+    went with ADR-0019's predecessor), and they carried the second Retry as well as
+    the registry's own per-state detail. Their one load-bearing job — retrying an
+    entry the panel has no job for — is the failure button's job now, so the rows,
+    their CSS and the renderer that built them all go.
+
+    Asserted across all three panel files plus the render: the markup, the
+    stylesheet and the code are three places this could come back in.
+    """
+    js = PANEL_JS.read_text(encoding="utf-8")
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    for dead in ("footage-actions", "renderFootageActions", "frow", "fname", "data-fretry", "job-err"):
+        assert dead not in js, f"panel.js reintroduced {dead!r}"
+        assert dead not in html, f"index.html reintroduced {dead!r}"
+        assert dead not in css, f"panel.css reintroduced {dead!r}"
+
+    rendered = _panel_render("renderIndexing()", _FAILED_STORE + " store.activeJobs = [];", _FAIL_HTML)
+    assert "a.mov" not in rendered and ".mov" not in rendered, rendered
+
+
 def test_indexing_reserves_the_finished_step_list_height():
     """The reserve is nine rows tall, and nine is STEPS' count.
 
@@ -1046,25 +1211,7 @@ def test_indexing_reserves_the_finished_step_list_height():
     )
 
 
-# A job that failed, as the service reports one: the stages it finished, the stage
-# that raised, and the raw engine text it raised with. The error string is real on
-# purpose — it is the thing no surface is allowed to put on screen.
-_FAILED_JOB = json.dumps({
-    "job_id": "job_1", "footage_key": "k0", "state": "error",
-    "error": "RuntimeError: shots stage needs the source video\n"
-             '  File "/app/engine/tempo_engine/pipeline.py", line 85, in build\n'
-             '    raise RuntimeError("shots stage needs the source video")',
-    "stages": [
-        {"name": "upload", "state": "done", "done": 1, "total": 1},
-        {"name": "shots", "state": "done", "done": 3, "total": 10},
-        {"name": "visual", "state": "error", "done": 0, "total": 0},
-        {"name": "text", "state": "pending", "done": 0, "total": 0},
-    ],
-})
-_FAILED_FOOTAGE = "store.footages = [{ footage_key: 'k0', path: 'C:/s/a.mov', state: 'error' }];"
-_ROWS = ("Object.keys(store.stepNodes)"
-         ".map(k => k + '|' + store.stepNodes[k].row.className + '|'"
-         " + store.stepNodes[k].num.textContent).join(', ')")
+
 
 
 def test_a_failed_job_keeps_the_step_that_failed_on_screen():

@@ -5,7 +5,7 @@
 <title>Tempo</title>
 <!-- ?v= cache buster: CEF caches panel assets aggressively across AE
      restarts; bump on any www/ change so the installed panel reloads. -->
-<link rel="stylesheet" href="panel.css?v=0.9.3">
+<link rel="stylesheet" href="panel.css?v=0.9.4">
 </head>
 <body>
 <div id="app">
@@ -113,8 +113,10 @@
       <!-- Step rows are keyed and mutated in place (docs/design/panel-ui.md 5);
            never replaced, so the slide and the spinner survive the 500ms poll. -->
       <div id="steps"></div>
-      <div class="job-err" id="job-err" hidden></div>
-      <div id="footage-actions"></div>
+      <!-- The failure report: one sentence and one Retry step button, under the
+           step list (docs/design/panel-ui.md 3.2). The engine's own error text is
+           not rendered anywhere in the panel. -->
+      <div id="index-fail" hidden></div>
     </div>
   </section>
 
@@ -122,6 +124,6 @@
 </div>
 <script src="../CSXS/CSInterface.js"></script>
 <script src="api.js?v=0.6.1"></script>
-<script src="panel.js?v=0.7.4"></script>
+<script src="panel.js?v=0.7.5"></script>
 </body>
 </html>

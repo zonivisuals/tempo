@@ -208,6 +208,9 @@
         });
       }
       if (kind === "failed") {
+        // The traceback is deliberate and load-bearing: the service still sends it,
+        // so the preview carries a real one and the panel must render none of it
+        // (ADR-0020). Check `#failed` for a path, a line number or a `.mov` name.
         return ok({
           job_id: "job-fixture", footage_key: "k0", state: "error", reused: false,
           stages: STAGES.slice(0, 4).map((n, i) => ({

@@ -466,9 +466,31 @@ The nine rows and the `--step-count` the reserve assumes are one number in two
 files; `test_contracts.py` cross-checks them against `STEPS`.
 
 Each step row centres its icon, label and readout as one line (the row is a
-centred flex row, not a 16px/1fr grid). The error row and the footage rows stay
-left-aligned inside the column: a 300-character engine traceback reads wrong
-centred, and those rows are text blocks, not a status line.
+centred flex row, not a 16px/1fr grid).
+
+**The failure is one sentence and one button, under the list.** `renderIndexFailure()`
+builds the same `stateBlock()` ADR-0018 gave every other failure — status pill, one
+line of instruction — plus a single **Retry step** button, which re-runs the pipeline
+through the engine's stage cache so the finished steps are cache hits. The step that
+stopped is named by its own row, so the sentence does not repeat it.
+
+**Nothing engine-internal is rendered.** No traceback, no container path, no line
+number, no socket errno, no file name. The raw `error` stays in the job payload and
+in the service log; the editor is given the step (above), the cause (ADR-0021) and the
+one action. Two Retry buttons used to sit here for the same fault — one in the error
+row, one in the footage row — and they called the same operation, since both resume from
+the stage cache.
+
+**The footage rows are gone.** They existed to retry an entry the panel has no job for:
+a service restart or a panel reload leaves the registry at `indexing`/`uploading`/`error`
+with no payload. That is now the same button, aimed at `/footage/{key}/retry` instead of
+`/jobs/{id}/retry`. Nothing else remains on this screen but the pill, the step list and
+this block — which is what §4.4 already said the section contains.
+
+**The other failures are counted, not listed.** Queues are single-worker but a failure
+does not stop them, so a dead engine fails every queued footage in turn. One block
+reports one and the sentence ends with the count; a block each is the row list this
+screen just lost. ADR-0020.
 
 ### 3.3 Progress readouts
 
@@ -792,7 +814,7 @@ is also how the headless checks drive it:
 | `#indexing` | indexing, advancing on the 500 ms poll (frame 02) |
 | `#queued` | the synthetic `queued` row while the tunnel warms |
 | `#cached` | a `reused` job: every stage `done` with `total = 0` — nothing may show a number |
-| `#failed` | engine failure: the errored step marked in its list, message, Retry |
+| `#failed` | engine failure: the errored step marked in its list, one sentence, Retry step |
 | `#searching` | skeletons, query sweep, submit spinner (frame 03) |
 | `#results` | nine cards, grid (frame 04) |
 | `#nocaption` | transcript shown instead of caption |

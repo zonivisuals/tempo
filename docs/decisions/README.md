@@ -29,7 +29,7 @@ Index of decisions (details in AGENTS.md §12). New decisions get a numbered fil
 - D25 One state block for every nothing-to-show (frame 01, its variants, no matches, not-searched-yet, and a failure), with `resultsScreen()` as the one question about which of the block or the retained inline row speaks → `0018-failure-state-block.md`
 
 - D26 A failed job keeps its step list, and the errored row is marked: `currentJob()` is the live job or the newest failed one, the errored row carries `--error`, a wash and `failed`, and the preview fixture stops faking a live job -> `0019-failed-step-keeps-its-row.md`
-
+- D27 The indexing failure is one sentence and one button: the engine traceback leaves the panel, the footage rows and their second Retry go, and an entry with no job keeps its recovery through the same button -> `0020-one-failure-sentence-one-button.md`
 
 Known debt:
 - K1 key-scale calibration — resolved by D17

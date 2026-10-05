@@ -242,6 +242,12 @@ error, which `GET /v1/jobs/{id}` and `GET /v1/library/{cid}` return. Leaks
 container paths, resolved model ids and stack frames. Also reflected verbatim
 into sidecar responses and logs (`proxy.py`).
 
+**Panel half closed (ADR-0020):** nothing in the panel renders a job's `error`
+anymore — the indexing failure is one sentence and one button, and the step that
+stopped is named by its own row. The leak across the service boundary is
+untouched: the string still leaves the engine, crosses `proxy.py` and lands in
+the sidecar log and the registry entry.
+
 ### S6 `GET /v1/library/{cid}` creates directories on a read path — MEDIUM
 
 `library.entry_dir()` `mkdir(parents=True)` runs unconditionally, and

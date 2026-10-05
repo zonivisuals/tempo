@@ -392,32 +392,16 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 /* Material's two-arc indicator (777:704): a full-circle track under an accent
  * arc. Sizes itself from the width/height on the element. */
 .pill .spin { flex: none; width: 16px; height: 16px; animation: spin 1s linear infinite; }
-.job-err {
-  border: 1px solid var(--error); border-radius: var(--r-sm); padding: 4px 8px;
-  color: var(--error); word-break: break-word;
-}
-.job-err button {
-  margin-top: 4px;
+/* The failure's one button (ADR-0020). The control the error row and the footage
+ * row each used to carry, in the one place it now lives: same surface, border and
+ * `--r-sm` radius, accent on hover. `.empty-state`'s own 10px gap spaces it from
+ * the sentence, so the button declares no margin. */
+.fail-retry {
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r-sm);
-  font: inherit; padding: 2px 8px; cursor: pointer;
+  font: inherit; padding: 3px 10px; cursor: pointer;
 }
-.job-err button:hover { border-color: var(--accent); color: var(--accent); }
-#footage-actions { display: flex; flex-direction: column; gap: 4px; }
-.frow {
-  display: flex; align-items: center; gap: 8px;
-  border: 1px solid var(--border); border-radius: var(--r-sm); padding: 3px 8px;
-}
-.frow .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.frow .fstate { color: var(--dim); flex: none; font-variant-numeric: tabular-nums; }
-.frow.live .fstate { color: var(--text); }
-.frow button {
-  flex: none;
-  background: var(--surface); color: var(--text);
-  border: 1px solid var(--border); border-radius: var(--r-sm);
-  font: inherit; padding: 1px 6px; cursor: pointer;
-}
-.frow button:hover { border-color: var(--accent); color: var(--accent); }
+.fail-retry:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- results ---------- */
 #results { display: flex; flex-direction: column; gap: 8px; }

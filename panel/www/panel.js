@@ -232,6 +232,16 @@ function activeJob() {
   return null;
 }
 
+/* The job whose payload the panel still holds and whose stages are on screen. */
+function newestFailedJob() {
+  const ids = Object.keys(store.jobs);
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const j = store.jobs[ids[i]];
+    if (j && j.state === "error") return j;
+  }
+  return null;
+}
+
 /* The job whose payload the step list renders: the live one while a job runs, and
  * the one that failed once it stops being live.
  *
@@ -239,17 +249,9 @@ function activeJob() {
  * payload, so reading `activeJob()` alone made the poll that reported a failure
  * also the render that cleared the list naming it. The failing stage is the only
  * thing on this screen that says where indexing stopped, and the preview hid the
- * bug by leaving the failed id in the active list. Object key order is insertion
- * order (ids are strings), so walking it backwards is newest first. */
+ * bug by leaving the failed id in the active list. */
 function currentJob() {
-  const live = activeJob();
-  if (live) return live;
-  const ids = Object.keys(store.jobs);
-  for (let i = ids.length - 1; i >= 0; i--) {
-    const j = store.jobs[ids[i]];
-    if (j && j.state === "error") return j;
-  }
-  return null;
+  return activeJob() || newestFailedJob();
 }
 
 function makeStepNode(key) {
@@ -337,55 +339,79 @@ function renderSteps() {
   });
 }
 
-/* ---------- indexing error ---------- */
+/* ---------- indexing failure ---------- */
 
-function renderJobError() {
-  const box = $("job-err");
-  const failed = store.activeJobs.concat(Object.keys(store.jobs))
-    .map((id) => store.jobs[id]).find((j) => j && j.state === "error");
-  if (!failed) { box.hidden = true; box.textContent = ""; return; }
-  box.hidden = false;
-  // Job error strings can be 2000 chars of engine traceback (engine/jobs.py:179).
-  // Never routed into a one-row area — truncated here, Retry stays.
-  const msg = String(failed.error || "indexing failed");
-  box.innerHTML = `<div>${esc(clamp(msg, 300))}</div>` +
-    `<button type="button" data-retry="${esc(failed.job_id)}">Retry</button>`;
-  box.querySelector("[data-retry]").addEventListener("click", (e) => {
-    e.stopPropagation(); retryJob(failed.job_id);
-  });
-}
+/* What the failure screen says. Two states, because the panel knows two different
+ * amounts: with a failed job it knows a step stopped, and the step's own row above
+ * names it, so this does not repeat it; with nothing but a registry entry it cannot
+ * name anything and must not imply that it can.
+ *
+ * `reason` (what kind of failure it was) is added by ADR-0020; until the service
+ * names it, this is the most the panel can honestly say. §7.3: no instance name,
+ * plan limit, port or path is written here. */
+const FAIL_COPY = {
+  failed: {
+    pill: "Indexing Failed",
+    hint: "Tempo stopped on this step. Try it again — the finished steps are kept.",
+  },
+  stranded: {
+    pill: "Indexing Stopped",
+    hint: "Tempo lost track of the step this stopped on. Try again — indexing resumes from the last finished step.",
+  },
+};
 
-function renderFootageActions() {
-  // Retry/Resume per footage state (explicit clicks only — auto-sync never
-  // re-enqueues). Covers error entries and orphaned indexing entries whose
-  // job id was lost (service restart / panel reload).
-  const box = $("footage-actions");
+/* A registry entry the panel has no job for: stranded mid-index after a service
+ * restart or a panel reload, or left in `error`. An entry a live job already covers
+ * is not stranded — that job is its retry. */
+function strandedFootage() {
   const covered = new Set(
     store.activeJobs.map((id) => store.jobs[id] && store.jobs[id].footage_key).filter(Boolean)
   );
-  // Jobs created locally have no footage_key until their first poll — can't
-  // prove orphan, so suppress Resume until coverage is known (500ms poll).
-  const unknown = store.activeJobs.some((id) => !(store.jobs[id] && store.jobs[id].footage_key));
-  const rows = [];
-  for (const f of store.footages) {
-    const detail = f.state === "ready"
-      ? `${f.shot_count ? ` · ${f.shot_count} shots` : ""}${f.reused ? " · reused index" : ""}` : "";
-    if (f.state === "error") {
-      rows.push(`<div class="frow"><span class="fname">${esc(baseName(f.path))}</span>` +
-        `<span class="fstate">error</span>` +
-        `<button type="button" data-fretry="${esc(f.footage_key)}">Retry</button></div>`);
-    } else if (!unknown && (f.state === "indexing" || f.state === "uploading") && !covered.has(f.footage_key)) {
-      rows.push(`<div class="frow live"><span class="fname">${esc(baseName(f.path))}</span>` +
-        `<span class="fstate">${esc(f.state)}</span>` +
-        `<button type="button" data-fretry="${esc(f.footage_key)}">Resume</button></div>`);
-    } else if (!covered.has(f.footage_key)) {
-      rows.push(`<div class="frow"><span class="fname">${esc(baseName(f.path))}</span>` +
-        `<span class="fstate">${esc(f.state)}${esc(detail)}</span></div>`);
-    }
-  }
-  box.innerHTML = rows.join("");
-  box.querySelectorAll("[data-fretry]").forEach((btn) => {
-    btn.addEventListener("click", (e) => { e.stopPropagation(); footageRetry(btn.dataset.fretry); });
+  return store.footages.find((f) => !covered.has(f.footage_key)
+    && (f.state === "error" || f.state === "indexing" || f.state === "uploading"));
+}
+
+/* One failure, one sentence, one button — under the step list, where the failing
+ * row is (ADR-0019). This replaced two boxes: an error row printing 300 characters
+ * of engine traceback, and a footage row carrying a second Retry for the same fault
+ * plus the file name. The raw `error` string is not rendered anywhere; it stays in
+ * the payload and in the service log.
+ *
+ * The button's route is the only thing that differs between the two states: a failed
+ * job is retried by id, an entry the panel has no job for by footage key, and the
+ * service treats both as the same operation (docs/api.md). Either way the engine
+ * resumes from the stage cache, so the finished steps are not redone.
+ *
+ * Reported whenever a failed job exists, including while a different job runs: the
+ * queues are single-worker but a failure does not stop them, so the next footage is
+ * usually already indexing. In that window the step list belongs to the running job,
+ * so the message stands without its row — the retry is the part the editor needs. */
+function renderIndexFailure() {
+  const box = $("index-fail");
+  const failed = newestFailedJob();
+  const stranded = failed ? null : strandedFootage();
+  if (!failed && !stranded) { box.hidden = true; box.textContent = ""; return; }
+
+  const key = failed ? failed.footage_key : stranded.footage_key;
+  const copy = failed ? FAIL_COPY.failed : FAIL_COPY.stranded;
+  // The other failures are counted rather than listed: a block per failed footage is
+  // the row list this screen just lost, and one failure reported silently is not
+  // honest either. The count is read off the footage list, so it is data and not a
+  // number written here (§7.3).
+  const others = store.footages.filter((f) => f.footage_key !== key && f.state === "error").length;
+  const hint = others ? `${copy.hint} ${others} other file${others > 1 ? "s" : ""} also failed to index.` : copy.hint;
+
+  const action = failed
+    ? `<button type="button" class="fail-retry" data-retry-job="${esc(failed.job_id)}">Retry step</button>`
+    : `<button type="button" class="fail-retry" data-retry-footage="${esc(stranded.footage_key)}">Retry step</button>`;
+  box.hidden = false;
+  box.innerHTML = stateBlock(copy.pill, hint, "", action);
+
+  const target = failed ? "[data-retry-job]" : "[data-retry-footage]";
+  box.querySelector(target).addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (failed) retryJob(failed.job_id);
+    else footageRetry(stranded.footage_key);
   });
 }
 
@@ -496,7 +522,7 @@ function renderIndexing() {
   // flag that shows the pill drives it, so the two cannot disagree.
   $("indexing").classList.toggle("live", live);
   renderSteps();
-  if (show) { renderJobError(); renderFootageActions(); }
+  renderIndexFailure();
 }
 
 function skeletonHTML() {
@@ -522,13 +548,16 @@ function resultsScreen() {
 
 /* One block, every state that has nothing to show. Figma 777:639 draws the heading
  * as a disabled CTA; it is a status pill instead: a control that cannot be pressed
- * advertises an action it does not have (AGENTS.md 8). Pixels kept, dead affordance
- * dropped. `detail` is the raw service line, for the states that have one. */
-function stateBlock(pill, hint, detail) {
+ * advertises an action it does not have (AGENTS.md §8). Pixels kept, dead affordance
+ * dropped. `detail` is the raw service line, for the states that have one; `action`
+ * is the one button the block carries, and only the indexing failure has one. Both
+ * slots are the caller's own text — nothing user-supplied reaches them. */
+function stateBlock(pill, hint, detail, action) {
   return `<div class="empty-state">` +
     `<div class="pill edge warn warn-muted" role="status"><span class="pill-label">${esc(pill)}</span></div>` +
     `<p class="hint">${esc(hint)}</p>` +
     (detail ? `<p class="detail">${esc(detail)}</p>` : "") +
+    (action ? action : "") +
     `</div>`;
 }
 
@@ -568,8 +597,11 @@ const ERROR_COPY = {
 };
 
 /* The service's words, bounded. A job error is 2000 characters of engine traceback
- * (engine/jobs.py:179), and a block that tall is not a message; the ellipsis says it
- * was cut, the way the indexing error row's does. */
+ * (engine/jobs.py:179) and a service message can be a limit sentence, so a block
+ * that tall is not a message: the ellipsis says it was cut. The indexing failure no
+ * longer quotes the job's `error` at all — it names the step in its own row (see
+ * renderIndexFailure) — but the block's two routes into the service's line are both
+ * bounded here. */
 const BLOCK_TEXT_MAX = 160;
 function clamp(s, max) {
   const t = String(s == null ? "" : s);

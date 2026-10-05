@@ -50,16 +50,19 @@ flag and reject an element reading as "AI-generated slop".
       centred step rows, not a full-width banner — and it **does not move**: sit
       on `preview.html#indexing` and let the run fill the list; the pill and the
       running row stay where they are and only completed rows arrive underneath.
-      Each step row centres its icon, label and readout on one line; the error row
-      and the footage rows stay left-aligned.
+      Each step row centres its icon, label and readout on one line.
 - [ ] Every indeterminate indicator is the accent arc over a white track — the
       indexing pill, the submit button while searching, the running row's ray
       burst (accent). No dimmed gray spinner anywhere.
 - [ ] Indexing section: a status pill reading "Processing your videos" with the
       two-arc indicator, and the step list. **No summary line and no file name**
-      anywhere on this screen outside the footage rows. **There is no hide/show
-      toggle** — the list is shown whenever a job is live and gone when none is,
-      and a failed job keeps its message and Retry.
+      anywhere on this screen. **There is no hide/show toggle** — the list is shown
+      whenever a job is live and gone when none is, and a failed job keeps its list.
+- [ ] The failure itself is one sentence and one button — check `preview.html#failed`:
+      no traceback, no `/app/...` path, no `line NN`, no `.mov` name, one pill, one
+      instruction, and a single **Retry step** button (two Retry buttons for one
+      fault is what this replaced). Press it: indexing resumes from the failed
+      step and the finished steps stay finished. ADR-0020.
 - [ ] Step list: the running stage at the top with its readout, finished stages
       dimmed below it with a check. **A stage that has not started draws no row** —
       check `preview.html#indexing` early in the run: the list must not be a
