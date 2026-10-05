@@ -6,12 +6,15 @@ flag and reject an element reading as "AI-generated slop".
 
 ## Must hold
 
-- [ ] The design's radii, ported as ratios: 8px on the search field, the CTA and
-      the indexing pill; 3px on cards and skeleton blocks; 4px on buttons. The
-      7px status dot is the one documented exception. Compare against
+- [ ] The design's radii, ported as ratios: 10px on the search field (`--r-field`,
+      its own token), 8px on the indexing and empty-state pills (`--r-lg`), 3px on
+      cards, thumbnails and skeleton blocks (`--r-md`), 4px on buttons (`--r-sm`).
+      The 7px status dot is the one documented exception. Compare against
       `docs/design/panel-ui.md` §1, not against a flat 2px rule.
 - [ ] The search field carries the design's 1.5px white→surface gradient edge at
-      0.28 alpha and its shadow. No shadow anywhere else.
+      0.28 alpha and its shadow. No shadow anywhere else. It is **82px** tall: label
+      above value, the icon at 10px beside the 11px label (the one icon below
+      §6's 16px floor), and the value row carrying the 24px submit button.
 - [ ] 12px base / 11px metadata, system font stack, 4px spacing rhythm.
 - [ ] Monochrome + at most one accent, used only for selection/active.
 - [ ] Progress is the running row's own readout — a percentage, or the real unit
@@ -49,6 +52,10 @@ flag and reject an element reading as "AI-generated slop".
       duration, and **one** description line (caption, or transcript when the
       engine produced no caption — never both). No score bars, no percentages, no
       result-count line above the grid, no separate Insert button.
+- [ ] The insert badge is the accent circle-plus, centred on the thumbnail, in the
+      same 18% of the thumbnail in both views and never under 16px — check the grid
+      and `#list` at both ends of the width slider. It carries no pill and no white
+      ring.
 - [ ] Errors are compact inline rows under the search field with the service
       error code — no modals, no toasts.
 - [ ] Offline service renders a usable degraded state, never a blank panel.

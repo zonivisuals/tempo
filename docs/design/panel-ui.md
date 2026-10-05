@@ -69,27 +69,35 @@ moving two surfaces. `--r-field` is the only consumer of the corrected figure.
 
 Measured off a 1× render of `815:294`: the 196px field divides into 47 above the
 label, a 46px ink-to-ink gap, and 53 below the value, with 42 and 40 of side
-padding. Scaled by 0.406 those are 19.1 / 18.7 / 21.5 and 17 / 16, which land on
-**20 / 20 / 20** and **16** at the 4px rhythm; the icon-to-label gap is 15 → 6.
+padding. ADR-0013 scaled those by 0.406 to 19.1 / 18.7 / 21.5 and 17 / 16, and
+landed them on **20 / 20 / 20** and **16** at the 4px rhythm, taking the field
+from 57px to 107px. **ADR-0015 reversed that to 16 / 16 / 8** on the product
+owner's call — 107px is over a third of a 300px viewport before a single result.
+The method did not change: the numbers still come off the design's ratios and
+land on the rhythm, and the height is still a consequence of the parts.
 
-| | Design | × 0.406 | Shipped |
+| | Design | Shipped | |
 |---|---|---|---|
-| top padding | 47 | 19.1 | 20 |
-| label → value gap | 46 | 18.7 | 20 |
-| bottom padding | 53 | 21.5 | 20 |
-| side padding | 42 / 40 | 17 / 16 | 16 |
-| icon → label gap | 15 | 6.1 | 6 |
+| top padding | 47 | 16 | 19.1 was ADR-0013's 20 |
+| label → value gap | 46 | 8 | 18.7 was ADR-0013's 20 |
+| bottom padding | 53 | 16 | 21.5 was ADR-0013's 20 |
+| side padding | 42 / 40 | 16 | unchanged |
+| icon → label gap | 15 | 6 | unchanged |
 
-Height follows from the parts rather than being a target: 2px of border, 20
-padding, a **21px** label row (the icon sets it, not the 11px text), the 20px
-gap, a **24px** value row (the submit button sets it, not the 20px input box)
-and 20 padding — **107px**, against the 57px it was.
+Height follows from the parts rather than being a target: 2px of border, 16
+padding, a **15.95px** label row, the 8px gap, a **24px** value row (the submit
+button sets it, not the 20px input box) and 16 padding — **82px**.
 
-The gap is the substance of the change. At 2px the label and the query read as
-one sentence in a box; the design separates them by nearly a quarter of the
-field's height. Nothing else moved: the submit button was already 24px with the
-design's alignment, its centre 28px below the field's own centre, sitting on the
-value row rather than centred on the field.
+**The label row changed owners.** ADR-0013 counted 21px there because the
+magnifier was 21px, and said so explicitly: the icon set the row, not the 11px
+text. ADR-0015 took the icon to 10px, so the row is the label text at the
+inherited 1.45 and the icon no longer has a say in the field's height at all.
+`test_search_field_carries_the_designs_spacing` asserts the icon is shorter than
+the line it sits on, so a field that went back to counting 21 would fail rather
+than quietly claim 87px.
+
+The two rows are set by the wrong elements on purpose and the arithmetic depends
+on it: the **submit button** sets the value row at 24px, not the 20px input box.
 
 Two properties of the icon are load-bearing rather than cosmetic. Its `stroke` is
 `currentColor`, not the asset's literal white, which is invisible on the light
@@ -100,12 +108,11 @@ in the dark theme, and 0.45 over 0.45 at 0.20 in the light one. Its
 would override the asset's `2.2751` silently, which is a conflict rather than
 the harmless restatement the other paint properties are. The step icons set that
 precedent, and AGENTS.md §8 wants one owner per constant.
-
 ### Other ported properties
 
 | Property | Design | Shipped |
 |---|---|---|
-| search field / pill stroke | 1.5 px, `linear-gradient(#FFF 0% → #171717 100%)` at 0.28 alpha | `--edge` via a double-background `padding-box`/`border-box` clip |
+| search field / pill stroke | 1.5 px, `linear-gradient(#FFF 0% → #171717 100%)` at 0.28 alpha | `--edge` via a double-background `padding-box`/`border-box` clip; ADR-0015 turned it into a `180deg` ramp, `#FFF 0.16` → `#171717 0.28`, so the edge catches light from above |
 | search field / pill shadow | `DROP_SHADOW 0 8 12 rgba(0,0,0,0.2)` | `0 2px 6px rgba(0,0,0,0.2)` |
 | submit button | 60 px, radius 10.67, `fill #FFF @ 0.10`, no border, no shadow, "Arrow up" rotated 90°, 23 px glyph, stroke 4 round | 24 px, `--r-sm`, `rgba(255,255,255,0.1)`, glyph 16 px, stroke 1.5 |
 | card stroke | 3 px, same colour as the fill | `border: 3px solid var(--surface)`, accent on hover |
@@ -132,7 +139,7 @@ control holds the *shape* and drops the pixels:
 |---|---|---|---|
 | chip | 64 | — | 32 |
 | radius | 8 | 0.125 | `--r-sm` 4 px, exact |
-| gap between chips | 16 | 0.25 | 8 px |
+| gap between chips | 16 | 0.25 | **0** — ADR-0015 removed it |
 | icon slot | 38 | 0.594 | 19 px |
 | glyph | 32 | 0.5 of the chip | 16.0 px, on AGENTS.md §6's floor |
 
@@ -141,7 +148,14 @@ box, and 38/64 of a 32 px chip is 19 px exactly — which puts the 32-unit glyph
 16.0 px, AGENTS.md §6's floor rather than through it. The same asset in the 24 px chip it
 replaces renders a 13.5 px glyph, which is why the chip grew at all. At the 4 px
 rhythm of this section the vertical gaps do not port: the design's 76 px and 48 px
-are 11 px and 7 px at frame scale, so `#app`'s uniform 8 px is the honest reading.
+are 11 px and 7 px at frame scale, and neither lands on `#app`'s uniform 8 px —
+which is why `#searchmeta` carries its own 16 px top margin instead.
+
+**The chips touch, and that is the departure.** ADR-0015 removed the 16-of-64 gap,
+so the pair is one 64 px control and the pressed fill is the only thing marking
+the active view. The state survives — the fill and the accent glyph — but the two
+chips no longer read as two things, which is the price of the row's tightness.
+Every other ratio above is the design's.
 
 The active view is marked by the fill, as drawn: the pressed chip is filled
 `--surface` and the other one is `transparent`, because two identical fills read as
@@ -201,13 +215,18 @@ Family stays the **system stack**. The design's Geist is not shipped: it is not
 installed on Windows, not bundled with AE, and `§7.2` allows no panel dependency
 for this.
 
-**Spacing**: 4 px rhythm (design `itemSpacing` 12 → 4).
+**Spacing**: 4 px rhythm (design `itemSpacing` 12 → 4). The one departure is
+`#searchmeta`'s 16px top margin: the design's 76 px and 48 px of vertical space
+are 11 and 7 at frame scale, and neither lands on `#app`'s uniform 8.
 
-**Icons**: 16px is the floor, not the size (design 32 → 14 would breach `§6`'s
-"identifiable at 16px", which was not reversed). The field's magnifier is the one
-icon above it: the design exports it as a 21×21 path, and 0.406 of that box is
-8.5px — below the floor, and at the magnifier's 2.2751 stroke a smudge. It ships
-at the export's own 21.
+**Icons**: 16px is the floor, not the size. The field's magnifier is the one
+export below it: the design exports a 21×21 path, and ADR-0015 took it to **10px**,
+which is 0.406 of that box — where the design's own 2.2751 stroke lands on
+**1.08px**. It is the silhouette in the panel that survives that loss, and §6
+names it as a bounded exception rather than leaving the floor open. Everything
+else is at or above 16px: the view pair's glyph is exactly 16, the step icons are
+16, and the result card's insert badge floors at 16 (it is sized rather than
+exported, so it scales with a `max()` instead — see §4.2).
 
 ## 2. Layout
 
@@ -432,9 +451,29 @@ Card (`Rectangle 5420`): 560 × 399, radius 12, fill `#171717` with a 3 px
 `#171717` stroke. Hover flips both to `--accent` and the caption to white. The
 `+` badge is centred on the thumbnail per the design, and the thumbnail layer is
 `--thumb` (`#EB6060`) — which doubles as the free fallback while the keyframe
-loads or when it 404s.
+loads or when it 404s. The thumbnail takes `--r-md`, the same 12 of 560 the card
+has: §1 has always listed `--r-md` as covering thumbnails and the rule had never
+declared it, so a keyframe sat square inside a rounded card.
 
 Re-derived: 2 columns at panel width, `--r-md`, 3 px same-colour stroke.
+
+**The insert badge** is the circle-plus path at `fill="currentColor"` with
+`.plus { color: var(--accent) }` — the same token-plus-currentColor pattern the
+step icons use, and one owner for the accent instead of a literal hex that is
+right on the dark theme and wrong on the light one.
+
+Its size is `max(16px, 18%)` **of the thumbnail**, because the thumbnail is not
+one size: it is the grid cell's width, which moves with the dock, and a fixed
+72 px in the list view. 18% is the share that lands on 23.8 px at a 300 px dock
+(24 / 132), which is where it was sized. It is **not** read off the design, whose
+badge box is unmeasured — the badge is the one asset in the panel whose geometry
+is not the design's, and ADR-0015 §4 records that so no later reader assumes
+otherwise. The floor is load-bearing: 18% of the list view's 72 px thumb is
+12.96 px, under §6's 16 px. `max()` is Chromium 79 against the panel's real floor
+of 84. Height comes from the asset's own square `viewBox` at `height: auto` — not
+`aspect-ratio` (Chromium 88), and not a percentage height, which for an
+absolutely positioned element resolves against the thumb's *height* and would
+squash the ring.
 
 **The `+` is a `<span>`, not a control.** The card itself is a `<button>`, so
 the whole row is one keyboard-reachable target and one click — satisfying

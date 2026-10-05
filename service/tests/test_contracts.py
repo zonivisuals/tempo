@@ -508,12 +508,12 @@ def test_view_toggle_is_the_design_geometry_on_the_left():
     asset is a 38-unit box holding a 32-unit glyph, the pair is 16 apart, and the
     left edge of the pair lines up with the first card.
 
-    None of that scales linearly into a 300px panel -- at the frame scale a 64px
-    chip would be 10px, and AGENTS.md §6 pins icons at 16px regardless. What does
-    survive is the shape, so that is what is asserted: the gap's share of the
-    chip, the radius' share of it, and the icon's share of it. A later resize that
-    changes the chip without re-deriving the other two fails here rather than
-    shipping a cramped or a loose control.
+    Most of that scales by shape rather than by pixels -- at the frame scale a 64px
+    chip would be 10px, and AGENTS.md §6 pins icons at 16px regardless. What
+    survives is the shape, so that is what is asserted: the radius' share of the
+    chip, and the icon's share of it. A later resize that changes the chip without
+    re-deriving the other two fails here rather than shipping a cramped or a loose
+    control.
 
     The chip is 32 rather than 24 because of the icon. The exported asset is a
     38-unit box, and 38/64 of a 32px chip is 19px exactly -- which renders the
@@ -525,6 +525,15 @@ def test_view_toggle_is_the_design_geometry_on_the_left():
     actually computed from. Changing either alone rescales the icon silently --
     19px into a 64-unit box is a 9.5px glyph -- and every other assertion here
     still passes.
+
+    The gap is the one ratio that is deliberately NOT held. ADR-0015 removed the
+    16-of-64 spacing (8px in a 32px chip) and the two chips now touch, so the
+    pressed fill is the only thing separating them and the pair reads as one 64px
+    control. That is a departure from the design, on the product owner's call, and
+    it is the kind that fails silently -- a later edit restoring the gap would look
+    like a fix. So it is asserted as 0 with the reason attached, and the one thing
+    that must survive the adjacency is asserted too: the active chip is still the
+    filled one, or the pair has no state left to carry at all.
     """
     html = PANEL_HTML.read_text(encoding="utf-8")
     css = PANEL_CSS.read_text(encoding="utf-8")
@@ -556,11 +565,15 @@ def test_view_toggle_is_the_design_geometry_on_the_left():
                     "are aligned by both being flush in #app"
                 )
 
-    # The design's ratios: gap 16 of 64, radius 8 of 64.
+    # The design's radius ratio, and the gap's departure from it.
     box = int(re.search(r"width:\s*(\d+)px", _css_rule(css, "button.icon")).group(1))
     gap = int(re.search(r"gap:\s*(\d+)px", toggle).group(1))
     radius = int(re.search(r"--r-sm:\s*(\d+)px", css).group(1))
-    assert gap == box / 4, f"the design spaces the pair 16 into a 64 chip; {gap}px into {box}px"
+    assert gap == 0, (
+        f"ADR-0015 sets the pair's gap to 0 in a {box}px chip -- the design's 16 of "
+        f"64 was reversed -- but this reads {gap}px; put the spacing back and the two "
+        "chips stop reading as one control"
+    )
     assert radius == box / 8, f"the design rounds the chip 8 into a 64 chip; --r-sm {radius}px in {box}px"
 
     # The icon's share of the chip, and what that renders the glyph at.
@@ -622,22 +635,27 @@ def test_view_toggle_is_the_design_geometry_on_the_left():
 
 
 def test_search_field_carries_the_designs_spacing():
-    """The field is as tall as the design says, not as tight as it fits.
+    """The field is 82px, and every part of that is derived rather than asserted.
 
-    Measured off a 1x render of Figma `search_input` (815:294, inside
-    `04_search_results_frame`): a 1836x196 field whose top padding, ink-to-ink
-    label-to-value gap and bottom padding are 47 / 46 / 53 of that 196. Scaling
-    by the port's own basis -- the panel's 13px value type against the design's
-    32px, a ratio of 0.406, which is the ratio the submit button already uses
-    (design 60px -> shipped 24px) -- lands them on 20 / 20 / 20 at the 4px
-    rhythm, and the field's 25px radius on 10px.
+    ADR-0013 landed this field at 107px from a 1x render of Figma `search_input`
+    (815:294, inside `04_search_results_frame`): a 1836x196 field whose top
+    padding, ink-to-ink label-to-value gap and bottom padding are 47 / 46 / 53 of
+    that 196, scaled by the type ratio (the panel's 13px value against the
+    design's 32px = 0.406) to 20 / 20 / 20, side padding 16.
 
-    Geometry is deliberately not the basis. The design's field is 10.7% of its
-    content width and the panel's was already 18%, so every frame-relative
-    ratio argues for shrinking the one thing that was too tight; only the type
-    ratio says grow. Height follows from the parts: 2px of border, 20 padding,
-    a 21px label row (the icon sets it, not the 11px text), the 20px gap, a 24px
-    value row (the button sets it, not the 20px input box) and 20 padding.
+    ADR-0015 reverses that spacing to 16 / 16 / 8 on the product owner's call --
+    the field is the panel's densest control and 107px is over a third of a 300px
+    viewport before any result. The derivation below is what changed, not the
+    method: the numbers are still read off the design's ratios and landed on the
+    4px rhythm, and the height is still a consequence of the parts rather than a
+    target. ADR-0015 is the record; this is the pin.
+
+    One part of the old arithmetic is genuinely gone, and it is asserted rather
+    than assumed. The label row used to be 21px *because the icon was 21px* --
+    the design's own export, exempt from the scale. At 10px the icon no longer
+    sets the row; the 11px label text does, at the inherited 1.45 line-height.
+    A field that kept counting 21 here would claim 87px and be wrong, so the
+    assertion is that the icon is shorter than the line it sits on.
 
     `--r-lg` stays at 8px on purpose. It also carries the indexing and
     empty-state pills, which come from a different Figma node whose radius is
@@ -654,8 +672,8 @@ def test_search_field_carries_the_designs_spacing():
     html = PANEL_HTML.read_text(encoding="utf-8")
 
     box = _css_rule(css, "#searchbox")
-    assert "padding: 20px 16px;" in box, box
-    assert "gap: 20px;" in box, box
+    assert "padding: 16px;" in box, box
+    assert "gap: 8px;" in box, box
     assert "border-radius: var(--r-field);" in box, box
     assert "--r-field: 10px;" in css, "the field's radius must come from its own token"
     assert "--r-lg: 8px;" in css, "the pills keep the radius they were measured at"
@@ -669,18 +687,53 @@ def test_search_field_carries_the_designs_spacing():
     assert 'viewBox="0 0 21 21"' in html, "the design's search icon is a 21px asset"
     assert 'stroke="currentColor"' in html, "a literal white stroke vanishes on light"
 
-    # Scoped to .sb-head rather than the whole document: both assertions are
-    # about one fragment, and a file-wide scan would fail on unrelated markup --
-    # including on this file's own comments, which have to be able to name the
-    # attributes and the old string they explain away.
-    head = re.search(r'(?s)<div class="sb-head">.*?</div>', html)
-    assert head, "index.html has no .sb-head block"
-    head = head.group(0)
-    assert "stroke-opacity=" not in head, (
+    # The height, from the parts. Every input is read out of the shipped CSS
+    # rather than restated, so a future edit to the padding, the gap, the
+    # button or the label type moves this number instead of failing it.
+    pad = int(re.search(r"padding:\s*(\d+)px;", box).group(1))
+    gap = int(re.search(r"gap:\s*(\d+)px;", box).group(1))
+    label_fs = int(re.search(r"font-size:\s*(\d+)px;", head).group(1))
+    line_height = float(
+        re.search(r"font:\s*12px/([\d.]+)", css).group(1)
+    )  # body's, inherited by the unitless value on .sb-head
+    submit = re.search(r"width:\s*(\d+)px;\s*height:\s*\1px", _css_rule(css, "#submit"))
+    assert submit, "the value row is set by #submit, so it must be a square px box"
+    # `.edge` is the 1px gradient stroke the field carries on both sides.
+    border = int(re.search(r"border:\s*(\d+)px solid transparent", css).group(1))
+
+    # The .sb-head fragment, scoped rather than searched document-wide: the
+    # assertions below are about one icon, and index.html carries four.
+    head_html = re.search(r'(?s)<div class="sb-head">.*?</div>', html)
+    assert head_html, "index.html has no .sb-head block"
+    head_html = head_html.group(0)
+
+    label_row = label_fs * line_height
+    icon = int(re.search(r'<svg width="(\d+)" height="\1"', head_html).group(1))
+    assert icon < label_row, (
+        f"the label row is {label_row:.2f}px because the text sets it; an icon of "
+        f"{icon}px cannot, so this test's arithmetic is what the field actually is"
+    )
+
+    height = 2 * border + 2 * pad + label_row + gap + int(submit.group(1))
+    assert height == pytest.approx(82, abs=0.5), (
+        f"2 + 2*{pad} + {label_row:.2f} + {gap} + 24 = {height:.2f}px, not the 82px "
+        "the field is documented at"
+    )
+
+    # The 16px floor is AGENTS.md 6's, and this icon is the one export below it
+    # (ADR-0015). The exception is bounded rather than open: at 10px of a 21-unit
+    # box the design's own 2.2751 stroke lands on 1.08px, and the floor is what
+    # makes that number worth checking rather than assuming.
+    stroke = float(re.search(r'stroke-width="([\d.]+)"', head_html).group(1))
+    assert icon * stroke / 21 == pytest.approx(1.08, abs=0.01), (
+        "the icon is 10px of a 21-unit asset; restate the ADR if either number moved"
+    )
+
+    assert "stroke-opacity=" not in head_html, (
         "stroke-opacity over an already-translucent colour compounds it"
     )
-    assert "Search for anything" in head, "the design's label is the field's label"
-    assert "Search footage" not in head, "the label was replaced, not added to"
+    assert "Search for anything" in head_html, "the design's label is the field's label"
+    assert "Search footage" not in head_html, "the label was replaced, not added to"
 
 
 def test_header_draws_no_hairline_under_the_wordmark():
@@ -1114,6 +1167,108 @@ def test_grid_card_body_is_two_columns_with_metadata_on_the_bottom_edge():
     assert 'class="cap"' not in html and 'class="dur"' not in html, (
         "the duration rides on the description, so a shot with neither renders the "
         "name alone; if that gate ever moves, the row order has to be re-derived"
+    )
+
+
+def test_result_badge_is_the_accent_at_the_thumbs_scale():
+    """The `+` on a result thumbnail: the accent, sized off the thumbnail.
+
+    Two properties, both of which fail silently.
+
+    **One owner for the colour.** The path carries `fill="currentColor"` and
+    `.plus` carries `color: var(--accent)`, the pattern every other inline icon in
+    this panel already uses. A literal `#EB5017` on the path is correct on the
+    dark theme and wrong on the light one, where `--accent` is `#c23c0c` -- and it
+    gives one constant two owners, which is what AGENTS.md §8 lists as prohibited.
+    The old badge sidestepped this by being `color: #fff` on an orange pill, so
+    nothing about it was themeable either.
+
+    **The size follows the card.** The thumbnail it is centred on is not one size:
+    it is the grid cell's width, which is a function of the dock, and a fixed 72px
+    in the list view. A fixed 24px badge is right in one of those and wrong in the
+    others, so it is `max(16px, 18%)` of the thumbnail -- 18% because that is the
+    share that lands on 24px at a 300px dock, which is the size the change was made
+    at. It is NOT read off the design, whose badge box is unmeasured (ADR-0015 §4).
+
+    The floor is load-bearing and is asserted as such: 18% of the list view's 72px
+    thumb is 12.96px, under AGENTS.md §6's 16px, which is why the declaration is a
+    `max()` and not a bare percentage. `max()` is Chromium 79 against the panel's
+    real floor of 84 (flexbox `gap`, `docs/agents/known-issues.md`).
+
+    The cell width is *computed* here rather than quoted, so a future change to
+    `#app`'s padding, the grid's gap or the card's stroke moves the expected badge
+    instead of leaving a stale literal behind it.
+
+    The floor is load-bearing and is asserted as such: 18% of the list view's 72px
+    thumb is 12.96px, under AGENTS.md §6's 16px, which is why the declaration is a
+    `max()` and not a bare percentage. `max()` is Chromium 79 against the panel's
+    real floor of 84 (flexbox `gap`, `docs/agents/known-issues.md`).
+
+    The height is the SVG's own square `viewBox` at `height: auto` -- not
+    `aspect-ratio` (Chromium 88), and not a percentage height, which for an
+    absolutely positioned element resolves against the containing block's *height*
+    and would squash a circle into an ellipse.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+
+    # The accent, from the token, in one place.
+    badge = _css_rule(css, ".plus")
+    assert "color: var(--accent);" in badge, (
+        f"the badge takes the accent from the token, not a literal; got {badge!r}"
+    )
+    assert "#" not in badge, "a hex in .plus is a second owner for the accent"
+
+    html = _panel_render("renderResults()", _GRID_CARD_SETUP, _HTML)
+    # The *path's* fill, not the <svg fill="none"> it inherits from.
+    fill = re.search(r'<span class="plus"[\s\S]*?<path[^>]*?fill="([^"]+)"', html)
+    assert fill, "the badge must ship a fill on its path"
+    assert fill.group(1) == "currentColor", (
+        f"the path's fill is {fill.group(1)!r}; a literal hex does not follow --accent "
+        "on the light theme"
+    )
+
+    # The size, as a share of the thumbnail it is centred on.
+    share = re.search(r"width:\s*max\((\d+)px,\s*(\d+)%\)", badge)
+    assert share, (
+        f"the badge is a share of the thumbnail with a 16px floor, not a fixed px; "
+        f"got {badge!r}"
+    )
+    floor, pct = int(share.group(1)), int(share.group(2))
+
+    # The grid cell, computed: #app's padding, the grid's gap, the card's stroke.
+    panel = 300  # a narrow dock, the case the 24px was chosen in
+    app_pad = int(re.search(r"padding:\s*(\d+)px", _css_rule(css, "#app")).group(1))
+    grid_gap = int(re.search(r"gap:\s*(\d+)px", _css_rule(css, "#results.grid")).group(1))
+    stroke = int(re.search(r"border:\s*(\d+)px solid", _css_rule(css, ".card")).group(1))
+    cell = (panel - 2 * app_pad - grid_gap) / 2 - 2 * stroke
+    assert cell == 132, f"the grid thumb is {cell}px at {panel}px; the derivation moved"
+    assert cell * pct / 100 == pytest.approx(24, abs=1), (
+        f"{pct}% of a {cell}px thumb is {cell * pct / 100:.1f}px, not the ~24px this "
+        "was sized at; the card's geometry moved and the share has to be re-derived"
+    )
+
+    # The floor, proven load-bearing by the list view's fixed 72px thumb.
+    list_thumb = int(re.search(r"width:\s*(\d+)px", _css_rule(css, "#results.list .thumb")).group(1))
+    assert list_thumb * pct / 100 < floor, (
+        f"{pct}% of the {list_thumb}px list thumb is already {floor}px or more, so the "
+        "max() is not doing anything; the floor is either dead or the share is wrong"
+    )
+    assert floor >= 16, f"AGENTS.md §6 wants 16px; the floor is {floor}px"
+
+    # Round, and round because of the viewBox rather than of a modern property.
+    svg = _css_rule(css, ".plus svg")
+    assert "width: 100%;" in svg and "height: auto;" in svg, (
+        f"the badge takes its height from the asset's own proportion; got {svg!r}"
+    )
+    # Scoped to the badge's two rules rather than the file: this file's own
+    # comments have to be able to name `aspect-ratio` to explain why it is not
+    # used, and a whole-file scan fails on the explanation.
+    assert "aspect-ratio" not in badge + svg, (
+        "aspect-ratio is Chromium 88, over the panel's real floor of 84"
+    )
+    vb = re.search(r'class="plus"[\s\S]*?viewBox="0 0 (\d+) (\d+)"', html)
+    assert vb and vb.group(1) == vb.group(2), (
+        "a square viewBox is what keeps height:auto from skewing the ring"
     )
 
 

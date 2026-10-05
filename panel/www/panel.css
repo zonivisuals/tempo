@@ -42,8 +42,10 @@
   --r-sm: 4px;
   --r-md: 3px;
   --sh: 0 2px 6px rgba(0, 0, 0, 0.2);   /* 0 8 12 @0.2, scaled */
-  /* 1.5px stroke whose paint is white -> surface at 0.28 alpha (815:294) */
-  --edge: linear-gradient(rgba(255, 255, 255, 0.28), rgba(23, 23, 23, 0.28));
+  /* 1.5px stroke whose paint is a white -> surface ramp (815:294). ADR-0015 made
+     it a 180deg gradient whose top is a lighter 0.16 and whose bottom is the
+     design's 0.28, so the edge catches light from above the way the field does. */
+  --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(23, 23, 23, 0.28));
   /* skeleton fills: white 0 -> 0.56 (thumb) and white 0 -> 1 (caption) */
   --sweep-thumb: linear-gradient(90deg,
       rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.56) 50%, rgba(255, 255, 255, 0) 100%);
@@ -137,18 +139,25 @@ html.light #logo { filter: invert(1) hue-rotate(180deg); }
  * radius 25 of 196, 1.5px white->#171717 edge at 0.28, drop shadow 0 8 12 @0.2,
  * fill #171717.
  *
- * The field's 47 / 46 / 53 of top padding, label-to-value gap and bottom padding
- * scale by the same 0.406 as everything else, landing on 20 / 20 / 20 at the 4px
- * rhythm; its 42 / 40 of side padding lands on 16. Height is then 2 border +
- * 20 + a 21px label row (the icon sets it, not the 11px text) + the 20px gap +
- * a 24px value row (the button sets it, not the 20px input box) + 20 = 107px.
- * The label-to-value gap is the whole point: at 2px the field read as one
- * sentence in a box rather than as the design's labelled field. */
+ * ADR-0013 read the field's 47 / 46 / 53 of top padding, label-to-value gap and
+ * bottom padding off a 1x render of 815:294 and landed them on 20 / 20 / 20 at
+ * the 4px rhythm, with 16 of side padding. ADR-0015 reversed that to 16 / 16 / 8 on
+ * the product owner's call: 107px is over a third of a 300px viewport before a
+ * single result. The method is unchanged -- the numbers still come off the
+ * design's own ratios and land on the rhythm -- only the reading of them is
+ * tighter, and the derivation and the reversal are both in the ADR.
+ *
+ * Height follows from the parts rather than being a target: 2px of border, 16
+ * padding, a 15.95px label row, the 8px gap, a 24px value row (the submit button
+ * sets it, not the 20px input box) and 16 padding = 82px. The label row is the
+ * 11px label text at the inherited 1.45, NOT the icon: at 21px the design's
+ * export set that row and the field was 107, and at 10px the text takes over.
+ * test_search_field_carries_the_designs_spacing recomputes this from the CSS. */
 #searchbox {
   border-radius: var(--r-field);
   box-shadow: var(--sh);
-  padding: 20px 16px;
-  display: flex; flex-direction: column; gap: 20px;
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 8px;
 }
 #searchbox:focus-within { border-color: var(--accent); }
 /* gap 6 is the design's 15 between icon and label, scaled; the icon carries its
@@ -224,14 +233,24 @@ html.light #submit { background: rgba(0, 0, 0, 0.08); }
  * Left, on the card grid's edge, as drawn. The chip is 32 rather than 24 so the
  * exported 38-unit icon can keep the design's share of it: at 24 it would render a
  * 13.5px glyph, under AGENTS.md 6's floor. Geometry, and why each number is what
- * it is, in docs/design/panel-ui.md 1. */
-#searchmeta { display: flex; align-items: center; gap: 8px; }
+ * it is, in docs/design/panel-ui.md 1.
+ *
+ * Two departures, both ADR-0015. The chips touch: the design spaces the pair 16
+ * into a 64 chip and that 8px was removed, so the pressed fill is the only thing
+ * separating them and the pair reads as one 64px control. And the row carries its
+ * own 16px top margin, so the field and the pair are further apart than #app's
+ * uniform 8px -- the design's 76px and 48px of vertical space are 11 and 7 at
+ * frame scale, and neither lands on 8. */
+#searchmeta { margin-top: 16px; display: flex; align-items: center; gap: 8px; }
+/* The design has no footage filter, so its padding is ours: 4 / 8 puts the
+ * 11px label on the same optical height as the 32px chips it shares the row with,
+ * centred by #searchmeta's align-items. */
 #footage-filter {
-  flex: 0 1 auto; max-width: 60%; min-width: 0; margin-left: auto;
+  flex: 0 1 auto; max-width: 60%; min-width: 0; margin-left: auto; padding: 4px 8px;
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r-sm); font: inherit; font-size: 11px;
 }
-#viewtoggle { display: flex; gap: 8px; flex: none; }
+#viewtoggle { display: flex; gap: 0px; flex: none; }
 button.icon {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; padding: 0;
@@ -356,19 +375,31 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 .card.busy { cursor: default; opacity: 0.7; }
 
 /* The thumbnail layer is #EB6060 in the design — it is what shows before (or
-   instead of) a keyframe, so it is also the 404 fallback for free. */
+   instead of) a keyframe, so it is also the 404 fallback for free. The radius is
+   the design's own 12 of 560, which is what --r-md is (docs/design/panel-ui.md §1);
+   the spec has always claimed it for the thumbnail and the rule had never declared
+   it, so a keyframe sat square inside a rounded card. */
 .thumb { position: relative; display: block; width: 100%; padding-top: 56.25%;
-  background: var(--thumb); overflow: hidden; }
+  background: var(--thumb); overflow: hidden; border-radius: var(--r-md); }
 .thumb img { position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   display: block; width: 100%; height: 100%; object-fit: cover; }
+/* The insert badge is the accent, at a share of the thumbnail it is centred on.
+   The thumbnail is not one size — it is the grid cell's width, which moves with the
+   dock, and a fixed 72px in the list view — so a fixed badge is right in one of
+   those and wrong in the others. 18% is the share that lands on 24px at a 300px
+   dock (24/132), which is where it was sized; it is not read off the design, whose
+   badge box is unmeasured (ADR-0015 §4). The 16px floor is load-bearing: 18% of the
+   list view's 72px thumb is 12.96px, under AGENTS.md 6. `max()` is Chromium 79
+   against the panel's real floor of 84.
+   Height is the asset's own square viewBox rather than a percentage, which for an
+   absolutely positioned element resolves against the thumb's *height* and would
+   squash the ring; `aspect-ratio` would work and is Chromium 88. */
 .plus {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
-  font: 500 12px/1 inherit; color: #fff;
-  border: 1.5px solid #fff; border-radius: var(--r-sm);
-  background: rgba(235, 81, 23, 0.9);
+  width: max(16px, 18%); color: var(--accent);
   opacity: 0; transition: opacity 120ms linear;
 }
+.plus svg { display: block; width: 100%; height: auto; }
 .card:hover .plus, .card:focus-visible .plus { opacity: 1; }
 
 #results.list .card { display: flex; align-items: stretch; gap: 8px; }
