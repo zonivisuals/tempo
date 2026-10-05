@@ -70,7 +70,12 @@ class HandoffError(RuntimeError):
 
     def __init__(self, message: str, reason: str | None = None) -> None:
         super().__init__(message)
-        assert reason is None or reason in REASONS, f"undeclared reason: {reason}"
+        # A programming error, not a runtime condition: `raise`, not `assert`, because
+        # `python -O` strips asserts and this must not be the thing that goes missing.
+        # It is also raised where it is raised rather than checked at the raise site, so
+        # the check cannot drift as call sites are added.
+        if reason is not None and reason not in REASONS:
+            raise ValueError(f"undeclared failure reason: {reason!r}")
         self.reason = reason
 
 

@@ -494,6 +494,12 @@ with no payload. That is now the same button, aimed at `/footage/{key}/retry` in
 `/jobs/{id}/retry`. Nothing else remains on this screen but the pill, the step list and
 this block — which is what §4.4 already said the section contains.
 
+**The stranded case waits until coverage is known.** A job enqueued locally has no
+`footage_key` until its first poll, 500 ms after the sync that created it, while new
+registry entries are already `indexing`. In that window no entry can be ruled out as the
+live job's, so reporting one would claim a stall — and offer a Retry button — over
+footage that is uploading fine, on every import. ADR-0020.
+
 **The sentence is chosen from the job's `reason`.** The sidecar names each failure it
 raises from a closed vocabulary (`REASONS`, `docs/api.md`), so the block can say what to
 do next rather than only that something stopped — and the code rides the `.detail` line,

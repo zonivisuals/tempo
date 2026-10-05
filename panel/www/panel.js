@@ -341,15 +341,28 @@ function renderSteps() {
 
 /* ---------- indexing failure ---------- */
 
+/* The footage states the panel has to offer something for: nothing is ready to search
+ * and no live job is claiming it. One list, read by `strandedFootage` and by
+ * `indexingVisible`, because a state in one and not the other would show a recovery
+ * button for footage the section has already decided not to report. The vocabulary is
+ * the service's (docs/api.md § GET /footage). */
+const NEEDS_ATTENTION = ["error", "indexing", "uploading"];
+
 /* A registry entry the panel has no job for: stranded mid-index after a service
  * restart or a panel reload, or left in `error`. An entry a live job already covers
  * is not stranded — that job is its retry. */
 function strandedFootage() {
-  const covered = new Set(
-    store.activeJobs.map((id) => store.jobs[id] && store.jobs[id].footage_key).filter(Boolean)
-  );
+  const jobs = store.activeJobs.map((id) => store.jobs[id]).filter(Boolean);
+  // A job enqueued locally has no footage_key until its first poll (500ms after the
+  // 2s sync that created it), so for that window the panel cannot know which entries
+  // a live job is about to claim. Reporting them as stranded then would print
+  // "Indexing Stopped / Tempo lost track of this step" — and a Retry button — over a
+  // job that is uploading fine, on every single import. Nothing is reported until
+  // coverage is known. The footage rows this replaces carried the same guard.
+  if (jobs.some((j) => !j.footage_key)) return null;
+  const covered = new Set(jobs.map((j) => j.footage_key));
   return store.footages.find((f) => !covered.has(f.footage_key)
-    && (f.state === "error" || f.state === "indexing" || f.state === "uploading"));
+    && NEEDS_ATTENTION.includes(f.state));
 }
 
 /* One failure, one sentence, one button — under the step list, where the failing
@@ -357,11 +370,6 @@ function strandedFootage() {
  * of engine traceback, and a footage row carrying a second Retry for the same fault
  * plus the file name. The raw `error` string is not rendered anywhere; it stays in
  * the payload and in the service log.
- *
- * The button's route is the only thing that differs between the two states: a failed
- * job is retried by id, an entry the panel has no job for by footage key, and the
- * service treats both as the same operation (docs/api.md). Either way the engine
- * resumes from the stage cache, so the finished steps are not redone.
  *
  * Reported whenever a failed job exists, including while a different job runs: the
  * queues are single-worker but a failure does not stop them, so the next footage is
@@ -373,7 +381,16 @@ function renderIndexFailure() {
   const stranded = failed ? null : strandedFootage();
   if (!failed && !stranded) { box.hidden = true; box.textContent = ""; return; }
 
-  const key = failed ? failed.footage_key : stranded.footage_key;
+  // One action, two addresses: the service treats both routes as the same operation
+  // (docs/api.md), and both resume from the stage cache, so the finished steps are
+  // not redone. Resolved to a selector and a call here rather than at three uses.
+  // `footageKey` is separate from `target.id` on purpose: the target is a job id when
+  // a job is known, and the count below compares footage keys.
+  const footageKey = failed ? failed.footage_key : stranded.footage_key;
+  const target = failed
+    ? { sel: "[data-retry-job]", id: failed.job_id, run: () => retryJob(failed.job_id) }
+    : { sel: "[data-retry-footage]", id: stranded.footage_key, run: () => footageRetry(stranded.footage_key) };
+
   // A reason the panel has a sentence for is printed, and it goes on the detail line
   // because F2 requires the service's code on screen. A reason it has none for is
   // not: the vocabulary is closed and pinned across the sidecar, this table and
@@ -385,20 +402,16 @@ function renderIndexFailure() {
   // the row list this screen just lost, and one failure reported silently is not
   // honest either. The count is read off the footage list, so it is data and not a
   // number written here (§7.3).
-  const others = store.footages.filter((f) => f.footage_key !== key && f.state === "error").length;
+  const others = store.footages.filter((f) => f.footage_key !== footageKey && f.state === "error").length;
   const hint = others ? `${copy.hint} ${others} other file${others > 1 ? "s" : ""} also failed to index.` : copy.hint;
 
-  const action = failed
-    ? `<button type="button" class="fail-retry" data-retry-job="${esc(failed.job_id)}">Retry step</button>`
-    : `<button type="button" class="fail-retry" data-retry-footage="${esc(stranded.footage_key)}">Retry step</button>`;
   box.hidden = false;
-  box.innerHTML = stateBlock(copy.pill, hint, known ? failed.reason : "", action);
-
-  const target = failed ? "[data-retry-job]" : "[data-retry-footage]";
-  box.querySelector(target).addEventListener("click", (e) => {
+  box.innerHTML = stateBlock(copy.pill, hint, known ? failed.reason : "",
+    `<button type="button" class="fail-retry" ${failed ? "data-retry-job" : "data-retry-footage"}`
+    + `="${esc(target.id)}">Retry step</button>`);
+  box.querySelector(target.sel).addEventListener("click", (e) => {
     e.stopPropagation();
-    if (failed) retryJob(failed.job_id);
-    else footageRetry(stranded.footage_key);
+    target.run();
   });
 }
 
@@ -481,13 +494,14 @@ function renderFilter() {
 
 /* Whether the indexing section has anything to say. Pure, so the rule is
  * testable without a DOM: a live job, a failed one, or footage this panel can
- * still act on — stranded mid-index (Resume) or failed (Retry). Both of the
- * last two are per-footage states that survive a panel restart, unlike a job
- * id, which is why they are read from the registry and not from store.jobs. */
+ * still act on — stranded mid-index (its Retry) or failed (its Retry). The last two
+ * are per-footage states that survive a panel restart, unlike a job id, which is why
+ * they are read from the registry and not from store.jobs. `resultsScreen()` asks
+ * this same question to decide whether the section owns the panel (ADR-0022). */
 function indexingVisible() {
   return !!activeJob()
     || Object.keys(store.jobs).some((id) => store.jobs[id].state === "error")
-    || store.footages.some((f) => f.state === "error" || f.state === "indexing" || f.state === "uploading");
+    || store.footages.some((f) => NEEDS_ATTENTION.includes(f.state));
 }
 
 function renderIndexing() {
@@ -498,8 +512,8 @@ function renderIndexing() {
   // Figma 777:698: the heading pill carries a fixed label and the two-arc
   // indicator, and it is the whole screen until the first stage reports. The
   // live stage is named in the step list right below it. No toggle: the list is
-  // simply there while a job runs and disappears with it. A failed job keeps its
-  // message and Retry visible.
+  // simply there while a job runs and disappears with it. The pill stays
+  // live-only — a failure reports itself below, in the failure block.
   $("indexing-pill").hidden = !live;
   $("indexing-detail").hidden = !show;
   // The section is centred, so its height decides where the pill sits. While a

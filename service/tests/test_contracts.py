@@ -890,9 +890,8 @@ window = global;
 const mk = () => {
   const classes = new Set();
   const el = {
-hidden: false, className: '', textContent: '', innerHTML: '',
-  dataset: {}, style: {}, parentNode: null, children: [], handlers: {},
-
+    hidden: false, className: '', textContent: '', innerHTML: '',
+    dataset: {}, style: {}, parentNode: null, children: [], handlers: {},
     classList: {
       add: (c) => classes.add(c),
       remove: (c) => classes.delete(c),
@@ -1123,6 +1122,65 @@ def test_the_failure_names_the_cause_the_service_reported():
         assert "SOMETHING_NEW" not in html and 'class="detail"' not in html, html
 
 
+def test_a_job_the_panel_has_not_polled_yet_is_not_a_stalled_footage():
+    """A freshly enqueued job must not read as a failure.
+
+    A job enqueued locally has no `footage_key` until its first poll — 500 ms after
+    the 2 s sync that created it — and new registry entries are already `indexing`.
+    So for that window the panel cannot tell which entry the live job is about to
+    claim, and reporting those entries as stranded printed "Indexing Stopped / Tempo
+    lost track of the step this stopped on", plus a Retry button, over footage that
+    was uploading fine. On every import.
+
+    The footage rows this replaced carried the guard and it came out with them; this
+    pins it back, in both directions: nothing is reported while coverage is unknown,
+    and the stranded entry is reported as soon as the payload arrives.
+    """
+    fresh = (
+        "store.footages = [{ footage_key: 'k0', path: 'a.mov', state: 'indexing' }];"
+        " store.activeJobs = ['job_1'];"
+        " store.jobs = { job_1: { job_id: 'job_1', footage_key: undefined,"
+        " state: 'queued', stages: [] } };"
+    )
+    assert _panel_render("renderIndexing()", fresh, _FAIL_HTML) == "", (
+        "a job with no footage_key yet cannot be attributed to any entry"
+    )
+    assert _panel_render("renderIndexing()", fresh,
+                         "document.getElementById('index-fail').hidden"), (
+        "and the failure box stays hidden while the live job owns the panel"
+    )
+
+    # One poll later the payload names the footage, so it is claimed and still fine.
+    polled = fresh.replace("footage_key: undefined", "footage_key: 'k0'")
+    assert _panel_render("renderIndexing()", polled, _FAIL_HTML) == ""
+
+    # A second, unpolled job alongside a known one still suppresses everything: the
+    # panel cannot rule out that it is about to claim the entry it would report.
+    mixed = polled + " store.activeJobs.push('job_2');"
+    mixed += " store.jobs.job_2 = { job_id: 'job_2', state: 'queued', stages: [] };"
+    assert _panel_render("renderIndexing()", mixed, _FAIL_HTML) == ""
+
+
+def test_a_successful_retry_takes_the_failure_off_the_screen():
+    """Pressing Retry step is what clears the failure, and nothing else is needed.
+
+    `retryJob` deletes the failed payload before tracking its replacement, so the
+    section stops reporting the instant the retry is accepted — the panel must not
+    need a reload, a second failure, or the footage coming back `ready`.
+    """
+    retrying = (
+        _FAILED_STORE + " store.activeJobs = [];"
+        " TempoAPI.retry = async (id) => ({ ok: true, body: { job_id: 'job_2' } });"
+    )
+    assert _panel_render("retryJob('job_1')", retrying, "store.jobs.job_1 === undefined")
+    assert _panel_render("retryJob('job_1')", retrying, _FAIL_HTML) == "", (
+        "the retried footage is indexing again; the failure report has nothing left to say"
+    )
+    # And the section is showing the live job instead, not an empty screen.
+    assert _panel_render("retryJob('job_1')", retrying,
+                         "document.getElementById('indexing-pill').hidden") is False
+
+
 def test_the_failure_reports_one_sentence_and_never_the_engine_text():
     """The failure screen is a sentence and a button, not a traceback.
 
@@ -1273,9 +1331,6 @@ def test_indexing_reserves_the_finished_step_list_height():
     assert rows == int(reserved.group(1)) == 9, (
         f"the reserve assumes {reserved.group(1)} rows, STEPS has {rows}"
     )
-
-
-
 
 
 def test_a_failed_job_keeps_the_step_that_failed_on_screen():

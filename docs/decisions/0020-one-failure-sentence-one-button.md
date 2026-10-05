@@ -50,6 +50,16 @@ addressed by key, so the stranded case keeps its recovery path and the panel hol
 one function per route rather than one renderer with a branch. Both routes resume
 from the stage cache, which is what "Retry step" promises.
 
+**The stranded case is suppressed until coverage is known.** A job enqueued locally
+carries no `footage_key` until its first poll, 500 ms after the 2 s sync that created
+it, and new registry entries are already `indexing` — so for that window the panel
+cannot know which entry the live job is about to claim. Reporting those entries would
+print "Indexing Stopped / Tempo lost track of this step" and a Retry button over
+footage that is uploading fine, on every single import. The footage rows carried this
+guard and it came out with them; `strandedFootage()` has it back, and
+`test_a_job_the_panel_has_not_polled_yet_is_not_a_stalled_footage` pins it in both
+directions.
+
 ### 3. The other failures are counted, not listed
 
 Queues are single-worker but a failure does not stop them, so a dead engine fails

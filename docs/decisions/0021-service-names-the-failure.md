@@ -24,8 +24,10 @@ The sidecar already knows why each of its own failures happened — it is the co
 chose to raise them. So each raise site names itself, from a set declared once as
 `REASONS` in `proxy.py`: `NOT_CONFIGURED`, `UNKNOWN_FOOTAGE`, `SOURCE_MISSING`,
 `ENGINE_REJECTED`, `ENGINE_FAILED`, plus the seam's three transport codes reused
-verbatim. `HandoffError.__init__` asserts the reason is in the set, so a new call site
-cannot invent a fourth vocabulary by accident.
+verbatim. `HandoffError.__init__` rejects any reason outside the set with a `ValueError`, so a
+new call site cannot invent a fourth vocabulary by accident. A `raise`, not an `assert`:
+`python -O` strips asserts, and this is a programming error rather than a runtime
+condition — a check that vanishes under a flag is not one.
 
 `ENGINE_FAILED` is the one the sidecar does not choose: the engine's pipeline raised
 and the sidecar only sees its text. It is a real and common case, and the sentence it
