@@ -31,11 +31,10 @@ log = logging.getLogger("tempo.registry")
 REGISTRY_NAME = "registry.json"
 THUMBS_DIR = "thumbs"
 
-# Guards every write. The job worker thread and /sync both mutate the file, and
-# only the single-worker queue kept them apart by accident; `update` and
-# `transaction` are the only ways to write, so the lock cannot be skipped.
-# A plain read needs no lock: writers go through a tmp file and `replace`, which
-# is atomic, so a reader sees the old file or the new one and never a partial.
+# Guards every write. The job worker thread and /sync both mutate this file, and only
+# the single-worker queue kept them apart by accident; `update` and `transaction` are
+# the only write paths, so the lock cannot be skipped. Reads need no lock: a tmp file
+# plus `replace` is atomic, so a reader sees the old file or the new one.
 _lock = threading.Lock()
 
 
@@ -70,8 +69,7 @@ def load_registry(artifact_root: Path | None = None) -> dict:
 def save_registry(registry: dict, artifact_root: Path | None = None) -> None:
     """Write via tmp file + `replace`, so a reader never sees a partial file.
 
-    Takes no lock: `update` and `transaction` are the write interface. Call this
-    directly only when you own the whole file (tests, fixture setup).
+    Takes no lock: `update` and `transaction` are the write interface.
     """
     root = artifact_root or settings.artifact_root
     root.mkdir(parents=True, exist_ok=True)
@@ -85,9 +83,7 @@ def save_registry(registry: dict, artifact_root: Path | None = None) -> None:
 def update(key: str, artifact_root: Path | None = None, clear: tuple[str, ...] = (), **fields) -> bool:
     """Merge `fields` into one entry and drop `clear` from it, under the lock.
 
-    The write path for a single entry. Replaces load → get → mutate → save at
-    every call site, which is where the missing lock used to live. False if the
-    key is unknown.
+    The write path for a single entry. False if the key is unknown.
     """
     with _lock:
         registry = load_registry(artifact_root)
@@ -110,8 +106,8 @@ def read(key: str, artifact_root: Path | None = None) -> dict | None:
 def transaction(artifact_root: Path | None = None) -> Iterator[dict]:
     """Yield the registry for mutation, holding the lock until close.
 
-    For a change that spans entries (`/sync`'s diff + apply). Writes on a clean
-    exit; a body that raises leaves the file as it was.
+    For a change spanning entries, which is `/sync`'s diff + apply. A body that
+    raises leaves the file as it was.
     """
     with _lock:
         registry = load_registry(artifact_root)
@@ -135,22 +131,18 @@ def diff(
     registry: dict,
     format_version: int | None = None,
 ) -> dict[str, list[str]]:
-    """Diff project footage against the registry.
+    """Diff project footage against the registry. The five buckets:
 
-    - added:   key not in registry, or entry is stale but the fingerprint
-               matches again (re-imported → revive + re-enqueue; D7 stale is
-               about *absent* footage, not a free pass to skip present work).
-               Only on readable stats — unknown files are held, not indexed.
-    - changed: size/mtime drift confirmed over consecutive syncs (debounce),
-               or stored format_version mismatches (config-driven, immediate —
-               never transient, so never debounced).
-    - removed: in registry (and not already stale) but absent from project
-    - unchanged: fingerprint + format_version match (any non-stale state —
-               `error` stays unchanged: explicit retry only, never auto-loop).
-               Also: known keys with unreadable stats (hold the stored
-               fingerprint — a file AE can't read is pending media, not an edit).
-    - pending: held keys — unreadable stats, or drift seen but unconfirmed.
-               Never enqueued. apply_sync persists the confirmation counters.
+    - added:     unknown key, or a stale entry whose fingerprint matches again
+                 (re-import revives it; D7 stale is about absent footage). Only
+                 on readable stats.
+    - changed:   drift confirmed over consecutive syncs, or a format_version
+                 mismatch, which is config-driven and so never debounced.
+    - removed:   in the registry, not already stale, absent from the project.
+    - unchanged: fingerprint and format_version match, in any non-stale state.
+                 `error` stays unchanged so nothing auto-loops on a failure.
+    - pending:   unreadable stats, or drift not yet confirmed. Never enqueued;
+                 `apply_sync` persists the confirmation counters.
     """
     fmt = settings.format_version if format_version is None else format_version
     need = settings.sync_change_confirmations

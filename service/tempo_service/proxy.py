@@ -54,13 +54,10 @@ UPLOAD = jobs_module.UPLOAD_STAGE
 MB = 1024 * 1024
 THUMB_NAME = re.compile(r"\d{1,7}\.jpg")
 
-# Every reason this handoff can fail with, and the only thing the panel is allowed to
-# print (ADR-0021). Closed on purpose: the panel cannot classify a failure itself, so
-# a code outside this set would reach it as a fallback sentence that names nothing. The
-# three transport codes are `backends/base.py`'s own, reused verbatim so one failure
-# has one name across search and indexing. `docs/api.md` lists them; the panel has a
-# sentence for each (`FAIL_COPY`), and tests/test_contracts.py checks all three copies
-# against each other.
+# Every reason this handoff can fail with, and the only thing the panel may print
+# (ADR-0021). Closed because the panel cannot classify a failure itself, so an outside
+# code reaches it as a sentence naming nothing. The three transport codes are
+# `backends/base.py`'s own, reused so one failure has one name across both paths.
 REASONS = frozenset({
     "NOT_CONFIGURED",    # no engine to hand off to
     "UNKNOWN_FOOTAGE",   # the registry entry vanished mid-job
@@ -76,17 +73,15 @@ REASONS = frozenset({
 class HandoffError(RuntimeError):
     """A failure to hand a footage to the engine, named.
 
-    `reason` is the panel's vocabulary; the message is for the service log and the
-    registry entry, and is never rendered. Anything raised that is not a
-    HandoffError has no reason, and the panel says its fallback sentence.
+    `reason` is the panel's vocabulary. The message is for the log and the
+    registry entry, and is never rendered.
     """
 
     def __init__(self, message: str, reason: str | None = None) -> None:
         super().__init__(message)
-        # A programming error, not a runtime condition: `raise`, not `assert`, because
-        # `python -O` strips asserts and this must not be the thing that goes missing.
-        # It is also raised where it is raised rather than checked at the raise site, so
-        # the check cannot drift as call sites are added.
+        # `raise` not `assert`: `python -O` strips asserts, and this is a programming error
+        # that must survive. Checked here rather than at each raise site so it cannot
+        # drift as call sites are added.
         if reason is not None and reason not in REASONS:
             raise ValueError(f"undeclared failure reason: {reason!r}")
         self.reason = reason

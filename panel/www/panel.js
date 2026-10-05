@@ -1,20 +1,16 @@
-/* panel.js — plain store + one render() (AGENTS.md §7.2). No framework, no
- * event bus. All project access via evalScript into host.jsx; all service access
- * via api.js. Polling only (AGENTS.md D2): 2s project sync, 500ms job progress
- * while jobs run.
+/* panel.js — plain store + one render() (AGENTS.md §7.2). No framework, no event
+ * bus. All project access via evalScript into host.jsx; all service access via
+ * api.js. Polling only (AGENTS.md D2): 2s project sync, 500ms job progress.
  *
- * Render strategies differ by list, on purpose (docs/design/panel-ui.md 5):
- *  - #results is rebuilt wholesale. It only re-renders on discrete transitions,
- *    never on the 500ms poll, so nothing in flight is destroyed.
- *  - #steps is keyed and mutated in place. It DOES re-render on the poll, and
- *    replacing its nodes would restart every CSS animation from frame zero at
- *    2Hz. One persistent node per stage key; text is written only when it
- *    changes; reordering uses FLIP so a completing step slides. */
+ * The two lists render differently on purpose (docs/design/panel-ui.md 5).
+ * `#results` is rebuilt wholesale and only on discrete transitions, so the 500ms
+ * poll never destroys anything in flight. `#steps` does re-render on the poll and
+ * is keyed instead: replacing its nodes would restart every CSS animation from
+ * frame zero at 2Hz. */
 "use strict";
 
-// Poll cadence mirrors service config (config.py sync_poll_s/job_poll_s).
-// Cross-runtime constants can't be shared by import (AGENTS.md §2.3);
-// keep the two in step by hand.
+// Poll cadence. `sync_poll_s` in the sidecar's config has no reader, so this
+// pair is the only definition (known-issues.md).
 const SYNC_POLL_MS = 2000;
 const JOB_POLL_MS = 500;
 
@@ -22,12 +18,9 @@ const JOB_POLL_MS = 500;
 // service/tests/test_contracts.py::test_panel_top_k_matches_service.
 const TOP_K = 9;
 
-// Nine steps: the eight engine stages with editorial labels, plus one synthetic
-// row bound to job state "queued" (docs/design/panel-ui.md 3.2). Presentation
-// only — the stage list itself comes from the service, which takes it from
-// engine /v1/health; unknown names render as-is with no label (panel.js's
-// stageLabel falls through to the raw name). A step is a row only once its
-// stage has started: see stepOrder.
+// Nine steps: the eight engine stages with editorial labels, plus one synthetic row
+// bound to job state "queued". Presentation only; the list itself comes from the
+// service via /v1/health, and stageLabel falls through unknown names as-is.
 const STEPS = [
   { key: "queued", label: "Initializing your project" },
   { key: "upload", label: "Uploading the footage" },
@@ -123,11 +116,8 @@ function stageLabel(name) {
 }
 
 /* ---------- icons (Figma 777:702) ----------
- * The running row's indicator is the design's 12-ray asset (777:709): a 32px box
- * with stroke-width 3.2. It is rendered into a 16px slot rather than 32 —
- * the design's step row is 42px tall and ours is ~20px, so the geometry scales
- * with the viewport and the stroke lands at 1.6px instead of being restated.
- *
+ * The design's step row is 42px tall and ours is ~20px, so the 12-ray asset
+ * (777:709) scales into a 16px slot and its 3.2 stroke lands at 1.6px.
  * stroke is currentColor, not the asset's literal white: white is invisible on
  * the light theme. */
 const ICON = {
@@ -141,14 +131,10 @@ const ICON = {
     + ' stroke-linecap="round" stroke-linejoin="round"/></svg>',
   idle: '<svg class="idle" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">'
     + '<circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
-  /* The insert badge on a result thumbnail. NOT a Figma export: the design's badge
-   * box was never measured (Figma's read endpoints were rate-limited), and this
-   * geometry is an icon-set path sized against the preview. ADR-0015 §4.
-   *
-   * No width/height and no `xmlns`: the slot is a share of the thumbnail
-   * (`max(16px, 18%)` in CSS) and the square viewBox is what keeps the ring round
-   * at any size. `fill` is currentColor because `.plus` sets the accent, so the
-   * light theme follows `--accent` rather than a literal hex. */
+  /* The insert badge on a result thumbnail. Not a Figma export: the design's badge
+   * box was never measured, so this is an icon-set path sized against the preview
+   * (ADR-0015 §4). The square viewBox with no width/height is what keeps the ring
+   * round at any size, and currentColor follows `--accent` onto the light theme. */
   badge: '<svg viewBox="0 0 55 55" fill="none" aria-hidden="true">'
     + '<path d="M24.75 41.25H30.25V30.25H41.25V24.75H30.25V13.75H24.75V24.75H13.75V30.25H24.75V41.25Z'
     + 'M27.5 55C23.6958 55 20.1208 54.2896 16.775 52.8688C13.4292 51.4021 10.5188 49.4312 8.04375 46.9562'
@@ -167,17 +153,11 @@ const ICON = {
 };
 
 /* ---------- step numbers ----------
- * StageStatus is {name, state, done, total} (schemas.py:42-46); there is no unit
- * field, so the unit is this static map. The design carries progress in the
- * running row's own readout ("Finalizing... 80%") rather than a bar, so there
- * is no bar to rewind and no high-water state to keep. Three rules, each forced
- * by measured engine behaviour (docs/design/panel-ui.md 3.3):
- *   total === 0  -> no readout at all. It means unknown, not 0%. It is the
- *                   permanent state for a cache-served stage and for every
- *                   stage of a `reused` job.
- *   transcribe   -> a time count, never a percentage: it reports (total,total)
- *                   then (total+x, 2*total), so a percentage halves mid-stage.
- *   upload       -> MB, matching the byte unit it actually reports. */
+ * StageStatus carries no unit field, so the unit is this static map. `total === 0`
+ * renders nothing because it means unknown, not 0% — the permanent state for a
+ * cache-served stage and for every stage of a `reused` job. `transcribe` reports
+ * a time count rather than a percentage because its total grows mid-stage, which
+ * would halve the percentage. See docs/design/panel-ui.md 3.3. */
 function stepNumber(s) {
   if (!s.total) return "";
   if (s.name === "transcribe") return `${fmtClock(s.done)} / ${fmtClock(s.total)}`;
@@ -194,17 +174,10 @@ const QUEUED_STAGE = { name: "queued", state: "running", done: 0, total: 0 };
 
 /* ---------- step list ---------- */
 
-/* Display order: running -> done (most recent first). A stage that has not
- * started is not a row: the list is the running stage plus what is finished,
- * so a docked panel shows real progress instead of nine claims about work that
- * has not happened yet (AGENTS.md 5 F4). A row appears when its stage starts
- * and keeps its place until it is done.
- *
- * Returns {key, stage, state} per row rather than bare keys: a caller that had
- * to look the stage up again would be re-deriving the state, and the one key
- * with no stage of its own ("queued") is where that re-derivation goes wrong.
- * The stage vocabulary is closed and validated service-side
- * (docs/api.md:68), so `state` is taken as reported. */
+/* Display order: running, then done (most recent first). A stage that has not
+ * started draws no row, so the list is the running stage plus what is finished
+ * (AGENTS.md §5 F4). Rows carry the stage, not just its key, so a caller never
+ * re-derives state — "queued" is the key with no stage of its own. */
 function stepOrder(job) {
   const byKey = new Map();
   for (const s of (job && job.stages) || []) byKey.set(s.name, s);
@@ -242,14 +215,9 @@ function newestFailedJob() {
   return null;
 }
 
-/* The job whose payload the step list renders: the live one while a job runs, and
- * the one that failed once it stops being live.
- *
- * pollJobs drops a job from `activeJobs` on any terminal state but KEEPS the
- * payload, so reading `activeJob()` alone made the poll that reported a failure
- * also the render that cleared the list naming it. The failing stage is the only
- * thing on this screen that says where indexing stopped, and the preview hid the
- * bug by leaving the failed id in the active list. */
+/* The job the step list renders: live while one runs, then the one that failed.
+ * pollJobs keeps a terminal job's payload after dropping it from activeJobs, so
+ * reading activeJob() alone cleared the list naming the failure (ADR-0019). */
 function currentJob() {
   return activeJob() || newestFailedJob();
 }
@@ -322,11 +290,8 @@ function renderSteps() {
       if (row.className !== "step " + w.state) row.className = "step " + w.state;
       const label = stageLabel(w.key);
       if (lab.textContent !== label) lab.textContent = label;
-      // The readout slot carries the stage's state where it has one to report. A
-      // finished row says nothing (F4: `total == 0` is unknown, not 0%), and a
-      // failed row says one word — against a done row's 0.5 opacity and an empty
-      // slot, that is the whole difference between "this is where it stopped" and
-      // another finished row.
+      // A finished row says nothing and a failed row says one word. Against a done row's
+      // 0.5 opacity that word is what marks where indexing stopped.
       const text = w.state === "running" ? stepNumber(w.stage)
         : (w.state === "error" ? "failed" : "");
       if (num.textContent !== text) num.textContent = text;
@@ -341,11 +306,9 @@ function renderSteps() {
 
 /* ---------- indexing failure ---------- */
 
-/* The footage states the panel has to offer something for: nothing is ready to search
- * and no live job is claiming it. One list, read by `strandedFootage` and by
- * `indexingVisible`, because a state in one and not the other would show a recovery
- * button for footage the section has already decided not to report. The vocabulary is
- * the service's (docs/api.md § GET /footage). */
+/* Footage states the panel can still act on: nothing is ready and no live job claims
+ * it. Read by `strandedFootage` and `indexingVisible` alike. Vocabulary is the
+ * service's (docs/api.md). */
 const NEEDS_ATTENTION = ["error", "indexing", "uploading"];
 
 /* A registry entry the panel has no job for: stranded mid-index after a service
@@ -353,55 +316,40 @@ const NEEDS_ATTENTION = ["error", "indexing", "uploading"];
  * is not stranded — that job is its retry. */
 function strandedFootage() {
   const jobs = store.activeJobs.map((id) => store.jobs[id]).filter(Boolean);
-  // A job enqueued locally has no footage_key until its first poll (500ms after the
-  // 2s sync that created it), so for that window the panel cannot know which entries
-  // a live job is about to claim. Reporting them as stranded then would print
-  // "Indexing Stopped / Tempo lost track of this step" — and a Retry button — over a
-  // job that is uploading fine, on every single import. Nothing is reported until
-  // coverage is known. The footage rows this replaces carried the same guard.
+  // A locally enqueued job has no footage_key until its first poll, so for that window
+  // the panel cannot tell which entries a live job is about to claim. Reporting them
+  // as stranded would put a Retry button over a job uploading fine, on every import.
   if (jobs.some((j) => !j.footage_key)) return null;
   const covered = new Set(jobs.map((j) => j.footage_key));
   return store.footages.find((f) => !covered.has(f.footage_key)
     && NEEDS_ATTENTION.includes(f.state));
 }
 
-/* One failure, one sentence, one button — under the step list, where the failing
- * row is (ADR-0019). This replaced two boxes: an error row printing 300 characters
- * of engine traceback, and a footage row carrying a second Retry for the same fault
- * plus the file name. The raw `error` string is not rendered anywhere; it stays in
- * the payload and in the service log.
- *
- * Reported whenever a failed job exists, including while a different job runs: the
- * queues are single-worker but a failure does not stop them, so the next footage is
- * usually already indexing. In that window the step list belongs to the running job,
- * so the message stands without its row — the retry is the part the editor needs. */
+/* One failure, one sentence, one button, under the step list where the failing row is
+ * (ADR-0020). Nothing engine-internal is rendered: the raw `error` stays in the payload
+ * and the service log. Shown even while another job runs, because a failure does not
+ * stop the queue and the retry is then the only thing the editor can act on. */
 function renderIndexFailure() {
   const box = $("index-fail");
   const failed = newestFailedJob();
   const stranded = failed ? null : strandedFootage();
   if (!failed && !stranded) { box.hidden = true; box.textContent = ""; return; }
 
-  // One action, two addresses: the service treats both routes as the same operation
-  // (docs/api.md), and both resume from the stage cache, so the finished steps are
-  // not redone. Resolved to a selector and a call here rather than at three uses.
-  // `footageKey` is separate from `target.id` on purpose: the target is a job id when
-  // a job is known, and the count below compares footage keys.
+  // One action, two addresses: the service treats both routes as the same operation and
+  // both resume from the stage cache. `target` is a job id when one is known, so the
+  // footage key stays separate for the count below.
   const footageKey = failed ? failed.footage_key : stranded.footage_key;
   const target = failed
     ? { sel: "[data-retry-job]", id: failed.job_id, run: () => retryJob(failed.job_id) }
     : { sel: "[data-retry-footage]", id: stranded.footage_key, run: () => footageRetry(stranded.footage_key) };
 
-  // A reason the panel has a sentence for is printed, and it goes on the detail line
-  // because F2 requires the service's code on screen. A reason it has none for is
-  // not: the vocabulary is closed and pinned across the sidecar, this table and
-  // docs/api.md, so an unrecognised one is drift rather than a state an editor will
-  // ever meet, and printing a code nothing can explain helps nobody report it.
+  // A reason this table knows is printed on the detail line, because F2 requires the
+  // service's code on screen. An unrecognised one prints nothing: the vocabulary is
+  // closed and pinned, so it is drift rather than a state an editor will meet.
   const known = failed && failed.reason && FAIL_COPY[failed.reason];
   const copy = failed ? (known || FAIL_COPY.failed) : FAIL_COPY.stranded;
-  // The other failures are counted rather than listed: a block per failed footage is
-  // the row list this screen just lost, and one failure reported silently is not
-  // honest either. The count is read off the footage list, so it is data and not a
-  // number written here (§7.3).
+  // Other failures are counted, not listed: a block each is the row list this screen
+  // just lost. Read off the footage list, so §7.3 keeps the number out of the panel.
   const others = store.footages.filter((f) => f.footage_key !== footageKey && f.state === "error").length;
   const hint = others ? `${copy.hint} ${others} other file${others > 1 ? "s" : ""} also failed to index.` : copy.hint;
 
@@ -421,10 +369,8 @@ function readyFootage() {
   return store.footages.filter((f) => f.state === "ready");
 }
 
-// One cascade, so the dot's colour and its legend cannot drift apart. The bar
-// this replaced computed them as two separate if-cascades over the same
-// conditions, which is how a dot and the words beside it end up disagreeing.
-// ok = service + reachable engine, warn = transitional, bad = offline or down.
+// One cascade, so the dot's colour and its legend cannot drift apart. ok = service and
+// reachable engine, warn = transitional, bad = offline or down.
 function backendState() {
   const b = store.backend;
   if (!store.online) return ["bad", "Service offline · engine unknown"];
@@ -456,10 +402,8 @@ function renderError() {
 }
 
 function renderSearch() {
-  // The search field exists once at least one footage is ready (matches the
-  // design: neither the no-footage nor the indexing frame has one). The query
-  // is never cleared here — a poll that briefly reports no ready footage must
-  // not destroy what the editor typed.
+  // The search field exists once a footage is ready. The query is never cleared here:
+// a poll that briefly reports none must not destroy what the editor typed.
   const show = readyFootage().length > 0;
   $("searchbox").hidden = !show;
   $("searchmeta").hidden = !show;
@@ -492,12 +436,9 @@ function renderFilter() {
   l.setAttribute("aria-pressed", store.view === "list" ? "true" : "false");
 }
 
-/* Whether the indexing section has anything to say. Pure, so the rule is
- * testable without a DOM: a live job, a failed one, or footage this panel can
- * still act on — stranded mid-index (its Retry) or failed (its Retry). The last two
- * are per-footage states that survive a panel restart, unlike a job id, which is why
- * they are read from the registry and not from store.jobs. `resultsScreen()` asks
- * this same question to decide whether the section owns the panel (ADR-0022). */
+/* Whether the indexing section has anything to say. Pure, so it is testable without
+ * a DOM. The footage cases read the registry because a per-footage state survives a
+ * panel restart, unlike a job id (ADR-0022). */
 function indexingVisible() {
   return !!activeJob()
     || Object.keys(store.jobs).some((id) => store.jobs[id].state === "error")
@@ -509,18 +450,14 @@ function renderIndexing() {
   const live = !!activeJob();
   $("indexing").hidden = !show;
 
-  // Figma 777:698: the heading pill carries a fixed label and the two-arc
-  // indicator, and it is the whole screen until the first stage reports. The
-  // live stage is named in the step list right below it. No toggle: the list is
-  // simply there while a job runs and disappears with it. The pill stays
-  // live-only — a failure reports itself below, in the failure block.
+  // Figma 777:698: the pill carries a fixed label and the two-arc indicator, and is the
+  // whole screen until the first stage reports. The pill stays live-only, because a
+  // failure reports itself in the block below.
   $("indexing-pill").hidden = !live;
   $("indexing-detail").hidden = !show;
-  // The section is centred, so its height decides where the pill sits. While a
-  // job runs the detail block is held at the finished step list's height (the
-  // `live` rule in panel.css), which leaves the pill on the spot it will still
-  // occupy at the end of the run and lets rows arrive underneath it. The same
-  // flag that shows the pill drives it, so the two cannot disagree.
+  // The section is centred, so its height decides where the pill sits. The `live` rule
+  // in panel.css holds the detail block at the finished list's height, leaving the pill
+  // where it will still be at the end of the run so rows arrive underneath it.
   $("indexing").classList.toggle("live", live);
   renderSteps();
   renderIndexFailure();
@@ -530,19 +467,10 @@ function skeletonHTML() {
   return `<div class="card skel"><span class="sk-thumb"></span><span class="sk-cap"></span></div>`;
 }
 
-/* One decision about what #results holds, read by `renderResults` and by
- * `renderError` alike. They used to ask different questions — this one whether
- * footage was ready, that one only whether an error existed — so a failure could be
- * reported by the row while the block stayed away, or by both. One cascade, one
- * answer. Ordered most-specific first: a live job outranks everything, and an error
- * outranks the no-footage claim, which is a claim about the project the panel cannot
- * make while the service is down.
- *
- * `indexingVisible()` is the whole gate rather than `activeJob()`, so a *failed* run
- * or a stranded entry also owns the panel: the indexing section is reporting it, and
- * a frame-01 block saying "Indexing Failed, open the indexing detail" under a detail
- * that is already on screen was the same fault reported twice (ADR-0022). It is
- * qualified on `!ready`, so searchable footage keeps its results. */
+/* The one decision about what #results holds, read by `renderResults` and `renderError`
+ * alike so the row and the block cannot disagree. `indexingVisible()` rather than
+ * `activeJob()` lets a failed or stranded run own the panel too (ADR-0022), and the
+ * `!ready` qualification keeps searchable footage's cards. */
 function resultsScreen() {
   const ready = readyFootage().length > 0;
   if (!ready && indexingVisible()) return "job";
@@ -553,12 +481,9 @@ function resultsScreen() {
   return "results";
 }
 
-/* One block, every state that has nothing to show. Figma 777:639 draws the heading
- * as a disabled CTA; it is a status pill instead: a control that cannot be pressed
- * advertises an action it does not have (AGENTS.md §8). Pixels kept, dead affordance
- * dropped. `detail` is the raw service line, for the states that have one; `action`
- * is the one button the block carries, and only the indexing failure has one. Both
- * slots are the caller's own text — nothing user-supplied reaches them. */
+/* One block, every state that has nothing to show. Figma 777:639 draws the heading as a
+ * disabled CTA; a status pill keeps the pixels and drops an affordance that cannot be
+ * pressed (§6). `detail` is the service's line, `action` the block's single button. */
 function stateBlock(pill, hint, detail, action) {
   return `<div class="empty-state">` +
     `<div class="pill edge warn warn-muted" role="status"><span class="pill-label">${esc(pill)}</span></div>` +
@@ -568,13 +493,10 @@ function stateBlock(pill, hint, detail, action) {
     `</div>`;
 }
 
-/* A failure, named. `pill` is what stopped, in words; `hint` is the action, which is
- * the part the editor can actually take. `withMessage` is for the states whose own
- * message carries something the hint cannot — a limit, a count — and is absent for
- * the ones that only restate the heading. Codes are the service's vocabulary
- * (docs/api.md) and are pinned by tests; the words are ours.
- * §7.3: no instance name, plan limit, port or path is written here. Every number an
- * editor needs arrives from the service. */
+/* A failure, named. `pill` is what stopped, `hint` the action the editor can take.
+ * `withMessage` marks the states whose service message carries something the hint
+ * cannot, a limit or a count. Codes are the service's (docs/api.md); §7.3 keeps every
+ * number in this file out, so a plan limit arrives as text rather than as a literal. */
 const ERROR_COPY = {
   SERVICE_OFFLINE: {
     pill: "Service Offline",
@@ -592,10 +514,8 @@ const ERROR_COPY = {
     pill: "Search Timed Out",
     hint: "The engine took too long to answer. Search again.",
   },
-  // The one state that quotes the service's own sentence: the numbers are the useful
-  // part, and §7.3 keeps them out of the panel, so they arrive as text. The wording
-  // says "your plan's limit" and not "the footage limit", because the service raises
-  // this same code for footage-minutes as well (entitlements.check_new_work).
+  // The one state quoting the service's own sentence: §7.3 keeps the numbers out of the
+  // panel, so they arrive as text. "Your plan's limit" covers footage and minutes alike.
   QUOTA_EXCEEDED: {
     pill: "Limit Reached",
     hint: "This project is over your plan's limit. Footage already indexed stays searchable.",
@@ -603,21 +523,12 @@ const ERROR_COPY = {
   },
 };
 
-/* What the failure screen says, keyed by the reason the service reported
- * (docs/api.md § GET /jobs/{id}; the vocabulary is `REASONS` in the sidecar's
- * proxy.py and both sides are pinned against each other by test). The heading is a
- * status pill because that is what every other failure gets, and the instruction is
- * the part the editor can take.
- *
- * `pill` is read from ERROR_COPY for the three transport codes rather than restated,
- * so the same code cannot describe one failure two ways across search and indexing.
- * The hints are written for the action this screen offers — retry the step — and so
- * differ from ERROR_COPY's "search again" on purpose.
- *
- * §7.3: no instance name, plan limit, port or path is written here. Two states are
- * not keyed by a reason because they are not failures the service named: `failed` is
- * the fallback for a reason nobody has written a sentence for yet (including a job
- * from before the field existed), and `stranded` is an entry with no job at all. */
+/* What the failure screen says, keyed by the reason the service reported (docs/api.md;
+ * the vocabulary is `REASONS` in the sidecar's proxy.py, cross-checked by test).
+ * Transport codes reuse ERROR_COPY's pill so one code cannot read two ways, but the
+ * hints differ because this screen offers a retry where ERROR_COPY offers a search.
+ * `failed` and `stranded` are not service reasons: `failed` is the unnamed-reason
+ * fallback, `stranded` is a registry entry with no job. */
 const FAIL_COPY = {
   BACKEND_UNREACHABLE: {
     pill: ERROR_COPY.BACKEND_UNREACHABLE.pill,
@@ -661,12 +572,8 @@ const FAIL_COPY = {
   },
 };
 
-/* The service's words, bounded. A job error is 2000 characters of engine traceback
- * (engine/jobs.py:179) and a service message can be a limit sentence, so a block
- * that tall is not a message: the ellipsis says it was cut. The indexing failure no
- * longer quotes the job's `error` at all — it names the step in its own row (see
- * renderIndexFailure) — but the block's two routes into the service's line are both
- * bounded here. */
+/* The service's words, bounded. A job error is up to 2000 characters of traceback, so
+ * a block that tall is not a message; the ellipsis says it was cut. */
 const BLOCK_TEXT_MAX = 160;
 function clamp(s, max) {
   const t = String(s == null ? "" : s);
@@ -737,10 +644,8 @@ function renderResults() {
     });
     return;
   }
-  // Frame 01, its variants, a search that matched nothing, and a failure with nothing
-  // else to show: the header (and the search field, when there is one) is all that is
-  // above them, so each is centred on both axes like the indexing screen (the
-  // `centered` rule in panel.css is `margin: auto`, the same thing #indexing does).
+  // Every nothing-to-show state, centred on both axes like the indexing screen. The
+  // `centered` rule in panel.css is `margin: auto`, the same thing #indexing does.
   box.className = "centered";
   box.innerHTML = screen === "error" ? errorStateHTML()
     : screen === "nomatch" ? noMatchHTML()
@@ -752,10 +657,8 @@ function renderCards() {
   return store.results.map((r, i) => {
     const dur = Math.max(0, r.end_s - r.start_s).toFixed(1);
     const busy = store.inserting === i;
-    // One description line: the caption when the engine produced one, otherwise
-    // the transcript. Never both — D4 (no context hint in caption prompts) exists
-    // because Florence-2 captions tend to echo the transcript verbatim, and two
-    // near-identical strings under a thumbnail is worse than one.
+    // One description line, caption first. Never both: D4 exists because Florence-2
+    // captions echo the transcript, and two near-identical strings is worse than one.
     const desc = r.caption || r.transcript || "";
     const name = many ? `<span class="name">${esc(baseName(r.source_path))}</span>` : "";
     // Figma 777:368: the caption and the duration share one baseline-aligned row
@@ -942,11 +845,9 @@ async function insertResult(r, idx) {
     const payload = JSON.stringify({
       source_path: r.source_path, start_s: r.start_s, end_s: r.end_s,
     });
-    // One evalScript call does the whole job (locate/import, comp, trim, playhead).
-    // The JSON travels as an ExtendScript *string literal* (host.jsx parses
-    // it with JSON.parse): it must be wrapped in quotes with every backslash
-    // doubled, or Windows paths mangle ("C:\Users" parses to "C:Users").
-    // Single quotes are escaped too so paths with apostrophes survive.
+    // One evalScript call does the whole job (locate/import, comp, trim, playhead). The
+    // JSON travels as an ExtendScript string literal host.jsx JSON.parses, so every
+    // backslash doubles ("C:\Users" would otherwise parse as "C:Users").
     const expr = "tempoInsertOrFocus('" + payload.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "')";
     const raw = await evalScript(expr);
     try {
@@ -971,10 +872,9 @@ function setView(view) {
 /* ---------- boot ---------- */
 
 async function ensureHost() {
-  // Loader fallback: some environments load the panel UI but skip manifest
-  // ScriptPath evaluation (host functions stay undefined). The service serves
-  // the repo files verbatim (GET /host/*.jsx); evalScript them on demand.
-  // Probes decide — never blindly re-evaluates over a working host.
+  // Loader fallback for environments that skip manifest ScriptPath evaluation. The
+  // service serves the repo files verbatim (GET /host/*.jsx); probes decide, so a
+  // working host is never re-evaluated over.
   if (!cs) { return; }
   const kind = await evalScript("typeof tempoListFootage");
   if (kind === "function") { return; }

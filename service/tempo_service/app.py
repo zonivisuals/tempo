@@ -150,13 +150,10 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
 
 
 def create_app() -> FastAPI:
-# No auth wall: the sidecar serves one local editor over 127.0.0.1
-    # (see docs/decisions/0005-identity.md - identity removed).
-    # Every route below is public on localhost by design.
-    #
-    # docs_url/redoc_url/openapi_url are off: with no auth wall they hand any
-    # process on the machine a complete map of every route, parameter and model
-    # for free. docs/api.md is the contract of record.
+# No auth wall: one local editor over 127.0.0.1, every route public by design
+    # (ADR-0005). docs_url/redoc_url/openapi_url are off because with no auth wall
+    # they hand any local process a full route and model map; docs/api.md is the
+    # contract of record.
     app = FastAPI(
         title="Tempo",
         lifespan=lifespan,
@@ -267,12 +264,8 @@ def create_app() -> FastAPI:
 
     @app.get("/host/{name}.jsx")
     def host_source(name: str):  # type: ignore[no-untyped-def]
-        # Loader fallback for environments where CEP skips manifest ScriptPath
-        # evaluation (panel UI loads, host functions stay undefined). Serves the
-        # repo files VERBATIM — single source of truth stays panel/host/*.jsx;
-        # the panel evalScripts the text only when its boot probes fail.
-        # No shared JS modules across the bridge (AGENTS.md §2.3); the contract
-        # still lives in docs/api.md. Never cachable — panel must get fresh code.
+        # Serves panel/host/*.jsx verbatim for environments where CEP skips manifest
+        # ScriptPath evaluation and the panel's boot probes fail. Never cachable.
         from fastapi.responses import PlainTextResponse
 
         # The whitelist is the guard; a key that is not in it cannot reach the
@@ -316,10 +309,8 @@ def create_app() -> FastAPI:
 
     @app.post("/jobs/{job_id}/retry", response_model=JobRetryResponse)
     def job_retry(job_id: str):  # type: ignore[no-untyped-def]
-        # Explicit re-enqueue of a failed job's footage (one click = one job;
-        # reuses the live job when one already exists for the footage).
-        # Auto-sync never re-enqueues (would hot-loop every 2s); only explicit
-        # retry turns an `error`/orphaned entry back into `indexing` + a job.
+        # Only an explicit retry re-enqueues; auto-sync doing so would hot-loop at 2s.
+        # A live job for the footage is reused rather than duplicated.
         job = jobs_module.jobs.get(job_id)
         if job is None:
             return JSONResponse(
@@ -334,10 +325,8 @@ def create_app() -> FastAPI:
 
     @app.post("/jobs/{job_id}/cancel", response_model=JobStatus)
     def job_cancel(job_id: str):  # type: ignore[no-untyped-def]
-        # Drop a job that hasn't started yet. Running jobs (local or
-        # backend-backed) can't be stopped mid-thread: 409 names the state,
-        # and completion stays valid. Cancelled jobs leave polling on their
-        # own (the panel drops unknown terminal states from its poll set).
+        # Drops a not-yet-started job. A running one cannot be stopped mid-thread, so 409
+        # names the state and completion stays valid.
         outcome = jobs_module.jobs.cancel(job_id)
         if outcome == "missing":
             return JSONResponse(
@@ -449,11 +438,9 @@ def create_app() -> FastAPI:
             return not_found
         entry = registry_module.read(footage_key)
         cid = entry.get("content_id") if entry else None
-        # content_id comes from registry.json, not from the request — but that
-        # file is plain unauthenticated JSON on disk, and registry.thumbs_dir()
-        # concatenates it into a path. Validate it here so no future writer (a
-        # prune route, a sync client, another tool) can turn this route into an
-        # arbitrary file read. Same predicate the engine uses.
+        # registry.json is plain unauthenticated JSON on disk and thumbs_dir() concatenates
+        # the id into a path, so it is validated before use. Any future writer that can
+        # poison the registry would otherwise make this an arbitrary file read.
         if not cid or not fingerprint.valid(cid):
             return not_found
         path = registry_module.thumbs_dir(cid) / f"{shot_id}.jpg"

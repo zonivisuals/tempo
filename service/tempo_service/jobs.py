@@ -121,10 +121,8 @@ class JobManager:
         return None
 
     def cancel(self, job_id: str) -> str:
-        """Drop a job that hasn't started: 'cancelled'. Returns an outcome
-        the route maps to HTTP: 'cancelled' | 'missing' | 'terminal' |
-        'running'. Running jobs (local or backend-backed) can't be stopped
-        mid-thread — they run to completion, which is always a valid result."""
+        """Drop a job that hasn't started. Returns the outcome the route maps to
+        HTTP. A running job cannot be stopped mid-thread; it runs to completion."""
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
