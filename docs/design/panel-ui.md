@@ -311,6 +311,30 @@ field above it.
 The block has an optional third line, `.detail`, in `--dim` one step below the
 hint: the service's own line verbatim, for the states that have one (§6).
 
+### 3.1b A failure names itself
+
+| Code | Heading | Instruction |
+|---|---|---|
+| `SERVICE_OFFLINE` | `Service offline` | `The local Tempo service is not responding. Start it, then press Sync now.` |
+| `BACKEND_ASLEEP` | `Engine asleep` | `The GPU engine is not running. Start the instance, then search again.` |
+| `BACKEND_UNREACHABLE` | `Engine unreachable` | `Tempo cannot reach the GPU engine. Check the tunnel, then search again.` |
+| `BACKEND_TIMEOUT` | `Search timed out` | `The engine took too long to answer. Search again.` |
+
+A code in the heading is a label, not a name: `BACKEND_ASLEEP` says nothing about
+what stopped, and nothing about what to do. So the heading is a state in words and
+the instruction is the action — the part the editor can take. The service's own
+message is not quoted on these four, because it restates the heading
+(`service offline`, `engine search failed`) and says less.
+
+The heading is `--accent`, like every other block. `--error` stays where the state is
+already carried: the header dot (ADR-0012) and the retained inline row.
+
+A code with no row in this table falls back to `Request failed`, with the service's
+message as the instruction and the code on the `.detail` line, so a new backend error
+cannot leave the panel blank. Nothing about the deployment is written here — no
+instance name, no port, no path, no plan limit (§7.3); every number an editor needs
+arrives from the service.
+
 `Search for anything` is **kept**, reversing the earlier decision to drop it.
 §6 bans placeholder *copy* — the species this was read as, and the reason it was
 cut — but the design draws it as a permanent label line above the value, not as
@@ -685,13 +709,15 @@ of the two speaks is one decision — `resultsScreen()` — read by both:
 | `results` | cards | speaks |
 
 `error` sits above `empty` deliberately: with the service down and no footage
-known, `No footage found` is a claim about the project the panel cannot make.
-It also requires an empty result set — an error arriving over cards is the row's
-business, because the block would wipe results the editor is still reading.
+known, `No footage found` is a claim about the project the panel cannot make —
+it does not know whether the project has footage, it knows it could not ask. It
+also requires an empty result set, because an error arriving over cards is the
+row's business: the block would wipe results the editor is still reading.
 
-The block's heading carries the service code for now, with the message as the
-instruction. Naming each code in its own words is copy, tracked separately; the
-structure is what this section binds.
+Each failure names itself in the block's heading and says what to do underneath;
+the service's code goes on the third line (§3.1b). The row keeps its own
+`CODE · message` format and its `--error` colour for the errors that arrive over
+content.
 
 **This work is layout-only.** The panel still discards the server's error code
 and message on four of five actions (`SYNC_FAILED · status 403` for a quota

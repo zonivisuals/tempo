@@ -1,0 +1,128 @@
+# ADR-0018 - The failure state block, and one cascade that says which of the two speaks
+
+- Status: accepted
+- Date: 2026-10-05
+- Affects: `AGENTS.md` §5 F2, F3, §12; `docs/design/panel-ui.md` §3.1a, §6; `panel/www/panel.css`, `panel/www/panel.js`, `panel/www/index.html`
+- Spec of record: `docs/design/panel-ui.md`
+
+## Context
+
+Two screens had two shapes for the same fact.
+
+**The no-matches screen** was one `--dim` sentence in a bare `.empty` div at the top
+of the results area: `No shots matched “x”.` Frame 01 — the *no footage* screen, one
+state further down the same ladder — had been a centred block since ADR-0011: an
+accent status pill, one line of instruction, `margin: auto` on both axes. So the
+panel rendered "there is nothing here for you" twice, in two unrelated shapes, and
+the second one was the one an editor sees after every fruitless search.
+
+**The failure screens** were an inline row under the search field: `CODE · message`,
+11px, `--error`, 1px border. That row is right for a failure that arrives *over*
+content — a failed insert belongs next to the field the editor just used, and it
+costs nothing to read. It is wrong for the three states where there is nothing else
+on screen at all. With the service down, the panel had no footage, no results and no
+search field, and its entire report of the outage was one red line pinned to the top
+edge under a header: not centred, not named, and carrying a code
+(`SERVICE_OFFLINE`) where a sentence belonged.
+
+The two were also derived from two different questions. `renderResults` asked
+whether footage was ready; `renderError` asked only whether an error existed. Nothing
+joined them, so "where does this failure go" was answered in two places and could be
+answered differently.
+
+## Decision
+
+### 1. One block, every state with nothing to show
+
+`stateBlock(heading, instruction, detail)` is the single shape for frame 01, its
+variants, a search that matched nothing, the screen before any search has run, and a
+failure with nothing else on screen. Frame 01's four variants keep their wording
+verbatim — the wording is the behaviour there, and it is pinned by test.
+
+Two new variants joined it, because the ladder had two rungs with no block:
+
+| Condition | Heading | Instruction |
+|---|---|---|
+| a search returned nothing | `No shots found` | `Nothing in this project matches “<query>”. Try a word from the dialogue or captions.` |
+| ready footage, no search yet | `Ready to search` | `Type a few words to find shots across your footage.` |
+
+The query is quoted back: the editor needs to see what was actually searched. That
+made `overflow-wrap: anywhere` load-bearing on the hint — `max-width: 36ch` does not
+stop one long unbroken query from widening the block past the panel.
+
+### 2. `resultsScreen()` is the only question
+
+One cascade names what `#results` holds, and both `renderResults` and `renderError`
+read it. `job`, `searching`, `error`, `empty`, `nomatch`, `results`. The two
+renderers cannot disagree about whether a failure is the block's or the row's,
+because neither of them decides.
+
+`error` requires an **empty result set**. An error arriving over cards is the row's
+business: the block would wipe results the editor is still reading, and a failed
+insert is not a reason nine results disappear.
+
+`error` also sits **above** `empty`. With the service down and no footage known,
+`No footage found` is a claim about the project that the panel cannot make — it does
+not know whether the project has footage, it knows it could not ask. The precedence
+is not cosmetic: it is the difference between an honest panel and a confident lie.
+
+### 3. Each failure names itself, and the code stays on screen
+
+| Code | Heading | Instruction |
+|---|---|---|
+| `SERVICE_OFFLINE` | `Service offline` | `The local Tempo service is not responding. Start it, then press Sync now.` |
+| `BACKEND_ASLEEP` | `Engine asleep` | `The GPU engine is not running. Start the instance, then search again.` |
+| `BACKEND_UNREACHABLE` | `Engine unreachable` | `Tempo cannot reach the GPU engine. Check the tunnel, then search again.` |
+| `BACKEND_TIMEOUT` | `Search timed out` | `The engine took too long to answer. Search again.` |
+
+A code in the heading is a label, not a name: `BACKEND_ASLEEP` says nothing about what
+stopped, and nothing about what to do about it. So the heading is a state in words and
+the instruction is the action — the one part the editor can take. The service's own
+message is *not* quoted on these four, because it restates the heading
+(`service offline`, `engine search failed`) and would say less.
+
+The code goes on the new third line, `.detail`, in `--dim`: F2 requires the code on
+screen, and a failure the editor cannot name is one they cannot report. A code the
+table has no copy for falls back to a generic heading with the service's message as
+the instruction and the code on the detail line, so a new backend error cannot leave
+the panel blank.
+
+Nothing about the deployment is written into that table: no instance name, no port, no
+path, and no plan limit. Every number an editor needs arrives from the service, which
+is the same rule §7.3 states for code and the reason the quota wording is separate
+work.
+
+### 4. The pill is the accent, not the error colour
+
+The failure block is the frame-01 block, so it is `--accent`. `--error` stays where
+the state is already carried: the header dot (ADR-0012) and the retained inline row. A
+red block would introduce a third carrier of the same fact and read as a different
+kind of screen from the one it is.
+
+## Consequences
+
+- The block is centred on both axes wherever it appears, including under a search
+  field. That is a geometry change for the no-matches screen, which used to hang under
+  the field; cards and skeletons stay top-aligned.
+- `.empty` is deleted. The no-matches row was its only user, and §8 bans dead code.
+- The block adds no animation, so ADR-0011's two-surface budget is untouched.
+- The inline row is narrower than it was: it is now only for errors over content. It
+  is not dead, and it keeps its 11px `--error` border.
+
+## Alternatives rejected
+
+- **Delete the inline row.** One rule, but a failed insert would wipe the result grid
+  and move the message away from the field the editor typed in. Two surfaces, each
+  with one job, beat one surface with two.
+- **Keep the row for everything and just centre it.** A centred 11px red row is not
+  the frame-01 block; it is the old row in a new position, and the three failure
+  screens would still be named by codes alone.
+- **A toast.** §6 bans them, and a toast over a panel that is already showing nothing
+  is worse than the nothing.
+- **Tint the failure pill `--error`.** Rejected for the reason in §4 above.
+
+## Not decided here
+
+- The quota wording, which needs the service's limit and count rather than a fixed
+  sentence. Tracked separately.
+- `prefers-reduced-motion` needs nothing here: the block does not move.

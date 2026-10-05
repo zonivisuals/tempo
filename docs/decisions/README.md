@@ -26,6 +26,7 @@ Index of decisions (details in AGENTS.md §12). New decisions get a numbered fil
 - D22 Panel chrome re-derived: the search field 107→82px, the magnifier 21→10px (the one export below §6's 16px floor), the view pair's chips touching, the insert badge is the accent at a share of the thumbnail, the thumbnail takes `--r-md`, and `--edge` is a 180° ramp → `0015-panel-chrome-re-derived.md`
 - D23 The searching frame is `loading_result` and nothing else: no card stroke or fill, both blocks on `--r-md` and inset by that stroke, the sweep's level is the design's 0.08 on both blocks in one token, and the cap is the body box rather than the design's type-driven 69 → `0016-searching-frame-two-blocks.md`
 - D24 The query value is one text layer with a band over it: the second copy and the accent go, the stop geometry is shadcn's `shimmer` util, the three levels are its own formula landing on `--text-dim`/`--text`, and reduced motion renders the query plainly instead of blanking the field → `0017-query-shimmer-one-layer.md`
+- D25 One state block for every nothing-to-show (frame 01, its variants, no matches, not-searched-yet, and a failure), with `resultsScreen()` as the one question about which of the block or the retained inline row speaks → `0018-failure-state-block.md`
 
 
 Known debt:

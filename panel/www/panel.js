@@ -506,12 +506,45 @@ function stateBlock(pill, hint, detail) {
     `</div>`;
 }
 
-/* A failure with nothing else on screen. Until each code is named in its own words
- * the pill carries the code itself: it is the vocabulary the service and the row
- * already speak, and a named state for each code is copy, not structure. */
+/* A failure, named. `pill` is what stopped, in words; `hint` is the action, which is
+ * the part the editor can actually take. `withMessage` is for the states whose own
+ * message carries something the hint cannot — a limit, a count — and is absent for
+ * the ones that only restate the heading. Codes are the service's vocabulary
+ * (docs/api.md) and are pinned by tests; the words are ours.
+ * §7.3: no instance name, plan limit, port or path is written here. Every number an
+ * editor needs arrives from the service. */
+const ERROR_COPY = {
+  SERVICE_OFFLINE: {
+    pill: "Service Offline",
+    hint: "The local Tempo service is not responding. Start it, then press Sync now.",
+  },
+  BACKEND_ASLEEP: {
+    pill: "Engine Asleep",
+    hint: "The GPU engine is not running. Start the instance, then search again.",
+  },
+  BACKEND_UNREACHABLE: {
+    pill: "Engine Unreachable",
+    hint: "Tempo cannot reach the GPU engine. Check the tunnel, then search again.",
+  },
+  BACKEND_TIMEOUT: {
+    pill: "Search Timed Out",
+    hint: "The engine took too long to answer. Search again.",
+  },
+};
+
+/* A failure with nothing else on screen. The heading and the instruction come from
+ * the copy table; the code is the detail line either way, because F2 requires it on
+ * screen and a code nobody can name is a failure nobody can report. A code with no
+ * copy of its own falls back to the service's message as the instruction rather than
+ * to nothing. */
 function errorStateHTML() {
   const e = store.error || {};
-  return stateBlock(e.code || "Error", e.message || "The service returned an error.");
+  const copy = ERROR_COPY[e.code];
+  if (!copy) {
+    return stateBlock("Request Failed", e.message || "The service returned an error.", e.code);
+  }
+  const detail = copy.withMessage && e.message ? `${e.code} · ${e.message}` : e.code;
+  return stateBlock(copy.pill, copy.hint, detail);
 }
 
 function emptyStateHTML() {

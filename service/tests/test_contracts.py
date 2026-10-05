@@ -1074,6 +1074,58 @@ def _block_for(footage: str) -> str:
     return _panel_render("renderResults()", "store.footages = " + footage + ";", _HTML)
 
 
+def test_each_failure_names_itself_and_says_what_to_do():
+    """Four failures, four headings, four instructions — and the code, every time.
+
+    A code in the heading is a label, not a name: `BACKEND_ASLEEP` tells the editor
+    nothing about what stopped. Each state gets a heading in words and one line
+    naming the action, and the service's code stays on screen under it because F2
+    requires the code and a failure the editor cannot name is one they cannot report.
+
+    The service's own message is NOT quoted here: on these four it is a restatement
+    (`service offline`, `engine search failed`) that would say less than the heading
+    already does.
+    """
+    cases = {
+        "SERVICE_OFFLINE": ("Service Offline", "Start it, then press Sync now."),
+        "BACKEND_ASLEEP": ("Engine Asleep", "Start the instance, then search again."),
+        "BACKEND_UNREACHABLE": ("Engine Unreachable", "Check the tunnel, then search again."),
+        "BACKEND_TIMEOUT": ("Search Timed Out", "took too long"),
+    }
+    for code, (pill, said) in cases.items():
+        html = _panel_render(
+            "renderResults()",
+            _READY + " store.error = { code: %r, message: 'engine search failed' };" % code,
+            _HTML,
+        )
+        assert pill in html, f"{code}: {html}"
+        assert said in html, f"{code} must say what to do: {html}"
+        assert code in html, f"{code} must stay on screen: {html}"
+        assert 'class="detail"' in html, f"{code} carries the code on the detail line: {html}"
+
+
+def test_a_failure_with_no_wording_of_its_own_still_renders_a_block():
+    """A code the panel has no copy for must not leave the editor at an empty panel.
+
+    The service's message is the instruction in that case, and the code still goes on
+    the detail line: an unnamed new code is the case where the code matters most.
+    """
+    html = _panel_render(
+        "renderResults()",
+        _READY + " store.error = { code: 'ENGINE_MELTED', message: 'cuda oom' };",
+        _HTML,
+    )
+    assert 'class="pill edge warn warn-muted"' in html, html
+    assert "cuda oom" in html, f"the service's message is the instruction it lacks: {html}"
+    assert "ENGINE_MELTED" in html, html
+
+    # No message either: the block still renders rather than falling back to nothing.
+    html = _panel_render(
+        "renderResults()", _READY + " store.error = { code: 'ENGINE_MELTED' };", _HTML
+    )
+    assert 'class="pill edge warn warn-muted"' in html, html
+
+
 def test_the_frame_01_variants_each_keep_their_own_wording():
     """Four states, four sentences, one block.
 
