@@ -245,8 +245,8 @@ def create_app() -> FastAPI:
 
     @app.get("/jobs/{job_id}", response_model=JobStatus)
     def job_status(job_id: str) -> JobStatus:
-        job = jobs_module.jobs.get(job_id)
-        if job is None:
+        st = jobs_module.jobs.status(job_id)
+        if st is None:
             log.info("jobs: id=%s -> 404 NOT_FOUND", job_id)
             return JSONResponse(  # type: ignore[return-value]
                 status_code=404,
@@ -254,7 +254,6 @@ def create_app() -> FastAPI:
                     error=ErrorBody(code="NOT_FOUND", message="unknown job")
                 ).model_dump(),
             )
-        st = job.to_status()
         log.info(
             "jobs: id=%s footage=%s state=%s stages=%s",
             job_id, st.get("footage_key"), st.get("state"),
@@ -311,16 +310,16 @@ def create_app() -> FastAPI:
     def job_retry(job_id: str):  # type: ignore[no-untyped-def]
         # Only an explicit retry re-enqueues; auto-sync doing so would hot-loop at 2s.
         # A live job for the footage is reused rather than duplicated.
-        job = jobs_module.jobs.get(job_id)
-        if job is None:
+        footage_key = jobs_module.jobs.footage_key_of(job_id)
+        if footage_key is None:
             return JSONResponse(
                 status_code=404,
                 content=ErrorEnvelope(
                     error=ErrorBody(code="NOT_FOUND", message="unknown job")
                 ).model_dump(),
             )
-        resp = _enqueue_retry(job.footage_key)
-        log.info("retry: job %s (footage %s) -> new job %s", job_id, job.footage_key, resp.job_id)
+        resp = _enqueue_retry(footage_key)
+        log.info("retry: job %s (footage %s) -> new job %s", job_id, footage_key, resp.job_id)
         return resp
 
     @app.post("/jobs/{job_id}/cancel", response_model=JobStatus)
@@ -345,9 +344,8 @@ def create_app() -> FastAPI:
                     )
                 ).model_dump(),
             )
-        job = jobs_module.jobs.get(job_id)
-        log.info("cancel: job %s (footage %s)", job_id, job.footage_key)
-        return JobStatus(**job.to_status())
+        log.info("cancel: job %s (footage %s)", job_id, jobs_module.jobs.footage_key_of(job_id))
+        return JobStatus(**jobs_module.jobs.status(job_id))
 
     @app.post("/footage/{footage_key}/retry", response_model=JobRetryResponse)
     def footage_retry(footage_key: str):  # type: ignore[no-untyped-def]

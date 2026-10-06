@@ -10,6 +10,9 @@ names are never duplicated here: they come from the engine's /v1/health
 (`set_stage_source`), and any stage the engine reports is mirrored as-is.
 The handoff (proxy.handle) registers as the handler; without one, jobs wait
 in `queued` state instead of reporting fake progress.
+
+A handler receives one `JobHandle` and mutates nothing else. `Job` is private to
+this module, so state and stage transitions have a single write path.
 """
 
 import logging
@@ -37,13 +40,15 @@ log = logging.getLogger("tempo.jobs")
 
 UPLOAD_STAGE = "upload"  # stage 0 (§3.2): bytes sent to the engine, before its own stages
 
-# Handler signature: fn(job, progress) where
-# progress(stage_name, done, total) records real stage progress.
-Handler = Callable[["Job", Callable[[str, int, int], None]], None]
+# What a handler is given: one handle, and nothing else.
+Handler = Callable[["JobHandle"], None]
 
 
 @dataclass
 class Job:
+    """Private to this module. Callers get a JobHandle to write through and the
+    `status()` dict to read, so no mutation can skip the manager's lock."""
+
     job_id: str
     footage_key: str
     # The 7 values of vocabulary.JOB_STATES
@@ -74,6 +79,44 @@ class Job:
             "error": self.error,
             "reason": self.reason,
         }
+
+
+class JobHandle:
+    """The handler's whole interface. Every write to a job goes through the manager."""
+
+    def __init__(self, manager: "JobManager", job_id: str) -> None:
+        self._manager = manager
+        self.job_id = job_id
+
+    @property
+    def footage_key(self) -> str:
+        return self._manager._field(self.job_id, "footage_key", "")
+
+    @property
+    def state(self) -> str:
+        return self._manager._field(self.job_id, "state", JOB_QUEUED)
+
+    @state.setter
+    def state(self, value: str) -> None:
+        self._manager._set(self.job_id, state=value)
+
+    @property
+    def reused(self) -> bool:
+        return self._manager._field(self.job_id, "reused", False)
+
+    @reused.setter
+    def reused(self, value: bool) -> None:
+        self._manager._set(self.job_id, reused=value)
+
+    def progress(self, stage: str, done: int, total: int) -> None:
+        """Real progress for a stage. `total == 0` means unknown, not 0%."""
+        self._manager.progress(self.job_id, stage, done, total)
+
+    def mark_stage(self, stage: str, state: str) -> None:
+        self._manager._mark_stage(self.job_id, stage, state)
+
+    def stage_names(self) -> list[str]:
+        return self._manager._field(self.job_id, "stage_names", [])
 
 
 class JobManager:
@@ -135,9 +178,22 @@ class JobManager:
             job.error = "cancelled by user"
             return JOB_CANCELLED
 
-    def get(self, job_id: str) -> Job | None:
+    def status(self, job_id: str) -> dict | None:
+        """The `GET /jobs/{id}` body, or None. The only way to read a job's state
+        from outside this module; `Job` itself is not handed out."""
         with self._lock:
-            return self._jobs.get(job_id)
+            job = self._jobs.get(job_id)
+            return job.to_status() if job is not None else None
+
+    def footage_key_of(self, job_id: str) -> str | None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return job.footage_key if job is not None else None
+
+    def _field(self, job_id: str, name: str, default):  # type: ignore[no-untyped-def]
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return getattr(job, name, default) if job is not None else default
 
     def progress(self, job_id: str, stage: str, done: int, total: int) -> None:
         with self._lock:
@@ -180,11 +236,8 @@ class JobManager:
                 self._set(job_id, state=JOB_RUNNING)
                 log.info("job %s started (footage %s)", job_id, job.footage_key)
 
-                def progress(stage: str, done: int, total: int) -> None:
-                    self.progress(job_id, stage, done, total)
-
-                self._handler(job, progress)
-                for name in list(job.stages):
+                self._handler(JobHandle(self, job_id))
+                for name in self.stage_names_for(job_id):
                     self._mark_stage(job_id, name, STAGE_DONE)
                 self._set(job_id, state=JOB_DONE)
                 log.info("job %s done", job_id)
@@ -203,6 +256,11 @@ class JobManager:
                         job.reason = getattr(exc, "reason", None)
             finally:
                 self._queue.task_done()
+
+    def stage_names_for(self, job_id: str) -> list[str]:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return list(job.stages) if job is not None else []
 
 
 jobs = JobManager()

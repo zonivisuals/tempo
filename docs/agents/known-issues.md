@@ -350,6 +350,13 @@ Load-bearing behavior with no spec line, found during the audit:
   (`test_registry.py::test_concurrent_updates_do_not_lose_writes`) was verified
   to fail with the lock stubbed out. The engine already did this correctly:
   `library.py:65-67` takes a per-content-id lock.
+- ~~**`proxy.py` reaches into `jobs.py`'s privates**~~ FIXED 2026-10-05. Five
+  `_set`/`_mark_stage` calls plus the hand-rolled `proxy._set_state` are gone.
+  The handler now receives one `JobHandle`; `Job` is private to `jobs.py`, so
+  state and stage transitions have one write path through the manager's lock.
+  Reads go through `jobs.status(job_id)` and `jobs.footage_key_of(job_id)`
+  instead of a handed-out `Job`.
+- **`engine/app.py:70-71` reaches into `models`** for device and dtype.
 - **`GET /v1/search` does disk I/O per request.** `search.rank` is genuinely
   pure, but its caller is not: `corpus.py:90` `stat()`s each content dir and
   `corpus.py:99` loads `index.json`/`index.npz`, both inside the request
@@ -365,11 +372,6 @@ Load-bearing behavior with no spec line, found during the audit:
   module-global health cache with its own lock (`:58-61`), the `/sync` registry
   diff inlined in the route (`:194-244`), a retry closure shared by two routes
   (`:304-318`), and the uvicorn entrypoint (`:495-503`).
-- **`proxy.py` reaches into `jobs.py`'s privates** at five sites (`:84, 163,
-  219, 228, 236`), calling `jobs._set` and `jobs._mark_stage`. `JobManager`'s
-  public interface is smaller than its only real caller needs. Candidate 2 in
-  the 2026-10-05 architecture review; a `JobHandle` closes the dual write path.
-- **`engine/app.py:70-71` reaches into `models`** for device and dtype.
 - `panel.css` ships both a dark and a light palette; `appSkinInfo` is read only
   to decide which one applies (`panel.js` `applyTheme`, ADR-0011). A user with a
   custom AE panel colour no longer gets that colour in Tempo.

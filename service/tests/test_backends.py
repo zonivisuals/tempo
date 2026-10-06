@@ -125,12 +125,18 @@ def seed_footage(tmp_path, size=2_500_000, key="k1"):
 
 
 def run_handle(engine, monkeypatch, key="k1"):
+    """Drive the handoff the way the worker does: a real Job in the manager, and
+    the same JobHandle the handler is given in production."""
     monkeypatch.setattr(proxy_module, "get_provider", lambda s: engine)
+    mgr = jobs_module.jobs
     job = jobs_module.Job(job_id="job_" + key, footage_key=key, stage_names=["upload", *STAGES])
-    jobs_module.jobs._jobs[job.job_id] = job
+    with mgr._lock:
+        mgr._jobs[job.job_id] = job
+    handle = jobs_module.JobHandle(mgr, job.job_id)
     ticks = []
-    proxy_module.handle(job, lambda st, d, t: (ticks.append((st, d, t)),
-                                               jobs_module.jobs.progress(job.job_id, st, d, t)))
+    real_progress = handle.progress
+    handle.progress = lambda st, d, t: (ticks.append((st, d, t)), real_progress(st, d, t))
+    proxy_module.handle(handle)
     return job, ticks
 
 
@@ -432,9 +438,19 @@ def test_asleep_engine_waits_in_queued_for_backend(tmp_path, monkeypatch):
     seed_footage(tmp_path)
     engine = FakeEngine(state="ready")
     engine.library_replies = [Reply(False, 503, code=ASLEEP)] * 7  # more than the miss budget
+    seed_footage(tmp_path)
+    engine = FakeEngine(state="ready")
+    engine.library_replies = [Reply(False, 503, code=ASLEEP)] * 7  # more than the miss budget
     states = []
-    real_set = proxy_module._set_state
-    monkeypatch.setattr(proxy_module, "_set_state", lambda job, s: (states.append(s), real_set(job, s)))
+    mgr = jobs_module.jobs
+    real_set = mgr._set
+
+    def spy(job_id, **fields):
+        if "state" in fields:
+            states.append(fields["state"])
+        return real_set(job_id, **fields)
+
+    monkeypatch.setattr(mgr, "_set", spy)
     run_handle(engine, monkeypatch)
     assert "queued-for-backend" in states and reg.load_registry()["k1"]["state"] == "ready"
 
@@ -468,17 +484,25 @@ def test_every_handoff_failure_carries_a_reason_the_panel_can_name(tmp_path, mon
     paths had no test of their own; they are the ones a new call site is most likely
     to copy.
     """
+    def handle_for(job_id):
+        """A handle for a job the manager does not hold: these two paths fail
+        before any registry or engine work, so they need no real job."""
+        mgr = jobs_module.jobs
+        with mgr._lock:
+            mgr._jobs[job_id] = jobs_module.Job(job_id=job_id, footage_key="k1")
+        return jobs_module.JobHandle(mgr, job_id)
+
     # No engine configured at all.
     monkeypatch.setattr(proxy_module, "get_provider", lambda s: None)
     with pytest.raises(RuntimeError) as unconfigured:
-        proxy_module.handle(jobs_module.Job(job_id="job_x", footage_key="k1"), lambda *a: None)
+        proxy_module.handle(handle_for("job_x"))
     assert unconfigured.value.reason == "NOT_CONFIGURED"
 
     # A registry entry that is not there (the project dropped the file mid-job).
     monkeypatch.setattr(proxy_module, "get_provider", lambda s: FakeEngine())
     reg.save_registry({})
     with pytest.raises(RuntimeError) as unknown:
-        proxy_module.handle(jobs_module.Job(job_id="job_y", footage_key="k1"), lambda *a: None)
+        proxy_module.handle(handle_for("job_y"))
     assert unknown.value.reason == "UNKNOWN_FOOTAGE"
 
     # The engine refusing an application request is neither a transport failure nor
@@ -511,23 +535,23 @@ def test_a_failed_job_carries_the_reason_to_the_status_route():
         mgr = jobs_module.JobManager()
         err = RuntimeError("engine exploded") if reason is None else proxy_module.HandoffError(
             "engine exploded", reason)
-        mgr.register_handler(lambda job, progress: (_ for _ in ()).throw(err))
+        mgr.register_handler(lambda handle: (_ for _ in ()).throw(err))
         job_id = mgr.enqueue("k9")
         deadline = time.time() + 5
         while time.time() < deadline:
-            job = mgr.get(job_id)
-            if job and job.state == "error":
-                return job
+            out = mgr.status(job_id)
+            if out and out["state"] == "error":
+                return out
             time.sleep(0.01)
         pytest.fail("the job never reached error")
 
-    status = JobStatus(**failing("ENGINE_FAILED").to_status())
+    status = JobStatus(**failing("ENGINE_FAILED"))
     assert status.state == "error" and status.reason == "ENGINE_FAILED"
     assert status.error == "engine exploded", "the raw text stays for the log and the registry"
 
     # An exception that is not a handoff failure has no reason, and the panel's
     # fallback wording is the honest thing to print for it.
-    assert failing(None).to_status()["reason"] is None
+    assert failing(None)["reason"] is None
 
     # A job that has not failed carries none either.
     assert JobStatus(job_id="job_1", footage_key="k7", state="queued").reason is None
