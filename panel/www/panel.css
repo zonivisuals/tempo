@@ -1,24 +1,15 @@
-/* panel.css — the Figma design, ported.
+/* panel.css — the Figma design, ported. Source Figma YJntqqRI69HtwO7aw8bbwz,
+ * group TEMPO_project_frames (777:771); spec of record docs/design/panel-ui.md.
  *
- * Source: Figma YJntqqRI69HtwO7aw8bbwz, group TEMPO_project_frames (777:771).
- * Every colour, radius ratio, border weight, shadow and control treatment below
- * is the design's own value, re-expressed for panel scale. See
- * docs/design/panel-ui.md (spec of record), ADR-0011, and ADR-0013 for the
- * scale basis.
- *
- * The frames are 2004x1919 px and a docked AE panel is ~300-360 px wide. The port
- * scales by TYPE, not by frame geometry: the panel's 13px value type against the
- * design's 32px is a ratio of 0.406, and that is the ratio the submit button
- * already uses (design 60px -> shipped 24px). Frame-relative ratios would argue
- * for shrinking every control, because the design's are a small share of a very
- * large frame. Radii therefore follow the same ratio, not the design's raw px.
- *   search field                         25/196  ->  --r-field  10px
- *   indexing / empty-state pill          unmeasured (777:698 not re-read here)
- *                                         ->  --r-lg      8px, inherited
- *   view-toggle chips                    8/64    ->  --r-sm  4px   (exact at 32px)
- *   submit button                        10.67/60->  --r-sm  4px   (0.167 at 24px)
- *   cards / thumbnails / skeletons      12/560   ->  --r-md  3px
- *   status dot                          round, the one exception that must stay round
+ * The frames are 2004x1919px and a docked AE panel ~300-360px, so the port scales
+ * by TYPE, not frame geometry: the panel's 13px against the design's 32px is 0.406,
+ * the same ratio the submit button already uses. Radii follow that ratio:
+ *   search field              25/196   -> --r-field 10px
+ *   pills (777:698)           unmeasured -> --r-lg    8px, inherited
+ *   view chips                8/64     -> --r-sm    4px
+ *   submit button             10.67/60 -> --r-sm    4px
+ *   cards, thumbs, skeletons  12/560   -> --r-md    3px
+ *   status dot                round, the one exception that must stay round
  */
 :root {
   --bg: #232323;              /* frame fill */
@@ -27,55 +18,37 @@
   --border: #2e2e2e;
   --text: rgba(255, 255, 255, 0.8);   /* step labels, card text: 777:702, 777:345 */
   --text-dim: rgba(255, 255, 255, 0.4); /* search label: 777:516, 0.4 alpha */
-/* One step below --text-dim, for text that is quoted rather than instruction. It is
-   * a token and not --dim because --dim is not quieter than the hint on either theme:
-   * over #232323 the hint lands at rgb(123) and --dim (#8a8a8a) at rgb(138), so the
-   * quotation would be LOUDER than the instruction, and on the light theme #5c5c5c
-   * (92) is quieter than the hint's 118 — the relationship inverts between themes.
-   * Here, quieter than 0.4 white is 0.28; the light theme's own value is below. */
+/* One step below --text-dim, for quoted text rather than instruction. A token and
+   * not --dim because --dim is not quieter than the hint on either theme, and the
+   * relationship inverts between them (measured; the light theme's value is below). */
   --text-faint: rgba(255, 255, 255, 0.28);
   --dim: #8a8a8a;
   --accent: #eb5017;          /* 777:700 "Analyzing your footage", 777:511 */
   --thumb: #eb6060;           /* 777:368 thumbnail layer, Rectangle 5421 */
   --error: #eb6060;
-  /* The failing step's own row tint: this theme's --error at 10%, so the row that
-   * stopped reads as marked rather than as another tinted surface. A token rather
-   * than a literal per use because --error is a hex in both themes and the panel's
-   * floor is Chromium 84, where `color-mix()` (111) does not exist — the same
-   * reason --edge and --sweep are per-theme rgba literals. */
+  /* The failing step's row tint: this theme's --error at 10%. A token rather than a
+   * literal because the floor is Chromium 84, which has no color-mix(). */
   --error-wash: rgba(235, 96, 96, 0.1);
   --ok: #7fae74;
   /* The two-arc indicator's track (777:704): white under the accent arc. */
   --spin-track: #fff;
-  /* The search field's own radius. --r-lg is kept for the pills: they come from
-   * a different Figma node (777:698) whose radius is not measured here, so the
-   * field takes a token rather than moving two surfaces it cannot vouch for. */
+  /* The field's own radius. --r-lg stays on the pills, whose node (777:698) is
+   * unmeasured, so the field takes a token rather than moving them. */
   --r-field: 10px;
   --r-lg: 8px;
   --r-sm: 4px;
   --r-md: 3px;
   --sh: 0 2px 6px rgba(0, 0, 0, 0.2);   /* 0 8 12 @0.2, scaled */
-  /* 1.5px stroke whose paint is a white -> surface ramp (815:294). ADR-0015 made it
-     an explicit 180deg gradient whose top is a lighter 0.16 and whose bottom is
-     the design's 0.28, so the edge catches light from above the way the field
-     does. The light theme's own is a flat 0.18: same shape, different ramp. */
+  /* The 1.5px stroke (815:294), an explicit 180deg ramp so the edge catches light from
+   * above the way the field does. The light theme's own is a flat 0.18. ADR-0015. */
   --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(23, 23, 23, 0.28));
-  /* The design's skeleton fill (777:532): white 0 -> 0.08, and the SAME fill on
-   * both blocks — so one token serves both, and the peak is the level that comes
-   * off the design's own fills rather than one invented per block. */
+  /* The skeleton's own fill (777:532), white 0 -> 0.08. One token for both blocks,
+   * and the peak comes off the design's fills rather than being invented. */
   --sweep: linear-gradient(90deg,
       rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0) 100%);
-  /* The query shimmer, one text layer: the band is painted by the gradient itself,
-     whose outer stops ARE the resting colour, so nothing legible sits underneath it
-     to band over. Shape, tilt (20deg off vertical, so 110deg), spread and sizing are
-     shadcn's `shimmer` util, ported verbatim. The colours are its own dark-mode
-     formula run over this panel's text levels — base lightness +0.4 and alpha +0.4
-     off --text-dim's 0.4 lands on --text's 0.8 — and it computes them in
-     oklch(from currentColor ...) and color-mix(), both far above this panel's
-     Chromium 84 floor. So the base and the peak are the tokens themselves rather
-     than literals, and only the half-mix between them is one: --qsweep-mid. One
-     shape for both themes, because the tokens already flip and the light theme
-     overrides the mid stop and nothing else. ADR-0017. */
+  /* The query shimmer: one text layer, the gradient's own outer stops being the
+     * resting colour. Geometry is shadcn's `shimmer` verbatim; its base and peak
+     * land exactly on --text-dim and --text, so only the half-mix is ours. ADR-0017. */
   --qsweep-spread: calc(3ch + 40px);
   --qsweep-mid: rgba(255, 255, 255, 0.6);
   --qsweep: linear-gradient(110deg,
@@ -85,8 +58,7 @@
       var(--qsweep-mid) calc(50% + var(--qsweep-spread) * 0.5),
       var(--text-dim) calc(50% + var(--qsweep-spread)));
 }
-/* Light theme: the same system with surfaces inverted and the accent darkened to
-   hold contrast on a light panel. appSkinInfo only selects which one. */
+/* The same system inverted, accent darkened for contrast. appSkinInfo only picks one. */
 html.light {
   --bg: #d6d6d6;
   --surface: #f2f2f2;
@@ -94,29 +66,24 @@ html.light {
   --border: #c4c4c4;
   --text: rgba(0, 0, 0, 0.88);
   --text-dim: rgba(0, 0, 0, 0.45);
-  /* Quieter than 0.45 black on #d6d6d6 means darker, not lighter: over a light
-   * surface the quiet end is the dark one, which is why this is 0.62 and not the
-   * dark theme's 0.28. See --text-faint above for the measurement. */
+  /* Quieter than 0.45 black on a light surface means darker, not lighter, which is why
+   * this is 0.62 rather than the dark theme's 0.28. See --text-faint. */
   --text-faint: rgba(0, 0, 0, 0.62);
   --dim: #5c5c5c;
   --accent: #c23c0c;
   --thumb: #b3555a;
   --error: #a32b2b;
-  /* The light theme's own --error, at the same 10%: the wash is a tint, and the
-   * tint has to be this theme's red or the marked row is the wrong red. */
+  /* This theme's own --error at the same 10%: a wash has to be the theme's red. */
   --error-wash: rgba(163, 43, 43, 0.1);
   --ok: #3f7a35;
-  /* White is the track colour in the design, and it disappears on a light
-     surface: the track reads as a light gray here instead. */
+  /* White is the design's track colour and it vanishes on a light surface. */
   --spin-track: #b4b4b4;
   --edge: linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(242, 242, 242, 0.18));
-  /* The same 8% lift as the dark theme, in the other direction: white at 0.08 on
-     a light surface is invisible, the way --spin-track's white track is. */
+  /* The same 8% lift as the dark theme, in the other direction. */
   --sweep: linear-gradient(90deg,
       rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.08) 50%, rgba(0, 0, 0, 0) 100%);
-  /* Only the half-mix is ours: (0.45 + 0.88) / 2 = 0.665, held to the two decimals
-     the text tokens themselves carry. The base and the peak are --text-dim and
-     --text, which flip with the theme, so --qsweep does not repeat here. */
+  /* Only the half-mix is ours: (0.45 + 0.88) / 2, to the two decimals the text tokens
+     * carry. The base and peak are --text-dim and --text, which flip with the theme. */
   --qsweep-mid: rgba(0, 0, 0, 0.66);
 }
 
@@ -127,15 +94,13 @@ body {
   color: var(--text);
   font: 12px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
-/* min-height makes #app fill the panel viewport, which is what lets the indexing
-   screen centre itself in the leftover space below the header. Auto margins
-   collapse to 0 when the content is taller than the panel, so a long error row
-   or footage list still starts at the top and scrolls. */
+/* min-height lets the indexing screen centre in the space below the header; auto
+   margins collapse to 0 when content is taller, so a long list still starts at the top. */
 #app { padding: 8px; display: flex; flex-direction: column; gap: 8px; min-height: 100vh; }
 [hidden] { display: none !important; }
 
-/* A 1.5px border painted with a gradient: fill on padding-box, edge on
-   border-box. -webkit- prefixes for the declared CEP 9 floor. */
+/* A 1.5px gradient border: fill on padding-box, edge on border-box.
+   -webkit- prefixes for the declared CEP 9 floor. */
 .edge {
   border: 1px solid transparent; border-radius: var(--r-lg);
   background:
@@ -144,33 +109,25 @@ body {
 }
 
 /* ---------- header ----------
- * Not a navbar: the wordmark on the left, then only the two things AGENTS.md 4.4
- * requires — the engine status dot and the Sync now fallback. The bar this
- * replaced spelled the same states out as text, which was a second rendering of
- * what the dot already encoded. Not in the Figma frames; kept anyway, same as
- * the bar it replaces. */
+ * Not a navbar: the wordmark, then only the status dot and the Sync now fallback
+ * (§4.4). The text labels this replaced were a second rendering of the dot. */
 #topbar {
   display: flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--dim);
   padding-bottom: 8px;
 }
-/* The mark is height-driven and the PNG carries the wordmark's own 40:7
- * proportion, so width:auto keeps it from ever distorting — and 14px of height
- * is exactly 80px of width, which is what the <img> attributes declare.
- * test_wordmark_asset_geometry_agrees_with_css_and_markup holds the three. */
+/* Height-driven, with width:auto so the PNG's own 40:7 proportion holds. 14px of
+ * height is exactly the 80px the <img> declares; a test holds all three together. */
 #logo { display: block; height: 14px; width: auto; margin-right: auto; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dim); }
 .dot.ok { background: var(--ok); }
 .dot.warn { background: transparent; border: 1px solid var(--dim); }
 .dot.bad { background: var(--error); }
-/* The dot describes the engine; Sync now is an action. Left at the row's 6px
-   gap the dot sat hard against the button and read as that button's badge. */
+/* The dot describes the engine, Sync now is an action. At the row's own 6px gap the
+   dot read as that button's badge. */
 #svc-dot { margin-right: 8px; }
-/* The wordmark is a near-white raster with two accent marks, so it cannot take
- * `fill: currentColor` the way the inline icons do. On the light theme white on
- * #d6d6d6 is invisible: invert flips the letters to black, and the 180deg hue
- * rotate puts the accents' orange back where invert alone would have left it
- * cyan. */
+/* A near-white raster, so it cannot take currentColor the way the inline icons do.
+   * The hue-rotate puts the accents' orange back where invert alone leaves it cyan. */
 html.light #logo { filter: invert(1) hue-rotate(180deg); }
 #topbar button {
   background: var(--surface); color: var(--text);
@@ -180,23 +137,10 @@ html.light #logo { filter: invert(1) hue-rotate(180deg); }
 #topbar button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- search field (815:294) ----------
- * radius 25 of 196, 1.5px white->#171717 edge at 0.28, drop shadow 0 8 12 @0.2,
- * fill #171717.
- *
- * ADR-0013 read the field's 47 / 46 / 53 of top padding, label-to-value gap and
- * bottom padding off a 1x render of 815:294 and landed them on 20 / 20 / 20 at
- * the 4px rhythm, with 16 of side padding. ADR-0015 reversed that to 16 / 16 / 8 on
- * the product owner's call: 107px is over a third of a 300px viewport before a
- * single result. The method is unchanged -- the numbers still come off the
- * design's own ratios and land on the rhythm -- only the reading of them is
- * tighter, and the derivation and the reversal are both in the ADR.
- *
- * Height follows from the parts rather than being a target: 2px of border, 16
- * padding, a 15.95px label row, the 8px gap, a 24px value row (the submit button
- * sets it, not the 20px input box) and 16 padding = 82px. The label row is the
- * 11px label text at the inherited 1.45, NOT the icon: at 21px the design's
- * export set that row and the field was 107, and at 10px the text takes over.
- * test_search_field_carries_the_designs_spacing recomputes this from the CSS. */
+ * Radius 25 of 196, a 1.5px white->#171717 edge at 0.28, shadow 0 8 12 @0.2.
+ * Spacing follows the design's ratios on the 4px rhythm: ADR-0013 measured 47/46/53
+ * and landed on 20/20/20, ADR-0015 reversed it to 16/16/8 because 107px is over a
+ * third of a 300px viewport. The label row is set by the 11px text, not the icon. */
 #searchbox {
   border-radius: var(--r-field);
   box-shadow: var(--sh);
@@ -204,16 +148,14 @@ html.light #logo { filter: invert(1) hue-rotate(180deg); }
   display: flex; flex-direction: column; gap: 8px;
 }
 #searchbox:focus-within { border-color: var(--accent); }
-/* gap 6 is the design's 15 between icon and label, scaled; the icon carries its
-   own stroke-width, so the rule below must not restate it. */
+/* gap 6 is the design's 15, scaled. The icon carries its own stroke-width. */
 .sb-head { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 11px; }
 .sb-head svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .sb-row { display: flex; align-items: center; gap: 8px; }
 
-/* One mirror sits over the input's text box, and it paints the query by itself.
-   There was a second copy underneath it, legible, with the band drawn over the top:
-   two text layers and a repeating gradient, which is what made the sweep noisy.
-   #q's colour goes transparent while searching so the caret survives. ADR-0017. */
+/* One mirror over the input's text box that paints the query itself. There was a
+   legible copy underneath with the band over the top, and the two layers are what
+   made the sweep noisy; #q goes transparent while searching so the caret survives. */
 .sb-val { position: relative; flex: 1; min-width: 0; height: 20px; }
 .sb-row input {
   width: 100%; background: transparent; color: var(--text);
@@ -227,13 +169,9 @@ html.light #logo { filter: invert(1) hue-rotate(180deg); }
   display: none;
   color: transparent;
   background-image: var(--qsweep);
-  /* no-repeat is load-bearing, not tidiness: a repeating gradient gives the band a
-     second edge along the text. The sizing is the util's own — 200% plus the band on
-     either side — which is what keeps the band clear of the text at both keyframe
-     extremes (its near edge sits a fraction past the field's right edge at one and a
-     fraction past the left edge at the other, the tilt accounting for the fraction) so
-     the loop never wraps, and what keeps the base stop covering the whole string at
-     every position between them, so the query never goes invisible. */
+  /* no-repeat is load-bearing: a repeating gradient gives the band a second edge. The
+     * 200% sizing is what keeps it clear of the text at both keyframe extremes, so the
+     * loop never wraps and the base stop always covers the whole string. */
   background-repeat: no-repeat;
   background-size: calc(200% + var(--qsweep-spread) * 2) 100%;
   -webkit-background-clip: text; background-clip: text;
@@ -241,15 +179,10 @@ html.light #logo { filter: invert(1) hue-rotate(180deg); }
 }
 #searchbox.searching #q { color: transparent; caret-color: var(--text); }
 #searchbox.searching #q-sweep { display: block; }
-/* Left to right (ADR-0023; ADR-0017 shipped it right to left). A positive
-   background-position percentage moves the gradient LEFTWARDS, and the sizing above
-   is wider than the field, so the band's endpoints are the ones that decide the
-   direction: from 100% (the band clear of the left edge) to 0 (clear of the right).
-   Read as geometry rather than as a number, this reads backwards — verified against a
-   headless render, where the arithmetic and the intuition disagree.
-   The field declares no resting position, so it defaults to 0 0, which is now the
-   keyframe's end state: the band is clear of the query at rest, and reduced motion
-   drops the gradient entirely anyway. */
+/* Left to right (ADR-0023; ADR-0017 shipped it the other way). A positive background-position
+   moves a gradient wider than the field LEFTWARDS, so the endpoints decide: 100% is the
+   band clear of the left edge, 0 clear of the right. This reads backwards as geometry, which
+   is why it was verified against a headless render rather than reasoned about. */
 @keyframes qsweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
 
 /* Submit button (777:314): 60px square, radius 10.67, fill white at 0.10,
@@ -272,9 +205,8 @@ html.light #submit { background: rgba(0, 0, 0, 0.08); }
 #searchbox.searching #submit .arrow { display: none; }
 #searchbox.searching #submit .spin { display: block; animation: spin 1s linear infinite; }
 
-/* The two-arc indicator is filled geometry (the Figma 777:704 export), so its
- * fills come from CSS rather than from `fill="white"` on the paths — the track is
- * a themed token for the same reason. Geometry is untouched. */
+/* Filled geometry (the 777:704 export), so its fills come from CSS rather than from
+   * `fill="white"` on the paths. Geometry untouched. */
 .spin .arc { fill: var(--accent); }
 .spin .track { fill: var(--spin-track); }
 
@@ -285,31 +217,20 @@ html.light #submit { background: rgba(0, 0, 0, 0.08); }
 }
 
 /* ---------- filter + view toggle (777:473) ----------
- * Left, on the card grid's edge, as drawn. The chip is 32 rather than 24 so the
- * exported 38-unit icon can keep the design's share of it: at 24 it would render a
- * 13.5px glyph, under AGENTS.md 6's floor. Geometry, and why each number is what
- * it is, in docs/design/panel-ui.md 1.
- *
- * Two departures, both ADR-0015. The chips touch: the design spaces the pair 16
- * into a 64 chip and that 8px was removed, so the pressed fill is the only thing
- * separating them and the pair reads as one 64px control. And the row carries its
- * own 16px top margin, so the field and the pair are further apart than #app's
- * uniform 8px -- the design's 76px and 48px of vertical space are 11 and 7 at
- * frame scale, and neither lands on 8. */
+ * Left, on the card grid's edge. The chip is 32 rather than 24 so the 38-unit export keeps
+ * the design's share of it; at 24 the glyph would render 13.5px, under §6's floor.
+ * Two ADR-0015 departures: the chips touch, so the pressed fill is the pair's only separator;
+ * and the row carries a 16px top margin, because the design's 76 and 48 are 11 and 7 here. */
 #searchmeta { margin-top: 16px; display: flex; align-items: center; gap: 8px; }
-/* The design has no footage filter, so its box is ours: 4 / 8 on an 11px label
-   makes it ~26px tall, which #searchmeta's align-items centres against the 32px
-   chips it shares the row with. That is a deliberate mismatch, not an oversight —
-   the row is not two equal-height controls. */
+/* The design has no footage filter, so its box is ours: ~26px against the 32px chips
+   it shares a row with. A deliberate mismatch; the row is not two equal controls. */
 #footage-filter {
   flex: 0 1 auto; max-width: 60%; min-width: 0; margin-left: auto; padding: 4px 8px;
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r-sm); font: inherit; font-size: 11px;
 }
-/* No `gap`: ADR-0015 removed the design's 16-of-64 spacing and the chips touch, so
-   the pair is one 64px control and the pressed fill is its only separator.
-   test_view_toggle_is_the_design_geometry_on_the_left asserts the ABSENCE, so a
-   later `gap:` here — at any value — fails as the regression it would be. */
+/* No `gap`, and a test asserts its absence: ADR-0015 removed the design's 16-of-64
+   spacing, so the pressed fill is the pair's only separator. */
 #viewtoggle { display: flex; flex: none; }
 button.icon {
   display: inline-flex; align-items: center; justify-content: center;
@@ -317,42 +238,32 @@ button.icon {
   background: transparent; color: var(--dim);
   border: 1px solid transparent; border-radius: var(--r-sm); cursor: pointer;
 }
-/* No stroke-width here: each icon carries the width the design exported it with
-   (the grid draws heavier than the list), the way the 777:704 indicator does. */
+/* No stroke-width: each icon keeps the width the design exported it with. */
 button.icon svg { fill: none; stroke: currentColor; stroke-linecap: round; }
 button.icon:hover { color: var(--text); }
-/* The design marks the active view with the chip fill and leaves the other one
-   bare, so two identical fills would read as two chips and say nothing. The
-   accent stays the working colour; the fill is what pairs with it. */
+/* The active view takes the chip fill and the other stays bare; two identical
+   fills would read as two chips and say nothing. */
 button.icon[aria-pressed="true"] { background: var(--surface); color: var(--accent); }
 
 /* ---------- indexing ----------
- * While a job runs this section is the whole panel (the search field is hidden
- * until one footage is ready), so it is centred: `margin: auto` on both axes of
- * #app's column. max-width keeps the steps a readable column on a wide dock
- * instead of two short rows spread across it. */
+ * While a job runs this section is the whole panel, so it is centred: `margin: auto`
+ * on both axes of #app's column. max-width keeps the steps a readable column. */
 #indexing {
   display: flex; flex-direction: column; gap: 6px; font-size: 11px;
   width: 100%; max-width: 320px; margin: auto;
-  /* One step row, and how many there are: STEPS in panel.js is the same nine
-     rows (cross-checked in test_contracts.py), so the detail block below can be
-     held at the finished list's height. */
+  /* One step row, and how many. STEPS in panel.js is the same nine rows (cross-checked
+     * by test), so the block below can be held at the finished list's height. */
   --step-h: 24px;
   --step-count: 9;
 }
-/* Held at the finished list's height while a job runs, so the centring above
-   resolves against a constant height: the pill lands where it will still be at
-   the end of the run, and rows arrive underneath it instead of pushing it. The
-   slack sits below the last row, which is why the error and footage rows stay
-   against the steps rather than at the bottom of a reserved gap. */
+/* Held at the finished height so the centring resolves against a constant: the pill
+   lands where it will still be at the end of the run and rows arrive under it. */
 #indexing.live #indexing-detail { min-height: calc(var(--step-h) * var(--step-count)); }
 #indexing-detail { display: flex; flex-direction: column; gap: 4px; }
 #steps { display: flex; flex-direction: column; }
 
-/* Step rows (777:702): 32px icon + 32px label at 0.8 white, running row at full
- * opacity, completed rows at 0.5, 12px between rows. Centred as one line: icon,
- * label, readout. No bar: the design carries progress in the running row's own
- * readout ("Finalizing... 80%"). */
+/* Step rows (777:702), centred as one line: icon, label, readout. No bar; the design
+ * carries progress in the running row's own readout ("Finalizing... 80%"). */
 .step {
   position: relative; display: flex; align-items: center; justify-content: center;
   gap: 8px; padding: 3px 2px; min-height: var(--step-h);
@@ -360,23 +271,19 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
               transform 240ms cubic-bezier(.2, 0, 0, 1);
 }
 .step .ic { flex: none; display: flex; align-items: center; justify-content: center; }
-/* No stroke-width here: each icon carries its own, because the running row's
-   indicator is a 32-unit asset scaled into a 16px slot and needs 3.2 user units
-   to land on the same 1.6px as the 16-unit check and ring. */
+/* No stroke-width: each icon carries its own, since the 32-unit running indicator
+   * needs 3.2 user units to land on the same 1.6px as the 16-unit check and ring. */
 .step .ic svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .step .txt { display: flex; align-items: baseline; justify-content: center; gap: 6px; min-width: 0; }
 .step .lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step .num { flex: none; font-variant-numeric: tabular-nums; }
 .step.running { color: var(--text); }
-/* The running row's own indicator (777:709) is drawn with currentColor, so the
-   accent is one property: the working colour is the same everywhere. */
+/* currentColor, so the accent is one property: the working colour is the same here. */
 .step.running .ic .spin { color: var(--accent); animation: spin 1s linear infinite; }
 .step.done { opacity: 0.5; }
-/* The row that stopped. Three marks, because a finished row is 0.5 opacity with an
- * empty readout: the colour, a wash of it behind the row, and the one word the
- * readout slot carries (panel.js renderSteps). No opacity of its own — dimming the
- * failing row would dim it exactly as hard as a finished one. The radius is the
- * buttons' `--r-sm`: the wash spans the row, and a hard-edged band reads as a rule. */
+/* Three marks, because a finished row is 0.5 opacity with an empty readout: colour,
+   a wash behind the row, and the one word the readout carries. No opacity of its own,
+   which would dim it exactly as hard as a finished one. */
 .step.error {
   color: var(--error);
   background: var(--error-wash);
@@ -384,11 +291,8 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Indexing heading pill (777:698): radius 32, #171717, gradient edge, shadow,
- * accent 46px medium label + a two-arc indeterminate indicator (accent arc over
- * a white track, thickness 4 of 44). Sized by its own content and centred in the
- * column, so it reads as a status chip over the centred step rows rather than a
- * full-width banner — at 320px a banner is a rule with a label on it. */
+/* Indexing heading pill (777:698), sized by its own content so it reads as a status
+ * chip over the centred steps. At 320px a full-width banner is a rule with a label. */
 .pill {
   align-self: center;
   border-radius: var(--r-lg); box-shadow: var(--sh);
@@ -396,13 +300,10 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 }
 .pill-label { flex: 0 1 auto; min-width: 0; color: var(--accent); font-size: 13px; font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Material's two-arc indicator (777:704): a full-circle track under an accent
- * arc. Sizes itself from the width/height on the element. */
+/* The two-arc indicator (777:704): a full-circle track under an accent arc. */
 .pill .spin { flex: none; width: 16px; height: 16px; animation: spin 1s linear infinite; }
-/* The failure's one button (ADR-0020). The control the error row and the footage
- * row each used to carry, in the one place it now lives: same surface, border and
- * `--r-sm` radius, accent on hover. `.empty-state`'s own 10px gap spaces it from
- * the sentence, so the button declares no margin. */
+/* The failure's one button (ADR-0020), where the error and footage rows' two copies
+ * used to live. `.empty-state`'s own gap spaces it, so it declares no margin. */
 .fail-retry {
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r-sm);
@@ -427,26 +328,17 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 .card:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .card.busy { cursor: default; opacity: 0.7; }
 
-/* The thumbnail layer is #EB6060 in the design — it is what shows before (or
-   instead of) a keyframe, so it is also the 404 fallback for free. The radius is
-   the design's own 12 of 560, which is what --r-md is (docs/design/panel-ui.md §1);
-   the spec has always claimed it for the thumbnail and the rule had never declared
-   it, so a keyframe sat square inside a rounded card. */
+/* The design's thumbnail layer, so it doubles as the free 404 fallback. Its radius is
+   the design's 12 of 560, which is --r-md; the spec claimed it and the rule did not,
+   so a keyframe sat square inside a rounded card. */
 .thumb { position: relative; display: block; width: 100%; padding-top: 56.25%;
   background: var(--thumb); overflow: hidden; border-radius: var(--r-md); }
 .thumb img { position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   display: block; width: 100%; height: 100%; object-fit: cover; }
-/* The insert badge is the accent, at a share of the thumbnail it is centred on.
-   The thumbnail is not one size — it is the grid cell's width, which moves with the
-   dock, and a fixed 72px in the list view — so a fixed badge is right in one of
-   those and wrong in the others. 18% is the share that lands on 24px at a 300px
-   dock (24/132), which is where it was sized; it is not read off the design, whose
-   badge box is unmeasured (ADR-0015 §4). The 16px floor is load-bearing: 18% of the
-   list view's 72px thumb is 12.96px, under AGENTS.md 6. `max()` is Chromium 79
-   against the panel's real floor of 84.
-   Height is the asset's own square viewBox rather than a percentage, which for an
-   absolutely positioned element resolves against the thumb's *height* and would
-   squash the ring; `aspect-ratio` would work and is Chromium 88. */
+/* A share of the thumbnail it centres on, since the thumbnail is the grid cell's width
+   in one view and a fixed 72px in the other. The 16px floor is load-bearing: 18% of 72px
+   is under §6's floor. Height is the asset's square viewBox, because a percentage
+   resolves against the thumb's height and would squash the ring. */
 .plus {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: max(16px, 18%); color: var(--accent);
@@ -471,27 +363,18 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 .tc { font-size: 11px; font-weight: 500; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .name { font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Grid card body: the description is the left column and is centred; duration and
-   file name are the right column, on the body's bottom edge. The design's 777:368
-   puts the caption and the duration on one baseline row, which is what the list
-   view above still does -- in a grid cell that row reads as two loose ends, so the
-   grid body is re-derived (docs/design/panel-ui.md 4.2, ADR-0014).
-   `.cardrow` dissolves so its two spans can sit in different cells without touching
-   the markup: it is a plain span carrying no role, so there is no semantics in it
-   for the wrapper to hold. Its 8px gap becomes the column gap; the 2px row gap is
-   the one `.body` already sets. The name is the optional line -- it renders only
-   when more than one footage is loaded -- so it takes row 1 and the duration row 2:
-   an absent name then leaves the empty row *above* the duration, which keeps the
-   duration on the bottom edge. Reversed, the empty row would be below it. The
-   metadata track is a definite 5em rather than `auto`, which would size to
-   max-content first and starve the description instead of ellipsizing the name. */
+/* Grid card body, re-derived: the description is the left column and centred, duration
+   and file name the right column on the body's bottom edge. The design's 777:368 puts
+   caption and duration on one baseline row, which the list view above still does; in a
+   grid cell that reads as two loose ends (ADR-0014). `.cardrow` dissolves so its spans
+   can sit in different cells without touching the markup. The name is the optional
+   line, so it takes row 1 and the duration row 2, leaving the empty row above. */
 #results.grid .body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 5em;
-  /* The rows are declared because the description spans them with `grid-row: 1 / -1`,
-     and `-1` is the end of the *explicit* grid: with implicit rows only it resolves
-     to line 1, the span collapses to one row, and the description silently centres
-     against the name's line instead of the block. Measured at 9px out. */
+  /* Declared because the description spans with `grid-row: 1 / -1`, and `-1` ends the
+     *explicit* grid: with implicit rows it resolves to line 1, the span collapses,
+     and the description centres against the name's line. Measured at 9px out. */
   grid-template-rows: auto auto;
   column-gap: 8px;
 }
@@ -500,13 +383,9 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 #results.grid .body .name { grid-column: 2; grid-row: 1; align-self: end; text-align: right; }
 #results.grid .body .dur { grid-column: 2; grid-row: 2; align-self: end; text-align: right; }
 
-/* Skeletons — the design's loading_result (777:532): a transparent 560x399 frame
- * holding two blocks and no chrome of its own. thumb-sk is 554x312 at x=3 with
- * radius 12; cap-sk is 69 tall starting 18 below it; both carry the same fill,
- * white 0 -> 0.08. Nothing of the card's own stroke or surface survives, because
- * the design's frame has neither: inheriting both made the loading state a grey
- * card with two dimmer rectangles in it. ADR-0016; ADR-0011 owns the motion, and
- * this is the one animated surface while searching. */
+/* Skeletons, the design's loading_result (777:532): a transparent frame holding two
+ * blocks and no chrome. The card's own stroke and surface are gone, because the
+ * design's frame has neither and inheriting both made this a grey card. ADR-0016. */
 .card.skel { cursor: default; border: 0; background: none; padding: 0 3px; }
 /* .card:hover paints --accent, and a div still matches :hover. */
 .card.skel:hover { background: none; }
@@ -518,51 +397,37 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
   border-radius: var(--r-md);
   animation: sweep 1.2s linear infinite;
 }
-/* The 3px inset is the CARD's padding, not the block's margin, and that is the
-   whole reason it is here: `padding-top: 56.25%` resolves against the containing
-   block's width, so a margin inset on the block itself would still size the
-   block 138 x 0.5625 = 77.6px while the real thumbnail — inside the card's 3px
-   stroke — is 132 x 0.5625 = 74.25px. Putting the inset on the frame makes the
-   containing block 132 and the two identical. 312 of 554 is 0.5632, which is
-   16:9 to within 0.1%. */
+/* The 3px inset is the CARD's padding, not the block's margin: `padding-top` resolves
+   against the containing block's width, so a margin on the block would size it 138px
+   wide against a real thumbnail of 132. 312 of 554 is 0.5632, 16:9 to within 0.1%. */
 .card.skel .sk-thumb { width: 100%; padding-top: 56.25%; }
-/* The gap is the design's 18 of 560, which is 4.2px on a 132px thumb, on the
-   rhythm. The height is the body this block stands in for: two lines of the
-   caption's own 11px at the inherited 1.45, plus the body's 6px above and below.
-   The design's 69 is that same box at 20px type, so it cannot be copied — at this
-   scale it would be 17px and every row would jump when results land, which is
-   what §4.1's "the list does not reflow on submit" exists to prevent. */
+/* The gap is the design's 18 of 560, 4.2px at this thumb. The height is the body it
+   stands in for: two lines of 11px caption at the inherited 1.45 plus 6px either
+   side. The design's 69 is that box at 20px type, so copying it would jump every row
+   when results land. */
 .card.skel .sk-cap { height: 44px; margin-top: 4px; }
-/* The list row has its own 8px gap between its two blocks, so the cap's 4px does
-   not apply there; the frame's own padding does, and correctly — the list
-   thumbnail is a fixed 72px inside the same inset. */
+/* The list row's own 8px gap replaces the cap's 4px; the frame's padding still applies. */
 #results.list .card.skel { display: flex; align-items: stretch; gap: 8px; }
 #results.list .card.skel .sk-thumb { width: 72px; flex: none; padding-top: 0; height: 41px; }
 #results.list .card.skel .sk-cap { flex: 1; height: 11px; margin-top: 0; }
 @keyframes sweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 
 /* ---------- no-footage state (777:639) ----------
- * The design draws the heading as a disabled CTA. It is rendered as a status
- * pill instead: a control that cannot be pressed advertises an action it does
- * not have (AGENTS.md 8). Pixels kept, dead affordance dropped.
- * `centered` is the same centring the indexing screen gets from `margin: auto`
- * on #indexing: the header is the only thing above this block, so it sits
- * in the middle of the panel on both axes instead of stacked under the bar.
- * panel.js sets it only when this block is what #results holds — cards and the
- * skeleton list are both top-aligned. */
+ * The design's heading is a disabled CTA; it is a status pill here, since a control
+ * that cannot be pressed advertises an action it does not have (§8). `centered` is
+ * the indexing screen's own `margin: auto`, set only when this block is what
+ * #results holds; cards and skeletons stay top-aligned. */
 #results.centered { margin: auto; }
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px;
   padding: 28px 8px; text-align: center; }
 .empty-state .warn { font-weight: 600; }
 .empty-state .warn-muted { opacity: 0.7; }   /* 777:692 opacity 0.7 */
-/* The instruction is the design's own sentence, except where it quotes a query or
-   names a file, so it can be long: `max-width` does not stop an unbroken token from
-   widening the block past the panel, only a break inside one does. */
+/* `max-width` does not stop an unbroken token widening the block past the panel, so
+   the hint breaks inside one. */
 .hint { color: var(--text-dim); font-size: 11px; max-width: 36ch; margin: 0;
   overflow-wrap: anywhere; }
-/* The service's own line, verbatim, under the instruction — the code a failure
-   reports itself with, or the message behind it. It is quotation, not instruction,
-   so it sits one step quieter than the hint (--text-faint, not --dim: see the token). */
+/* The service's own line, verbatim. Quotation rather than instruction, so it sits one
+   step quieter than the hint (--text-faint, not --dim: see the token). */
 .empty-state .detail { color: var(--text-faint); font-size: 11px; max-width: 44ch; margin: 0;
   overflow-wrap: anywhere; }
 
@@ -576,9 +441,7 @@ button:focus-visible, select:focus-visible, #submit:focus-visible {
   .step, .plus { transition: none; }
   .pill .spin, #submit .spin,
   .step .ic .spin, .card.skel .sk-thumb, .card.skel .sk-cap { animation: none; }
-  /* The query gives the gradient up and takes its own colour back, which is the
-     util's answer too. `animation: none` on its own was not enough and left the
-     field blank mid-search: the band rests clear of the text and the layer that
-     carries the text is transparent. */
+  /* The query takes its own colour back, the util's answer too. `animation: none`
+     alone left the field blank mid-search: the band rests clear of the text. */
   #q-sweep { animation: none; background-image: none; color: var(--text); }
 }

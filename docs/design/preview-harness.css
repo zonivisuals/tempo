@@ -39,15 +39,11 @@ body {
   padding: 5px 9px; font-size: 11px; color: #8a8a8a;
   border-bottom: 1px solid #333; background: #151515;
 }
-/* The panel itself is #app (copied verbatim from panel/www/index.html); this
-   only gives it a resizable width and a scroll viewport, like a docked panel.
-   min-height: 0 opts the frame out of the shipped `min-height: 100vh`, which
-   would otherwise stretch it to the browser window and defeat the centring the
-   docked panel gets from its own viewport.
-   background: var(--bg) is re-asserted because line 3's `html, body` rule loads
-   after panel.css at equal specificity and wins, which pinned the panel body to
-   the harness's own dark page colour. The light theme then had no light surface
-   to render against, and anything the panel themes by surface — the wordmark's
-   invert, the pill shadows — could not be reviewed here at all. */
+/* The panel itself is #app, copied verbatim from index.html; this gives it a
+   resizable width and a scroll viewport, like a docked panel.
+   min-height: 0 opts the frame out of the shipped `min-height: 100vh`, which would
+   stretch it to the window and defeat the centring. background: var(--bg) is
+   re-asserted because line 3's `html, body` rule loads after panel.css at equal
+   specificity and wins, leaving the light theme with no light surface to render. */
 #app { display: flex; flex-direction: column; gap: 8px; height: 760px; min-height: 0;
   overflow-y: auto; overflow-x: hidden; background: var(--bg); }

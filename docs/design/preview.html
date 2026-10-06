@@ -1,11 +1,9 @@
 <!DOCTYPE html>
-<!-- Standalone panel preview. Not shipped: nothing in panel/www/ loads this.
-     Open it directly (file:// works — there is no fetch) to review every
-     panel screen without After Effects or a running sidecar.
-     It loads the REAL panel/www/panel.css and the REAL panel/www/panel.js.
-     Only CSInterface and TempoAPI are stubbed, by preview-harness.js.
-     The #app markup below is copied verbatim from panel/www/index.html and
-     service/tests/test_contracts.py pins the two copies together. -->
+<!-- Standalone panel preview. Nothing in panel/www/ loads this; open it directly
+     (file:// works, there is no fetch) to review every screen without AE or a sidecar.
+     It loads the REAL panel.css and the REAL panel.js, and only CSInterface and
+     TempoAPI are stubbed. The #app markup below is copied from index.html verbatim,
+     which service/tests/test_contracts.py pins. -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -55,41 +53,26 @@
     <div class="caption">01 &middot; no footage</div>
 <!-- BEGIN app: copied verbatim from panel/www/index.html -->
 <div id="app">
-  <!-- The header, not a navbar. The wordmark is the whole brand; AGENTS.md 4.4
-       keeps the status dot and Sync now here, and the dot already carries the
-       three states (ok / warn / bad) that the bar used to spell out as
-       "service ok" and "engine gpu". With the labels gone the dot is the only
-       carrier of that state, so it is exposed rather than aria-hidden, and its
-       legend is the text for hover and for assistive tech alike.
-       The <img> size is 14x80, which is what panel.css renders: the asset is
-       280x49 (40:7), so 14px of height is exactly 80px of width. -->
+  <!-- The header, not a navbar: the wordmark, then the status dot and Sync now
+       (§4.4). With the labels gone the dot is the only carrier of that state, so it
+       is exposed rather than aria-hidden. The <img> is 14x80, which is what the
+       asset's own 40:7 gives at 14px of height. -->
   <div id="topbar">
     <img id="logo" src="logo.png?v=0.7.0" alt="Tempo" width="80" height="14">
     <span id="svc-dot" class="dot" role="status"></span>
     <button id="sync-now" type="button">Sync now</button>
   </div>
 
-  <!-- Search field, Figma 815:294 (search_input, inside 04_search_results_frame):
-       a 1836x196 field, radius 25, 1.5px white->#171717 edge at 0.28 alpha, drop
-       shadow 0 8 12 @0.2. ADR-0013 read its 47/46/53 of padding and label-to-value
-       gap off a 1x render and landed them on 20/20/20; ADR-0015 reversed that to
-       16/16/8, its side padding 16 either way. See panel.css. A permanent label
-       line above the value, as drawn. Hidden until one footage is ready: neither
-       the no-footage frame nor the indexing frame has one. -->
+  <!-- Search field, Figma 815:294, with a permanent label line above the value as
+       drawn. Spacing is derived in panel.css and has been reversed once. Hidden
+       until a footage is ready: neither the no-footage nor the indexing frame has
+       one. -->
   <div id="searchbox" class="edge" hidden>
     <div class="sb-head">
-      <!-- The design's own path, at 10px: ADR-0013 shipped it at its exported 21
-           and ADR-0015 took it to 10px, which is 0.476 of the export rather than
-           the type's 0.406 — the next step up the 4px rhythm from that 8.5px. It
-           is the one export below AGENTS.md 6's 16px floor, which that section
-           now names; the design's 2.2751 stroke lands on 1.08px here and the
-           label text, not the icon, sets the label row.
-           stroke is currentColor rather than the asset's literal white, which is
-           invisible on the light theme, and stroke-opacity is absent so
-           .sb-head's --text-dim is the only source of the alpha -- 0.4 in dark,
-           matching the design, and 0.45 in light, where a 4% lift is what holds it
-           on a pale surface. stroke-width stays on the path: the design's 2.2751,
-           and .sb-head must not restate it. -->
+      <!-- The design's own path at 10px, the one export below §6's 16px floor that
+           §6 names. stroke is currentColor, since the asset's literal white is invisible
+           on the light theme, and stroke-opacity is absent so .sb-head's --text-dim is
+           the only source of the alpha. stroke-width stays on the path. -->
       <svg width="10" height="10" viewBox="0 0 21 21" fill="none" aria-hidden="true">
         <path d="M18.3757 18.3757L14.5693 14.5693M16.6256 9.62531C16.6256 13.4915 13.4915 16.6256 9.62531 16.6256C5.75915 16.6256 2.625 13.4915 2.625 9.62531C2.625 5.75915 5.75915 2.625 9.62531 2.625C13.4915 2.625 16.6256 5.75915 16.6256 9.62531Z" stroke="currentColor" stroke-width="2.2751" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
@@ -97,11 +80,9 @@
     </div>
     <div class="sb-row">
       <div class="sb-val">
-        <!-- One copy of the value, and it paints the query by itself: the shimmer
-             gradient's own outer stops are the resting colour, so a legible copy
-             underneath it would be a second edge crossing the band. (ADR-0017; the
-             old pair was a base layer plus an accent band over it.) #q's own
-             colour goes transparent while searching so the caret survives. -->
+        <!-- One copy of the value, painting the query by itself: the gradient's own
+             outer stops are the resting colour, so a legible copy underneath would be
+             a second edge crossing the band. #q goes transparent while searching. -->
         <span id="q-sweep" aria-hidden="true"></span>
         <input id="q" type="text" autocomplete="off" spellcheck="false">
       </div>
@@ -120,11 +101,10 @@
   <div id="error" hidden></div>
 
   <div id="searchmeta" hidden>
-    <!-- Figma 777:473: the view pair, then the filter. The design left-aligns the
-         pair on the card grid, so the row's auto margin belongs to the filter --
-         it is the only other thing in the row. The icons are the design's own
-         exports (a 38-unit box around a 32-unit glyph) at 19px, which is 38/64 of
-         the 32px chip and renders that glyph at exactly 16px. -->
+    <!-- Figma 777:473: the view pair, then the filter. The pair is left-aligned on
+         the card grid, so the row's auto margin belongs to the filter. The icons are
+         the design's own exports, 19px being 38/64 of the chip and rendering the
+         32-unit glyph at exactly 16px. -->
     <div id="viewtoggle">
       <button id="view-grid" class="icon" aria-pressed="true" title="Grid view">
         <svg width="19" height="19" viewBox="0 0 38 38" aria-hidden="true">
@@ -144,10 +124,8 @@
   </div>
 
   <section id="indexing" hidden>
-    <!-- Figma 777:698: heading pill carrying the fixed indexing label and the
-         two-arc indeterminate indicator. No toggle: the section shows itself
-         whenever there is something to report -- a live job, a failed one, or
-         footage stranded mid-index (panel.js indexingVisible). -->
+    <!-- Figma 777:698: the heading pill and its two-arc indicator. No toggle: the
+         section shows itself whenever there is something to report. -->
     <div id="indexing-pill" class="pill edge" hidden>
       <span class="pill-label">Processing your videos</span>
       <svg class="spin" viewBox="0 0 44 45" width="16" height="16" aria-hidden="true">
@@ -160,8 +138,7 @@
            never replaced, so the slide and the spinner survive the 500ms poll. -->
       <div id="steps"></div>
       <!-- The failure report: one sentence and one Retry step button, under the
-           step list (docs/design/panel-ui.md 3.2). The engine's own error text is
-           not rendered anywhere in the panel. -->
+           step list. The engine's own error text is not rendered anywhere. -->
       <div id="index-fail" hidden></div>
     </div>
   </section>
