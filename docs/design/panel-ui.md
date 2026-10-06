@@ -476,10 +476,23 @@ Each step row centres its icon, label and readout as one line (the row is a
 centred flex row, not a 16px/1fr grid).
 
 **The failure is one sentence and one button, under the list.** `renderIndexFailure()`
-builds the same `stateBlock()` ADR-0018 gave every other failure — status pill, one
-line of instruction — plus a single **Retry step** button, which re-runs the pipeline
+builds the same `stateBlock()` ADR-0018 gave every other failure — one line of
+instruction — plus a single **Retry step** button, which re-runs the pipeline
 through the engine's stage cache so the finished steps are cache hits. The step that
 stopped is named by its own row, so the sentence does not repeat it.
+
+**Its heading is the section's, not the block's.** The pill moved out of the failure
+block and up into `#index-fail-pill`, the slot the live pill occupies, so the screen
+reads top down as what happened, then the steps that say where, then what to do. It
+was under the list it introduced, which is the same misplacement ADR-0022 removed
+from `#results` and left here. `stateBlock()` gained an empty-pill case for it: the
+block hands its heading up and draws only the sentence and the button, so the two
+cannot both draw one. D31.
+
+**The button is an icon and its label on 8/16 padding.** A 24-unit rotate-ccw in a
+16px slot, so its stroke-width 2 lands on 1.33px: the slot the other icons occupy and
+above §6's floor without needing the exemption the search magnifier takes. Padding
+was 3/10, which left a 16px glyph crowded against the label.
 
 **Nothing engine-internal is rendered.** No traceback, no container path, no line
 number, no socket errno, no file name. The raw `error` stays in the job payload and

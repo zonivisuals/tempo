@@ -131,6 +131,11 @@ const ICON = {
     + ' stroke-linecap="round" stroke-linejoin="round"/></svg>',
   idle: '<svg class="idle" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">'
     + '<circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+  /* The failure's Retry step button. A 24-unit rotate-ccw drawn into a 16px slot, so its
+   * stroke-width 2 lands on 1.33px: the same 16px slot the other icons occupy, and above
+   * §6's floor without an exemption. Width and height are CSS's, not the markup's. */
+  retry: '<svg class="retry" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+    + '<path d="M21.5 2v6h-6"/><path d="M21.34 15.57a10 10 0 1 1-.57-8.38l5.73-5.73"/></svg>',
   /* The insert badge on a result thumbnail. Not a Figma export: the design's badge
    * box was never measured, so this is an icon-set path sized against the preview
    * (ADR-0015 §4). The square viewBox with no width/height is what keeps the ring
@@ -325,15 +330,20 @@ function strandedFootage() {
     && NEEDS_ATTENTION.includes(f.state));
 }
 
-/* One failure, one sentence, one button, under the step list where the failing row is
- * (ADR-0020). Nothing engine-internal is rendered: the raw `error` stays in the payload
- * and the service log. Shown even while another job runs, because a failure does not
- * stop the queue and the retry is then the only thing the editor can act on. */
+/* One failure, one sentence, one button. The heading goes to #index-fail-pill above the
+ * steps (ADR-0020, D31); the sentence and the button stay under the list, where the
+ * failing row is. Nothing engine-internal is rendered: the raw `error` stays in the
+ * payload and the service log. Shown even while another job runs, because a failure
+ * does not stop the queue and the retry is then the only thing the editor can act on. */
 function renderIndexFailure() {
   const box = $("index-fail");
+  const heading = $("index-fail-pill");
   const failed = newestFailedJob();
   const stranded = failed ? null : strandedFootage();
-  if (!failed && !stranded) { box.hidden = true; box.textContent = ""; return; }
+  if (!failed && !stranded) {
+    box.hidden = true; box.textContent = ""; heading.hidden = true; heading.innerHTML = "";
+    return;
+  }
 
   // One action, two addresses: the service treats both routes as the same operation and
   // both resume from the stage cache. `target` is a job id when one is known, so the
@@ -353,10 +363,12 @@ function renderIndexFailure() {
   const others = store.footages.filter((f) => f.footage_key !== footageKey && f.state === "error").length;
   const hint = others ? `${copy.hint} ${others} other file${others > 1 ? "s" : ""} also failed to index.` : copy.hint;
 
+  heading.hidden = false;
+  heading.innerHTML = `<span class="pill-label">${esc(copy.pill)}</span>`;
   box.hidden = false;
-  box.innerHTML = stateBlock(copy.pill, hint, known ? failed.reason : "",
+  box.innerHTML = stateBlock("", hint, known ? failed.reason : "",
     `<button type="button" class="fail-retry" ${failed ? "data-retry-job" : "data-retry-footage"}`
-    + `="${esc(target.id)}">Retry step</button>`);
+    + `="${esc(target.id)}">${ICON.retry}<span>Retry step</span></button>`);
   box.querySelector(target.sel).addEventListener("click", (e) => {
     e.stopPropagation();
     target.run();
@@ -483,14 +495,16 @@ function resultsScreen() {
 
 /* One block, every state that has nothing to show. Figma 777:639 draws the heading as a
  * disabled CTA; a status pill keeps the pixels and drops an affordance that cannot be
- * pressed (§6). `detail` is the service's line, `action` the block's single button. */
+ * pressed (§6). `detail` is the service's line, `action` the block's single button.
+ * An empty `pill` renders none, which is how the indexing failure hands its heading
+ * to #index-fail-pill above the steps instead of repeating it down here. */
 function stateBlock(pill, hint, detail, action) {
-  return `<div class="empty-state">` +
-    `<div class="pill edge warn warn-muted" role="status"><span class="pill-label">${esc(pill)}</span></div>` +
-    `<p class="hint">${esc(hint)}</p>` +
-    (detail ? `<p class="detail">${esc(detail)}</p>` : "") +
-    (action ? action : "") +
-    `</div>`;
+  return `<div class="empty-state">`
+    + (pill ? `<div class="pill edge warn warn-muted" role="status"><span class="pill-label">${esc(pill)}</span></div>` : "")
+    + `<p class="hint">${esc(hint)}</p>`
+    + (detail ? `<p class="detail">${esc(detail)}</p>` : "")
+    + (action ? action : "")
+    + `</div>`;
 }
 
 /* A failure, named. `pill` is what stopped, `hint` the action the editor can take.

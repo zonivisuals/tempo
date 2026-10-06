@@ -303,13 +303,20 @@ button.icon[aria-pressed="true"] { background: var(--surface); color: var(--acce
 /* The two-arc indicator (777:704): a full-circle track under an accent arc. */
 .pill .spin { flex: none; width: 16px; height: 16px; animation: spin 1s linear infinite; }
 /* The failure's one button (ADR-0020), where the error and footage rows' two copies
- * used to live. `.empty-state`'s own gap spaces it, so it declares no margin. */
+   used to live. `.empty-state`'s own gap spaces it from the sentence, so it declares
+   no margin. The padding is 8/16 on the 4px rhythm, which is what carries the 16px
+   icon without the label crowding it. */
 .fail-retry {
+  display: inline-flex; align-items: center; gap: 8px;
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r-sm);
-  font: inherit; padding: 3px 10px; cursor: pointer;
+  font: inherit; padding: 8px 16px; cursor: pointer;
 }
 .fail-retry:hover { border-color: var(--accent); color: var(--accent); }
+.fail-retry .retry {
+  flex: none; width: 16px; height: 16px;
+  stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
 
 /* ---------- results ---------- */
 #results { display: flex; flex-direction: column; gap: 8px; }

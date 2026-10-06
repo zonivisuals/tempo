@@ -1045,7 +1045,14 @@ _ROWS = ("Object.keys(store.stepNodes)"
          " + store.stepNodes[k].num.textContent).join(', ')")
 
 _FAILED_STORE = _FAILED_FOOTAGE + " store.jobs = { job_1: %s };" % _FAILED_JOB
-_FAIL_HTML = "document.getElementById('index-fail').innerHTML"
+# The failure screen is two elements since D31 moved its heading above the steps:
+# #index-fail-pill carries the pill, #index-fail the sentence and the button. Both
+# are read here so a test asking "what does the failure screen say" does not have
+# to know that, and the empty-string cases still hold when neither is rendered.
+_FAIL_HTML = (
+    "document.getElementById('index-fail-pill').innerHTML"
+    " + document.getElementById('index-fail').innerHTML"
+)
 # The two routes a failure can be retried through, recorded by stubbing each, and
 # the one line that presses whatever button the panel rendered.
 _RECORD_ROUTES = (
@@ -1235,6 +1242,70 @@ def test_the_failure_reports_one_sentence_and_never_the_engine_text():
     assert "Retry step" in html, html
     for leaked in ("pipeline.py", "line 85", "RuntimeError", "/app/engine", "Traceback"):
         assert leaked not in html, f"{leaked!r} is engine internals, not a message: {html}"
+
+
+def test_the_failure_heading_is_the_section_heading_not_the_blocks_first_line():
+    """The pill sits above the step list, and the block below carries no pill of its own.
+
+    D31 moved it out of the failure block and up into #index-fail-pill, so the screen
+    reads top down as what happened, then the steps that say where, then what to do.
+    Before, the heading was under the list it introduced.
+
+    The order is asserted against index.html rather than through the render, because
+    the stub DOM has no parent/child relationship to ask. The rendering side is
+    asserted separately: the block must not draw a second pill, or the screen carries
+    the heading twice.
+    """
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    assert html.index('id="index-fail-pill"') < html.index('id="indexing-detail"'), (
+        "the failure heading must come before the step list it introduces"
+    )
+    assert html.index('id="indexing-pill"') < html.index('id="index-fail-pill"'), (
+        "both states' pills share the top of the section, live first"
+    )
+
+    failed = _FAILED_STORE + " store.activeJobs = [];"
+    heading = _panel_render("renderIndexing()", failed,
+                            "document.getElementById('index-fail-pill').hidden")
+    assert heading is False, "a failure owns the panel, so its heading is on screen"
+    block = _panel_render("renderIndexing()", failed,
+                          "document.getElementById('index-fail').innerHTML")
+    assert "pill-label" not in block, (
+        f"the block drew a second heading under the steps: {block}"
+    )
+    assert "Indexing Failed" in _panel_render("renderIndexing()", failed, _FAIL_HTML)
+
+    # And it is hidden again the moment there is no failure to report.
+    assert _panel_render("renderIndexing()", _LIVE_JOB,
+                         "document.getElementById('index-fail-pill').hidden") is True
+
+
+def test_the_retry_button_carries_its_icon_and_the_rhythm_padding():
+    """The one action on the screen is an icon plus its label, on 8/16 padding.
+
+    An icon that names the action beats the word alone, and the padding is what gives
+    a 16px glyph room; 3/10 was tight enough that the label crowded it. Sized from
+    the CSS rather than asserted as markup, because the width and height are CSS's.
+    """
+    css = PANEL_CSS.read_text(encoding="utf-8")
+    rule = _css_rule(css, ".fail-retry")
+    assert rule, "panel.css must style .fail-retry"
+    assert "padding: 8px 16px;" in rule, rule
+    assert "inline-flex" in rule and "gap: 8px;" in rule, (
+        f"the icon and the label need a flex row with a gap: {rule}"
+    )
+
+    icon = _css_rule(css, ".fail-retry .retry")
+    assert icon, "panel.css must size the retry icon"
+    assert "width: 16px;" in icon and "height: 16px;" in icon, icon
+    assert "stroke: currentColor" in icon, (
+        f"the icon follows the theme's text colour rather than a literal: {icon}"
+    )
+
+    html = _panel_render("renderIndexing()", _FAILED_STORE + " store.activeJobs = [];", _FAIL_HTML)
+    assert 'class="retry"' in html, f"the button renders the icon: {html}"
+    assert "<span>Retry step</span>" in html, f"the icon does not replace the label: {html}"
+    assert "M21.5 2v6h-6" in html, f"the rotate-ccw path the design handed over: {html}"
 
 
 def test_the_failure_button_retries_the_step_that_failed():
