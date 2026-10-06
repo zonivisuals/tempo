@@ -367,11 +367,12 @@ Load-bearing behavior with no spec line, found during the audit:
   panel job.** It is 2444 of the service suite's 3581 lines and asserts against
   `panel.js` source text and `docs/design/preview.html`. A panel-only change is
   gated by the Python job, and `pnpm lint` never executes either script.
-- **`service/app.py` is 507 lines doing seven jobs:** 10 routes, the lifespan,
-  the backend-prober thread (`:103-126`), tunnel construction (`:94-100`), a
-  module-global health cache with its own lock (`:58-61`), the `/sync` registry
-  diff inlined in the route (`:194-244`), a retry closure shared by two routes
-  (`:304-318`), and the uvicorn entrypoint (`:495-503`).
+- ~~**`service/app.py` was 507 lines doing seven jobs**~~ PARTLY FIXED 2026-10-05.
+  `backend_status.py` now owns the probe, its cache and the tunnel behind seven
+  functions and no exported globals, so `/health` calls one entry point instead of
+  reading a global mid-update. `app.py` is 408 lines and still holds the 10 routes,
+  the lifespan, the inlined `/sync` diff and a retry closure shared by two routes.
+  The rest is a follow-up ticket.
 - `panel.css` ships both a dark and a light palette; `appSkinInfo` is read only
   to decide which one applies (`panel.js` `applyTheme`, ADR-0011). A user with a
   custom AE panel colour no longer gets that colour in Tempo.

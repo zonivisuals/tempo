@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+import tempo_service.backend_status as backend_status
 from tempo_service import fingerprint
 from tempo_service import jobs as jobs_module
 from tempo_service import proxy as proxy_module
@@ -44,9 +45,8 @@ def _isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module.settings, "brev_instance", "")
     monkeypatch.setattr(app_module.settings, "upload_chunk_mb", 1)
     monkeypatch.setattr(proxy_module, "time", SimpleNamespace(sleep=lambda s: None))
-    with app_module._backend_lock:
-        app_module._backend_status.update(
-            {"reachable": False, "gpu": False, "signature": "", "stages": [], "checked_at": 0.0})
+    with backend_status._lock:
+        backend_status._status.update(backend_status.UNREACHABLE_STATUS)
     yield
 
 
@@ -212,36 +212,40 @@ def _client():
 
 
 def test_health_reports_engine_and_tunnel(monkeypatch):
-    import tempo_service.app as app_module
-
-    monkeypatch.setattr(app_module, "get_provider", lambda s, t=None: FakeEngine())
+    monkeypatch.setattr(backend_status, "get_provider", lambda s, t=None: FakeEngine())
     body = _client().get("/health").json()
     assert body["backend"] == {"reachable": True, "gpu": True, "tunnel": "off", "signature": "sig"}
-    assert app_module._job_stage_names() == ["upload", *STAGES]
+    assert backend_status.stage_names("upload") == ["upload", *STAGES]
 
 
 def test_health_serves_cache_without_probing(monkeypatch):
-    import tempo_service.app as app_module
-
-    with app_module._backend_lock:
-        app_module._backend_status.update({"reachable": True, "gpu": True, "signature": "s",
-                                           "checked_at": time.monotonic()})
+    with backend_status._lock:
+        backend_status._status.update({"reachable": True, "gpu": True, "signature": "s",
+                                      "stages": STAGES, "checked_at": time.monotonic()})
 
     def explode(*a, **k):
         raise AssertionError("cached health must not probe")
 
-    monkeypatch.setattr(app_module, "get_provider", explode)
+    monkeypatch.setattr(backend_status, "get_provider", explode)
     assert _client().get("/health").json()["backend"]["reachable"] is True
 
 
-def test_probe_never_raises(monkeypatch):
-    import tempo_service.app as app_module
+def test_the_last_known_stages_survive_an_unreachable_engine(monkeypatch):
+    # A stopped instance should read as a transition, not as an empty step list.
+    with backend_status._lock:
+        backend_status._status.update({"reachable": True, "gpu": True, "signature": "s",
+                                      "stages": STAGES, "checked_at": 1.0})
+    monkeypatch.setattr(backend_status, "get_provider",
+                        lambda s, t=None: dict(backend_status.UNREACHABLE_STATUS, reachable=False))
+    assert backend_status.refresh()["stages"] == STAGES
 
+
+def test_probe_never_raises(monkeypatch):
     def broken(*a, **k):
         raise RuntimeError("misconfigured")
 
-    monkeypatch.setattr(app_module, "get_provider", broken)
-    assert app_module._probe_backend_once()["reachable"] is False
+    monkeypatch.setattr(backend_status, "get_provider", broken)
+    assert backend_status._probe_once()["reachable"] is False
 
 
 def test_removed_routes_are_gone():

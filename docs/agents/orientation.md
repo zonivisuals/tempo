@@ -26,11 +26,12 @@ a contract; `git log --oneline -5 -- <path>` is the authority for "is this curre
 
 | File | Owns | Lines |
 |---|---|---|
-| `tempo_service/app.py` | All 10 routes, FastAPI wiring, lifespan (proxy, prober, tunnel) | 507 |
-| `tempo_service/proxy.py` | The handoff: library hit, or upload → index → poll → thumbs | 260 |
-| `tempo_service/registry.py` | Footage registry, the diff, the three reopen guards, the write lock | 281 |
-| `tempo_service/jobs.py` | Single-worker queue, job state machine, cancel | 196 |
+| `tempo_service/app.py` | All 10 routes, FastAPI wiring, lifespan (proxy, prober, tunnel) | 408 |
+| `tempo_service/proxy.py` | The handoff: library hit, or upload → index → poll → thumbs | 262 |
+| `tempo_service/registry.py` | Footage registry, the diff, the three reopen guards, the write lock | 286 |
+| `tempo_service/jobs.py` | Single-worker queue, job state machine, cancel | 266 |
 | `tempo_service/tunnel.py` | `brev port-forward` supervisor | 118 |
+| `tempo_service/backend_status.py` | Engine probe, its cache, the tunnel. No exported globals | 106 |
 | `tempo_service/entitlements.py` | Plan/footage/duration quotas at `/sync` (D14) | 51 |
 | `tempo_service/config.py` | Every `TEMPO_*` knob and its default | 85 |
 | `tempo_service/schemas.py` | Pydantic request/response models | 132 |

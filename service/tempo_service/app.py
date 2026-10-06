@@ -9,15 +9,15 @@ stage names to new jobs.
 
 import logging
 import re
-import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from . import fingerprint
+from . import backend_status, fingerprint
 from . import jobs as jobs_module
 from . import registry as registry_module
 from .backends import ASLEEP, TIMEOUT, get_provider
@@ -35,7 +35,6 @@ from .schemas import (
     SyncRequest,
     SyncResponse,
 )
-from .tunnel import Tunnel
 from .vocabulary import FOOTAGE_ERROR, FOOTAGE_INDEXING, FOOTAGE_READY, JOB_CANCELLED
 
 log = logging.getLogger("tempo")
@@ -56,83 +55,10 @@ def _backend_error(code: str | None, what: str) -> JSONResponse:
     return _error(504 if code == TIMEOUT else 502, code or "BACKEND_UNREACHABLE", what)
 
 
-_backend_status: dict = {"reachable": False, "gpu": False, "signature": "", "stages": [], "checked_at": 0.0}
-_backend_lock = threading.Lock()
-_prober_started = False
-_tunnel: Tunnel | None = None
-
-
-def _probe_backend_once() -> dict:
-    """One synchronous engine probe. Never raises, never logs tokens."""
-    try:
-        provider = get_provider(settings, settings.backend_health_timeout_s)
-        if provider is None:
-            return {"reachable": False, "gpu": False, "signature": "", "stages": []}
-        return provider.health()
-    except Exception as exc:  # defensive: misconfig must not crash lifespan
-        log.warning("engine probe crashed (%s)", exc)
-        return {"reachable": False, "gpu": False, "signature": "", "stages": []}
-
-
-def _refresh_backend_status() -> dict:
-    probe = _probe_backend_once()
-    with _backend_lock:
-        # Keep the last known stage list while the engine is unreachable.
-        stages = probe.get("stages") or _backend_status["stages"]
-        _backend_status.update({**probe, "stages": stages, "checked_at": time.monotonic()})
-        return dict(_backend_status)
-
-
-def _job_stage_names() -> list[str]:
-    with _backend_lock:
-        return [jobs_module.UPLOAD_STAGE, *_backend_status["stages"]]
-
-
-def _tunnel_state() -> str:
-    return _tunnel.state if _tunnel is not None else "off"
-
-
-def _start_tunnel() -> None:
-    global _tunnel
-    if settings.brev_instance and _tunnel is None:
-        _tunnel = Tunnel(settings.brev_cli, settings.brev_instance, settings.tunnel_local_port,
-                         settings.tunnel_remote_port, settings.tunnel_backoff_min_s,
-                         settings.tunnel_backoff_max_s)
-        _tunnel.start()
-
-
-def _start_backend_prober() -> None:
-    """Background prober (daemon): refreshes the cached engine status every interval
-    and logs only on flips. GET /health serves the cache instantly — never a probe
-    per panel poll against a cold or stopped instance."""
-    global _prober_started
-    if _prober_started:
-        return
-    _prober_started = True
-
-    def loop() -> None:
-        last = None
-        while True:
-            try:
-                st = _refresh_backend_status()
-                flip = (st["reachable"], st["gpu"], st["signature"])
-                if flip != last:
-                    log.info("engine: reachable=%s gpu=%s signature=%s tunnel=%s",
-                             st["reachable"], st["gpu"], st["signature"] or "-", _tunnel_state())
-                    last = flip
-            except Exception as exc:  # thread must never die
-                log.warning("engine prober error (%s)", exc)
-            time.sleep(settings.backend_health_interval_s)
-
-    threading.Thread(target=loop, daemon=True, name="tempo-backend-prober").start()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
     # Official FastAPI lifespan pattern: setup before yield, cleanup after.
     # https://fastapi.tiangolo.com/advanced/events/
-    from urllib.parse import urlsplit
-
     log.info("tempo startup: artifact_root=%s format_version=%d engine=%s brev=%s",
              settings.artifact_root, settings.format_version,
              urlsplit(settings.engine_url).netloc or "(unset)", settings.brev_instance or "-")
@@ -140,12 +66,11 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
     from .proxy import register as register_proxy
 
     register_proxy()
-    jobs_module.jobs.set_stage_source(_job_stage_names)
-    _start_tunnel()
-    _start_backend_prober()
+    jobs_module.jobs.set_stage_source(lambda: backend_status.stage_names(jobs_module.UPLOAD_STAGE))
+    backend_status.start_tunnel()
+    backend_status.start_prober()
     yield
-    if _tunnel is not None:
-        _tunnel.stop()
+    backend_status.stop_tunnel()
     log.info("tempo shutdown")
 
 
@@ -164,17 +89,13 @@ def create_app() -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
-        # Cached engine status (background prober); a synchronous probe only
-        # runs when the cache never populated (first request before lifespan).
-        with _backend_lock:
-            cached = dict(_backend_status)
-        if cached["checked_at"] <= 0:
-            cached = _refresh_backend_status()
+        # Served from the prober's cache; a probe runs only if it never populated.
+        st = backend_status.status()
         return HealthResponse(
             status="ok",
             artifact_root=str(settings.artifact_root),
-            backend=BackendStatus(reachable=cached["reachable"], gpu=cached["gpu"],
-                                  tunnel=_tunnel_state(), signature=cached["signature"]),
+            backend=BackendStatus(reachable=st["reachable"], gpu=st["gpu"],
+                                  tunnel=backend_status.tunnel_state(), signature=st["signature"]),
         )
 
     @app.post("/sync", response_model=SyncResponse)
