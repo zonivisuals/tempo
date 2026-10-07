@@ -46,13 +46,14 @@ screen would carry the heading twice.
 An icon that names the action beats the word alone, and the padding is what gives a
 16px glyph room. 3/10 left the label crowded against it.
 
-The icon is the product owner's SVG, a 24-unit rotate-ccw, drawn into a 16px slot so
-its stroke-width 2 lands on 1.33px. That is the slot the other icons occupy, and it
-clears §6's 16px floor without needing the exemption the search magnifier takes. The
-markup carries no `xmlns`: the one supplied was malformed (`http://w3.org`, not
-`http://www.w3.org/2000/svg`), inline SVG in HTML does not want one, and no other icon
-in the panel carries it. `stroke: currentColor` follows `--text` onto the light theme,
-which is what every other icon in the panel does.
+The icon is a filled 16px rotate-ccw. It arrived from an icon set with `fill="#000000"`
+baked into the path, which renders black on the dark surface and invisible on the
+light one; the path now reads `fill="currentColor"`, which is what the stroked icons
+in this panel use for `stroke` and is what puts the icon on the label's colour on both
+themes and on the accent on hover. Measured rather than assumed: (208,208,208) against
+the label's (204,204,204) on `#171717`, and (30,30,30) on `#f2f2f2`. The SVG Repo
+carriers and the identity transform were dropped; they are no-ops and no other icon in
+`panel.js` carries them.
 
 ## What it does not change
 

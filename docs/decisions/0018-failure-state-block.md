@@ -43,7 +43,7 @@ Two new variants joined it, because the ladder had two rungs with no block:
 
 | Condition | Heading | Instruction |
 |---|---|---|
-| a search returned nothing | `No shots found` | `Nothing in this project matches “<query>”. Try a word from the dialogue or captions.` |
+| a search returned nothing | `No shots found` | `Nothing in this project matches “<query>”. Try another search.` |
 | ready footage, no search yet | `Ready to search` | `Type a few words to find shots across your footage.` |
 
 The query is quoted back: the editor needs to see what was actually searched. That

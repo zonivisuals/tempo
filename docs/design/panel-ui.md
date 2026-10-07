@@ -304,7 +304,7 @@ now, and so is the screen before any search has run:
 
 | Condition | Heading | Hint |
 |---|---|---|
-| a search returned nothing | `No shots found` | `Nothing in this project matches “<query>”. Try a word from the dialogue or captions.` |
+| a search returned nothing | `No shots found` | `Nothing in this project matches “<query>”. Try another search.` |
 | ready footage, no search yet | `Ready to search` | `Type a few words to find shots across your footage.` |
 
 The query is quoted back because the editor needs to see what was actually
@@ -489,10 +489,12 @@ from `#results` and left here. `stateBlock()` gained an empty-pill case for it: 
 block hands its heading up and draws only the sentence and the button, so the two
 cannot both draw one. D31.
 
-**The button is an icon and its label on 8/16 padding.** A 24-unit rotate-ccw in a
-16px slot, so its stroke-width 2 lands on 1.33px: the slot the other icons occupy and
-above §6's floor without needing the exemption the search magnifier takes. Padding
-was 3/10, which left a 16px glyph crowded against the label.
+**The button is an icon and its label on 8/16 padding.** Padding was 3/10, which left
+the glyph crowded against the label. The icon is a filled 16px rotate-ccw that takes
+`fill="currentColor"`, the way the stroked icons here take `stroke="currentColor"`,
+so it is on the label's colour on both themes and turns accent on hover. It arrived
+from an icon set with `fill="#000000"` baked into the path, which is black on the dark
+surface and invisible on the light one; a test now pins the paint.
 
 **Nothing engine-internal is rendered.** No traceback, no container path, no line
 number, no socket errno, no file name. The raw `error` stays in the job payload and
