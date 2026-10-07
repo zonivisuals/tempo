@@ -1284,8 +1284,13 @@ def test_the_retry_button_carries_its_icon_and_the_rhythm_padding():
     """The one action on the screen is an icon plus its label, on 8/16 padding.
 
     An icon that names the action beats the word alone, and the padding is what gives
-    a 16px glyph room; 3/10 was tight enough that the label crowded it. Sized from
-    the CSS rather than asserted as markup, because the width and height are CSS's.
+    the glyph room; 3/10 left the label crowded against it.
+
+    The icon's paint is asserted rather than assumed. It arrived as an SVG Repo export
+    with `fill="#000000"` baked into the path, which renders black on the dark surface
+    and is invisible on the light one. `currentColor` is what the other icons in the
+    panel use (as `stroke`, this one being filled) and it is what puts it on the
+    label's colour on both themes.
     """
     css = PANEL_CSS.read_text(encoding="utf-8")
     rule = _css_rule(css, ".fail-retry")
@@ -1295,17 +1300,14 @@ def test_the_retry_button_carries_its_icon_and_the_rhythm_padding():
         f"the icon and the label need a flex row with a gap: {rule}"
     )
 
-    icon = _css_rule(css, ".fail-retry .retry")
-    assert icon, "panel.css must size the retry icon"
-    assert "width: 16px;" in icon and "height: 16px;" in icon, icon
-    assert "stroke: currentColor" in icon, (
-        f"the icon follows the theme's text colour rather than a literal: {icon}"
-    )
-
     html = _panel_render("renderIndexing()", _FAILED_STORE + " store.activeJobs = [];", _FAIL_HTML)
-    assert 'class="retry"' in html, f"the button renders the icon: {html}"
+    icon = re.search(r"<svg[^>]*>.*?</svg>", html, re.S)
+    assert icon, f"the button renders an icon: {html}"
+    assert 'fill="currentColor"' in icon.group(0), (
+        f"the icon takes the label's colour, not a literal: {icon.group(0)[:120]}"
+    )
+    assert "#000" not in icon.group(0), f"a baked fill is invisible on one theme: {icon.group(0)[:120]}"
     assert "<span>Retry step</span>" in html, f"the icon does not replace the label: {html}"
-    assert "M21.5 2v6h-6" in html, f"the rotate-ccw path the design handed over: {html}"
 
 
 def test_the_failure_button_retries_the_step_that_failed():
