@@ -1,0 +1,301 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Tempo design tokens — AlignUI naming, Tempo values
+   Token names follow the AlignUI design system so component sources stay
+   portable. Values are the warm minimal palette derived from the Tempo
+   product panel (charcoal #1A1A1A ink, bone #FBFBFA canvas, orange #EB5017).
+   ========================================================================== */
+
+@theme {
+  /* ---- Fonts -------------------------------------------------------- */
+  --font-sans: var(--font-geist-sans), "SF Pro Display", "Helvetica Neue",
+    ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), "SF Mono", ui-monospace, monospace;
+  --font-serif: var(--font-instrument-serif), "Newsreader", Georgia, serif;
+
+  /* ---- Neutral ramp (warm gray) ------------------------------------- */
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #fbfbfa;
+  --color-neutral-100: #f5f4f0;
+  --color-neutral-200: #eaeaea;
+  --color-neutral-300: #dddcd7;
+  --color-neutral-400: #c3c2bc;
+  --color-neutral-500: #a3a29c;
+  --color-neutral-600: #787774;
+  --color-neutral-700: #57565f;
+  --color-neutral-800: #332f2a;
+  --color-neutral-900: #242320;
+  --color-neutral-950: #1a1a1a;
+
+  /* ---- Primary (orange, sampled from the product panel) ------------- */
+  --color-orange-50: #fdf2ec;
+  --color-orange-100: #fbe3d6;
+  --color-orange-200: #f6c4ac;
+  --color-orange-300: #f0a37e;
+  --color-orange-400: #ee6a33;
+  --color-orange-500: #eb5017;
+  --color-orange-600: #d44312;
+  --color-orange-700: #b03710;
+  --color-orange-800: #8a2e10;
+  --color-orange-900: #66270f;
+  --color-orange-950: #451b0b;
+
+  /* ---- Spot palettes (pastel tag system) ---------------------------- */
+  --color-blue-50: #e1f3fe;
+  --color-blue-200: #a8dcf8;
+  --color-blue-500: #1f6c9f;
+  --color-blue-950: #174f74;
+
+  --color-green-50: #edf3ec;
+  --color-green-200: #b8d4b5;
+  --color-green-500: #346538;
+  --color-green-950: #244a26;
+
+  --color-yellow-50: #fbf3db;
+  --color-yellow-200: #ecd9a0;
+  --color-yellow-500: #956400;
+  --color-yellow-950: #6b4900;
+
+  --color-red-50: #fdebec;
+  --color-red-200: #f3b6b9;
+  --color-red-500: #9f2f2d;
+  --color-red-950: #752322;
+
+  /* ---- Semantic: text ----------------------------------------------- */
+  --color-text-strong-950: #1a1a1a;
+  --color-text-sub-600: #787774;
+  --color-text-soft-400: #a3a29c;
+  --color-text-disabled-300: #dddcd7;
+  --color-text-white-0: #ffffff;
+
+  /* ---- Semantic: background ----------------------------------------- */
+  --color-bg-strong-950: #1a1a1a;
+  --color-bg-surface-800: #efeeea;
+  --color-bg-sub-300: #f5f4f0;
+  --color-bg-soft-200: #fbfbfa;
+  --color-bg-weak-50: #f7f6f3;
+  --color-bg-white-0: #ffffff;
+
+  /* ---- Semantic: stroke --------------------------------------------- */
+  --color-stroke-strong-950: #1a1a1a;
+  --color-stroke-sub-300: #dddcd7;
+  --color-stroke-soft-200: #eaeaea;
+  --color-stroke-white-0: #ffffff;
+
+  /* ---- Semantic: primary -------------------------------------------- */
+  --color-primary-dark: #b03710;
+  --color-primary-darker: #8a2e10;
+  --color-primary-base: #eb5017;
+  --color-primary-alpha-24: rgba(235, 80, 23, 0.24);
+  --color-primary-alpha-16: rgba(235, 80, 23, 0.16);
+  --color-primary-alpha-10: rgba(235, 80, 23, 0.1);
+
+  /* ---- Semantic: status (light bases for tags) ---------------------- */
+  --color-information-light: #e1f3fe;
+  --color-information-lighter: #e1f3fe;
+  --color-information-base: #1f6c9f;
+  --color-warning-light: #fbe3d6;
+  --color-warning-lighter: #fdf2ec;
+  --color-warning-base: #b03710;
+  --color-error-light: #fdebec;
+  --color-error-lighter: #fdebec;
+  --color-error-base: #9f2f2d;
+  --color-success-light: #edf3ec;
+  --color-success-lighter: #edf3ec;
+  --color-success-base: #346538;
+  --color-away-light: #fbf3db;
+  --color-away-lighter: #fbf3db;
+  --color-away-base: #956400;
+
+  /* ---- Semantic: tags (pastel bg / readable fg) --------------------- */
+  --color-tag-orange-bg: #fdf2ec;
+  --color-tag-orange-fg: #b03710;
+  --color-tag-blue-bg: #e1f3fe;
+  --color-tag-blue-fg: #1f6c9f;
+  --color-tag-green-bg: #edf3ec;
+  --color-tag-green-fg: #346538;
+  --color-tag-yellow-bg: #fbf3db;
+  --color-tag-yellow-fg: #956400;
+
+  /* ---- Panel tokens (the product's own dark system, used in demos) -- */
+  --color-panel: #232323;
+  --color-panel-surface: #2a2a2a;
+  --color-panel-raised: #313131;
+  --color-panel-stroke: #3a3a3a;
+  --color-panel-text: #e8e8e6;
+  --color-panel-text-sub: #9c9b96;
+  --color-accent: #eb5017;
+  --color-accent-strong: #d44312;
+  --color-accent-soft: #fdf2ec;
+
+  /* ---- Typography scale --------------------------------------------- */
+  --text-title-h1: 56px;
+  --text-title-h1--line-height: 64px;
+  --text-title-h1--letter-spacing: -1%;
+  --text-title-h1--font-weight: 500;
+
+  --text-title-h2: 48px;
+  --text-title-h2--line-height: 56px;
+  --text-title-h2--letter-spacing: -1%;
+  --text-title-h2--font-weight: 500;
+
+  --text-title-h3: 40px;
+  --text-title-h3--line-height: 48px;
+  --text-title-h3--letter-spacing: -1%;
+  --text-title-h3--font-weight: 500;
+
+  --text-title-h4: 32px;
+  --text-title-h4--line-height: 40px;
+  --text-title-h4--letter-spacing: -0.5%;
+  --text-title-h4--font-weight: 500;
+
+  --text-title-h5: 24px;
+  --text-title-h5--line-height: 32px;
+  --text-title-h5--letter-spacing: 0%;
+  --text-title-h5--font-weight: 500;
+
+  --text-title-h6: 20px;
+  --text-title-h6--line-height: 28px;
+  --text-title-h6--letter-spacing: 0%;
+  --text-title-h6--font-weight: 500;
+
+  --text-label-xl: 18px;
+  --text-label-xl--line-height: 24px;
+  --text-label-xl--letter-spacing: -1.5%;
+  --text-label-xl--font-weight: 500;
+
+  --text-label-lg: 16px;
+  --text-label-lg--line-height: 24px;
+  --text-label-lg--letter-spacing: -1.1%;
+  --text-label-lg--font-weight: 500;
+
+  --text-label-md: 14px;
+  --text-label-md--line-height: 20px;
+  --text-label-md--letter-spacing: -0.6%;
+  --text-label-md--font-weight: 500;
+
+  --text-label-sm: 12px;
+  --text-label-sm--line-height: 16px;
+  --text-label-sm--letter-spacing: 0%;
+  --text-label-sm--font-weight: 500;
+
+  --text-paragraph-xl: 20px;
+  --text-paragraph-xl--line-height: 30px;
+  --text-paragraph-xl--letter-spacing: -1.5%;
+  --text-paragraph-xl--font-weight: 400;
+
+  --text-paragraph-lg: 18px;
+  --text-paragraph-lg--line-height: 28px;
+  --text-paragraph-lg--letter-spacing: -1.5%;
+  --text-paragraph-lg--font-weight: 400;
+
+  --text-paragraph-md: 16px;
+  --text-paragraph-md--line-height: 26px;
+  --text-paragraph-md--letter-spacing: -1.1%;
+  --text-paragraph-md--font-weight: 400;
+
+  --text-paragraph-sm: 14px;
+  --text-paragraph-sm--line-height: 22px;
+  --text-paragraph-sm--letter-spacing: -0.6%;
+  --text-paragraph-sm--font-weight: 400;
+
+  --text-paragraph-xs: 12px;
+  --text-paragraph-xs--line-height: 18px;
+  --text-paragraph-xs--letter-spacing: 0%;
+  --text-paragraph-xs--font-weight: 400;
+
+  --text-subheading-md: 11px;
+  --text-subheading-md--line-height: 16px;
+  --text-subheading-md--letter-spacing: 6%;
+  --text-subheading-md--font-weight: 500;
+
+  --text-subheading-2xs: 10px;
+  --text-subheading-2xs--line-height: 12px;
+  --text-subheading-2xs--letter-spacing: 2%;
+  --text-subheading-2xs--font-weight: 500;
+
+  /* ---- Display (editorial serif) ------------------------------------ */
+  --text-display: clamp(2.75rem, 6.2vw, 4.5rem);
+  --text-display--line-height: 1.04;
+  --text-display--letter-spacing: -0.03em;
+  --text-display--font-weight: 400;
+
+  --text-display-sm: clamp(2rem, 4.2vw, 3rem);
+  --text-display-sm--line-height: 1.08;
+  --text-display-sm--letter-spacing: -0.02em;
+  --text-display-sm--font-weight: 400;
+
+  /* ---- Motion -------------------------------------------------------- */
+  --ease-out-quint: cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-drift: drift 24s ease-in-out infinite;
+  --animate-caret: caret 1.1s steps(2) infinite;
+
+  /* ---- Shadows (near-nonexistent, per protocol) ---------------------- */
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-panel: 0 24px 80px rgba(0, 0, 0, 0.08);
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, -3%, 0) scale(1.06);
+  }
+}
+
+@keyframes caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-bg-weak-50);
+    color: var(--color-text-strong-950);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: var(--color-primary-alpha-16);
+    color: var(--color-primary-darker);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary-base);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
