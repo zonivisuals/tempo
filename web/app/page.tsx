@@ -2,6 +2,7 @@ import { AmbientLayers } from "@/components/ambient";
 import { Advantages } from "@/components/sections/advantages";
 import { Audience } from "@/components/sections/audience";
 import { Comparison } from "@/components/sections/comparison";
+import { DemoReel } from "@/components/sections/demo";
 import { Faq } from "@/components/sections/faq";
 import { Hero } from "@/components/hero";
 import { HowItWorks } from "@/components/sections/how-it-works";
@@ -22,6 +23,7 @@ export default function Home() {
         <Comparison />
         <HowItWorks />
         <Advantages />
+        <DemoReel />
         <Platforms />
         <Faq />
       </main>

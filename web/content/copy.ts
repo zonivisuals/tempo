@@ -195,6 +195,22 @@ export const faq = {
   ],
 } as const;
 
+export const demo = {
+  eyebrow: "Demo",
+  title: "See it work.",
+  description:
+    "Query in plain words, jump to the frame — the whole loop from search bar to timeline marker.",
+  controls: {
+    play: "Play demo",
+    pause: "Pause demo",
+  },
+  steps: [
+    { id: "typing", label: "Query in plain words" },
+    { id: "results", label: "Matching shots, ranked" },
+    { id: "marker", label: "Jump to the frame" },
+  ],
+} as const;
+
 export const finalCta = {
   title: "Stop scrubbing. Start describing.",
   description:
