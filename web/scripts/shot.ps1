@@ -50,6 +50,19 @@ page.on("pageerror", (e) => console.log("PAGEERROR:", e.message));
 page.on("console", (m) => { if (m.type() === "error") console.log("CONSOLE:", m.text().slice(0, 140)); });
 await page.goto("$Url", { waitUntil: "networkidle" });
 await page.waitForTimeout($WaitMs);
+if ($(if ($FullPage) { "true" } else { "false" })) {
+  await page.evaluate(async () => {
+    const step = window.innerHeight * 0.6;
+    for (let y = 0; y < document.body.scrollHeight; y += step) {
+      window.scrollTo(0, y);
+      await new Promise((r) => setTimeout(r, 260));
+    }
+    window.scrollTo(0, document.body.scrollHeight);
+    await new Promise((r) => setTimeout(r, 700));
+    window.scrollTo(0, 0);
+    await new Promise((r) => setTimeout(r, 400));
+  });
+}
 await page.screenshot({ path: process.env.TEMP + "/opencode/$Out", fullPage: $(if ($FullPage) { "true" } else { "false" }) });
 await browser.close();
 console.log("shot: $Out");
