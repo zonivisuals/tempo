@@ -4,7 +4,9 @@ param(
   [int]$WaitMs = 3200,
   [int]$Width = 1440,
   [int]$Height = 900,
-  [switch]$FullPage
+  [switch]$FullPage,
+  [string]$ScrollTo = "",
+  [int]$OffsetY = -80
 )
 $ErrorActionPreference = "Stop"
 $Port = 4100 + (Get-Random -Minimum 0 -Maximum 300)
@@ -39,6 +41,7 @@ if (-not $ready) {
   throw "server not ready on $Url"
 }
 
+$scrollToJs = if ($ScrollTo -ne "") { "`"$ScrollTo`"" } else { "null" }
 $js = @"
 import { chromium } from "playwright";
 const browser = await chromium.launch();
@@ -50,6 +53,14 @@ page.on("pageerror", (e) => console.log("PAGEERROR:", e.message));
 page.on("console", (m) => { if (m.type() === "error") console.log("CONSOLE:", m.text().slice(0, 140)); });
 await page.goto("$Url", { waitUntil: "networkidle" });
 await page.waitForTimeout($WaitMs);
+const SEL = $scrollToJs;
+if (SEL) {
+  await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (el) el.scrollIntoView({ behavior: "instant", block: "start" });
+  }, SEL);
+  await page.evaluate((dy) => window.scrollBy(0, dy), $OffsetY);
+}
 if ($(if ($FullPage) { "true" } else { "false" })) {
   await page.evaluate(async () => {
     const step = window.innerHeight * 0.6;
