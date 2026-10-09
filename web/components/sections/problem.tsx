@@ -38,7 +38,7 @@ export function Problem() {
                     <span className="flex size-10 items-center justify-center rounded-10 bg-bg-soft-200 text-text-strong-950 transition-colors duration-200 group-hover:bg-primary-alpha-10 group-hover:text-primary-base">
                       <Icon className="size-5" aria-hidden="true" />
                     </span>
-                    <span className="font-mono text-label-sm text-text-soft-400">
+                    <span className="font-mono text-label-sm text-text-sub-600">
                       {String(index + 1).padStart(2, "0")}
                     </span>
                   </div>
@@ -57,3 +57,4 @@ export function Problem() {
     </section>
   );
 }
+

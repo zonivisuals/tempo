@@ -38,7 +38,7 @@ export function Hero() {
                 ctaLabel={hero.form.cta}
               />
             </div>
-            <p className="mt-3 text-paragraph-xs text-text-soft-400">
+            <p className="mt-3 text-paragraph-xs text-text-sub-600">
               {hero.form.note}
             </p>
           </Reveal>
@@ -65,7 +65,7 @@ export function Hero() {
             />
             <SearchPanel
               scenario={scenarios[0]}
-              className="shadow-panel [transform:perspective(1400px)_rotateY(-1.5deg)_rotateX(0.75deg)]"
+              className="shadow-panel lg:[transform:perspective(1400px)_rotateY(-1.5deg)_rotateX(0.75deg)]"
             />
           </div>
         </Reveal>
@@ -73,3 +73,4 @@ export function Hero() {
     </section>
   );
 }
+

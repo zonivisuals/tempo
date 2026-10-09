@@ -4,6 +4,7 @@ import { Audience } from "@/components/sections/audience";
 import { Comparison } from "@/components/sections/comparison";
 import { DemoReel } from "@/components/sections/demo";
 import { Faq } from "@/components/sections/faq";
+import { FinalCta } from "@/components/sections/final-cta";
 import { Hero } from "@/components/hero";
 import { HowItWorks } from "@/components/sections/how-it-works";
 import { Platforms } from "@/components/sections/platforms";
@@ -16,7 +17,7 @@ export default function Home() {
     <>
       <AmbientLayers />
       <SiteNav />
-      <main className="relative z-1">
+      <main id="main" className="relative z-1">
         <Hero />
         <Audience />
         <Problem />
@@ -26,6 +27,7 @@ export default function Home() {
         <DemoReel />
         <Platforms />
         <Faq />
+        <FinalCta />
       </main>
       <div className="relative z-1">
         <SiteFooter />

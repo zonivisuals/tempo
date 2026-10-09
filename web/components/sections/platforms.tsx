@@ -62,7 +62,7 @@ export function Platforms() {
         </div>
 
         <Reveal delay={0.2}>
-          <p className="mt-8 text-paragraph-sm text-text-soft-400">
+          <p className="mt-8 text-paragraph-sm text-text-sub-600">
             Waitlist members get each new platform first — in the order they
             signed up.
           </p>
@@ -71,3 +71,4 @@ export function Platforms() {
     </section>
   );
 }
+

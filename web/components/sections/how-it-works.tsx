@@ -29,7 +29,7 @@ export function HowItWorks() {
             <Reveal key={step.number} delay={index * 0.08}>
               <div className="grid grid-cols-1 items-center gap-8 rounded-12 border border-stroke-soft-200 bg-bg-white-0 p-8 md:grid-cols-[1fr_1.1fr] md:p-10">
                 <div className="flex flex-col gap-4">
-                  <span className="font-mono text-label-lg text-text-soft-400">
+                  <span className="font-mono text-label-lg text-text-sub-600">
                     {step.number}
                   </span>
                   <h3 className="text-title-h4 text-text-strong-950">
@@ -122,3 +122,4 @@ export function HowItWorks() {
     </section>
   );
 }
+

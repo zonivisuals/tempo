@@ -42,6 +42,9 @@ export function WaitlistForm({
     getSnapshot,
     getServerSnapshot,
   );
+  const uid = React.useId();
+  const emailId = `waitlist-email-${uid}`;
+  const errorId = `waitlist-error-${uid}`;
   const [email, setEmail] = React.useState("");
   const [justSaved, setJustSaved] = React.useState<string | null>(null);
   const [dismissed, setDismissed] = React.useState(false);
@@ -101,7 +104,7 @@ export function WaitlistForm({
         <button
           type="button"
           onClick={handleDismiss}
-          className="self-start text-label-sm text-text-soft-400 underline-offset-4 transition-colors hover:text-text-strong-950 hover:underline"
+          className="self-start text-label-sm text-text-sub-600 underline-offset-4 transition-colors hover:text-text-strong-950 hover:underline"
         >
           Use a different address
         </button>
@@ -119,7 +122,7 @@ export function WaitlistForm({
       )}
     >
       <div className="flex-1">
-        <label htmlFor="waitlist-email" className="sr-only">
+        <label htmlFor={emailId} className="sr-only">
           Email address
         </label>
         <Input.Root>
@@ -128,14 +131,14 @@ export function WaitlistForm({
           >
             <Input.Icon as={RiMailLine} />
             <Input.Input
-              id="waitlist-email"
+              id={emailId}
               name="email"
               type="email"
               autoComplete="email"
               placeholder={placeholder}
               value={email}
               aria-invalid={invalid}
-              aria-describedby={invalid ? "waitlist-error" : undefined}
+              aria-describedby={invalid ? errorId : undefined}
               onChange={(event) => {
                 setEmail(event.target.value);
                 if (invalid) setInvalid(false);
@@ -144,7 +147,7 @@ export function WaitlistForm({
           </Input.Wrapper>
         </Input.Root>
         <p
-          id="waitlist-error"
+          id={errorId}
           role="alert"
           className={cn(
             "h-5 text-label-sm text-error-base transition-opacity",
@@ -161,3 +164,4 @@ export function WaitlistForm({
     </form>
   );
 }
+

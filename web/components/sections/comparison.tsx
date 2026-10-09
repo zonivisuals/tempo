@@ -136,7 +136,7 @@ export function Comparison() {
                           : "translate-y-1.5 opacity-0",
                       )}
                     >
-                      <span className="font-mono text-label-sm text-text-soft-400">
+                      <span className="font-mono text-label-sm text-text-sub-600">
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <span className="text-paragraph-sm text-text-sub-600">
@@ -147,7 +147,7 @@ export function Comparison() {
                 })}
               </ul>
 
-              <p className="mt-8 border-t border-stroke-soft-200 pt-6 text-paragraph-xs text-text-soft-400">
+              <p className="mt-8 border-t border-stroke-soft-200 pt-6 text-paragraph-xs text-text-sub-600">
                 Still looking.
               </p>
             </div>
@@ -242,7 +242,7 @@ export function Comparison() {
         <Reveal delay={0.2}>
           <div className="mt-10 flex items-center justify-center gap-3 text-paragraph-sm text-text-sub-600">
             <Logo className="text-[11px]" />
-            <span className="text-text-soft-400">·</span>
+            <span className="text-text-sub-600">·</span>
             <span>Same project. Same footage. Different afternoon.</span>
           </div>
         </Reveal>
@@ -250,4 +250,5 @@ export function Comparison() {
     </section>
   );
 }
+
 
