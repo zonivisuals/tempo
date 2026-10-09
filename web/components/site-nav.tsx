@@ -25,7 +25,7 @@ export function SiteNav() {
           ))}
         </nav>
 
-        <Button.Root asChild variant="primary" mode="filled" size="small">
+        <Button.Root asChild variant="neutral" mode="filled" size="small">
           <a href={nav.cta.href}>{nav.cta.label}</a>
         </Button.Root>
       </Container>
