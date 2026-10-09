@@ -1,13 +1,13 @@
 import * as React from "react";
 
-type AnyElement = React.ReactElement<any>;
+type ClonableElement = React.ReactElement<Record<string, unknown>>;
 
 function isElementWithDisplayName(
-  element: AnyElement,
+  element: React.ReactElement,
   displayNames: string[],
 ): boolean {
   return displayNames.includes(
-    (element.type as any)?.displayName ?? "",
+    (element.type as { displayName?: string } | undefined)?.displayName ?? "",
   );
 }
 
@@ -23,7 +23,7 @@ export function recursiveCloneChildren(
   return React.Children.map(children, (child) => {
     if (!React.isValidElement(child)) return child;
 
-    const element = child as AnyElement;
+    const element = child as ClonableElement;
     const childProps: Record<string, unknown> = { ...props };
 
     if (element.props.id) {
@@ -32,18 +32,21 @@ export function recursiveCloneChildren(
       childProps.id = uniqueId;
     }
 
-    const cloned = React.cloneElement(element, childProps);
+    const cloned = React.cloneElement(element, childProps) as ClonableElement;
 
-    if (isElementWithDisplayName(cloned, displayNames) && cloned.props.children) {
+    if (
+      isElementWithDisplayName(cloned, displayNames) &&
+      React.isValidElement(cloned.props.children)
+    ) {
       return React.cloneElement(cloned, {
         children: recursiveCloneChildren(
-          cloned.props.children,
+          cloned.props.children as React.ReactNode,
           props,
           displayNames,
           uniqueId,
           asChild,
         ),
-      } as Partial<AnyElement["props"]>);
+      });
     }
 
     return cloned;

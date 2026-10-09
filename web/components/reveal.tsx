@@ -3,8 +3,6 @@
 import * as React from "react";
 import { motion, useReducedMotion } from "motion/react";
 
-import { cn } from "@/utils/cn";
-
 type RevealProps = {
   children: React.ReactNode;
   className?: React.HTMLAttributes<HTMLDivElement>["className"];

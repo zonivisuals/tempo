@@ -6,6 +6,7 @@
 export const site = {
   name: "Tempo",
   domain: "tempo.editor",
+  year: 2026,
   tagline: "Find any shot in your footage by describing it.",
 } as const;
 

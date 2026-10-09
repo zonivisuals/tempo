@@ -5,6 +5,6 @@ export type PolymorphicRef<C extends React.ElementType> =
 
 export type PolymorphicComponentProps<
   C extends React.ElementType,
-  Props = {},
+  Props = Record<never, never>,
 > = Omit<React.ComponentPropsWithoutRef<C>, "as" | keyof Props> &
   Props & { as?: C };
